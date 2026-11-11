@@ -109,8 +109,10 @@ enum DriveEfficiency {
     /// is a headwind (costs fuel), negative a tailwind (gives some back).
     /// Zero whenever either direction is unknown — a crosswind of unknown
     /// bearing is not evidence of anything.
-    static func headwindMph(windMph: Double, windFromDegrees: Double?,
-                            headingDegrees: Double?) -> Double {
+    static func headwindMph(
+        windMph: Double, windFromDegrees: Double?,
+        headingDegrees: Double?
+    ) -> Double {
         flows_vehicle_policy_drive_headwind_mph(
             windMph, windFromDegrees ?? 0, windFromDegrees != nil, headingDegrees ?? 0, headingDegrees != nil)
     }
@@ -160,7 +162,8 @@ enum DriveEfficiency {
             i.windFromDegrees ?? 0, i.windFromDegrees != nil, i.headingDegrees ?? 0, i.headingDegrees != nil,
             i.efficientCruiseMph, i.cityMPU ?? 0, i.cityMPU != nil, i.highwayMPU ?? 0, i.highwayMPU != nil,
             i.loadedWeightLbs ?? 0, i.loadedWeightLbs != nil, i.vehicleWeightLbs ?? 0, i.vehicleWeightLbs != nil,
-            i.towing, i.fuelFraction ?? 0, i.fuelFraction != nil) {
+            i.towing, i.fuelFraction ?? 0, i.fuelFraction != nil)
+        {
         case 0: return .efficient
         case 1: return .fair
         default: return .wasteful
@@ -169,20 +172,28 @@ enum DriveEfficiency {
 
     /// Convenience for callers with only the basics — the rest take their
     /// documented averages.
-    static func score(speedMph: Double, accelMphPerSec: Double,
-                      gradePercent: Double,
-                      efficientCruiseMph: Double = defaultEfficientCruiseMph) -> Double {
-        score(Inputs(speedMph: speedMph, accelMphPerSec: accelMphPerSec,
-                     gradePercent: gradePercent,
-                     efficientCruiseMph: efficientCruiseMph))
+    static func score(
+        speedMph: Double, accelMphPerSec: Double,
+        gradePercent: Double,
+        efficientCruiseMph: Double = defaultEfficientCruiseMph
+    ) -> Double {
+        score(
+            Inputs(
+                speedMph: speedMph, accelMphPerSec: accelMphPerSec,
+                gradePercent: gradePercent,
+                efficientCruiseMph: efficientCruiseMph))
     }
 
-    static func verdict(speedMph: Double, accelMphPerSec: Double,
-                        gradePercent: Double,
-                        efficientCruiseMph: Double = defaultEfficientCruiseMph) -> Verdict {
-        verdict(Inputs(speedMph: speedMph, accelMphPerSec: accelMphPerSec,
-                       gradePercent: gradePercent,
-                       efficientCruiseMph: efficientCruiseMph))
+    static func verdict(
+        speedMph: Double, accelMphPerSec: Double,
+        gradePercent: Double,
+        efficientCruiseMph: Double = defaultEfficientCruiseMph
+    ) -> Verdict {
+        verdict(
+            Inputs(
+                speedMph: speedMph, accelMphPerSec: accelMphPerSec,
+                gradePercent: gradePercent,
+                efficientCruiseMph: efficientCruiseMph))
     }
 
     /// The efficient-cruise speed for a vehicle: where its own economy curve

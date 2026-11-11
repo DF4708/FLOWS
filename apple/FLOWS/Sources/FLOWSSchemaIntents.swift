@@ -102,8 +102,10 @@ struct MapsPlaceEntity {
         DisplayRepresentation(title: "\(name ?? place.commonName ?? "Place")")
     }
 
-    init?(place: PlaceDescriptor, coordinate: CLLocationCoordinate2D, name: String?,
-          phoneNumber: String? = nil) {
+    init?(
+        place: PlaceDescriptor, coordinate: CLLocationCoordinate2D, name: String?,
+        phoneNumber: String? = nil
+    ) {
         guard let id = SiriSchemaRules.placeID(coordinate, name: name) else { return nil }
         self.id = id
         self.place = place
@@ -118,8 +120,9 @@ struct MapsPlaceEntity {
     }
 
     init?(coordinate: CLLocationCoordinate2D, name: String?) {
-        self.init(place: PlaceDescriptor(representations: [.coordinate(coordinate)], commonName: name),
-                  coordinate: coordinate, name: name)
+        self.init(
+            place: PlaceDescriptor(representations: [.coordinate(coordinate)], commonName: name),
+            coordinate: coordinate, name: name)
     }
 
     struct MapsPlaceEntityQuery: EntityQuery {
@@ -140,25 +143,32 @@ struct MapsPlaceEntity {
 struct MapsPlaceEntityIntentValueQuery: IntentValueQuery {
     static let maxPlaces = 5
 
+    // On the main actor: the search reads the trip and hands back map items,
+    // which may not cross actors.
+    @MainActor
     func values(for input: PlaceDescriptor) async throws -> [MapsPlaceEntity] {
         if let c = input.coordinate, SiriSchemaRules.isValid(c) {
             return [MapsPlaceEntity(place: input, coordinate: c, name: input.commonName)].compactMap { $0 }
         }
         if let item = try? await MKMapItemRequest(placeDescriptor: input).mapItem,
-           let entity = MapsPlaceEntity(place: PlaceDescriptor(item: item) ?? input,
-                                        coordinate: item.location.coordinate,
-                                        name: item.name ?? input.commonName,
-                                        phoneNumber: item.phoneNumber) {
+            let entity = MapsPlaceEntity(
+                place: PlaceDescriptor(item: item) ?? input,
+                coordinate: item.location.coordinate,
+                name: item.name ?? input.commonName,
+                phoneNumber: item.phoneNumber)
+        {
             return [entity]
         }
         guard let words = input.address ?? input.commonName, !words.isEmpty else { return [] }
         let items = await searchPlaces(words)
         return items.prefix(Self.maxPlaces).compactMap { item in
-            MapsPlaceEntity(place: PlaceDescriptor(item: item)
-                                ?? PlaceDescriptor(representations: [.coordinate(item.location.coordinate)],
-                                                   commonName: item.name),
-                            coordinate: item.location.coordinate, name: item.name,
-                            phoneNumber: item.phoneNumber)
+            MapsPlaceEntity(
+                place: PlaceDescriptor(item: item)
+                    ?? PlaceDescriptor(
+                        representations: [.coordinate(item.location.coordinate)],
+                        commonName: item.name),
+                coordinate: item.location.coordinate, name: item.name,
+                phoneNumber: item.phoneNumber)
         }
     }
 }
@@ -198,7 +208,7 @@ enum MapsRatingDescriptor: String {
     case percentage
 
     static let caseDisplayRepresentations: [Self: DisplayRepresentation] = [
-        .percentage: "Percent",
+        .percentage: "Percent"
     ]
 }
 
@@ -280,8 +290,9 @@ private func searchPlaces(_ words: String) async -> [MKMapItem] {
     let request = MKLocalSearch.Request()
     request.naturalLanguageQuery = term
     if let center = model.flatMap({ $0.effectivePosition ?? $0.bestKnownPosition?.coordinate }) {
-        request.region = MKCoordinateRegion(center: center,
-                                            latitudinalMeters: 400_000, longitudinalMeters: 400_000)
+        request.region = MKCoordinateRegion(
+            center: center,
+            latitudinalMeters: 400_000, longitudinalMeters: 400_000)
     }
     return (try? await MKLocalSearch(request: request).start())?.mapItems ?? []
 }
@@ -342,9 +353,11 @@ struct MapsNavigationSessionEntity: UniqueAppEntity {
             subtitle: "Arrives \(estimatedArrivalDate.formatted(date: .omitted, time: .shortened))")
     }
 
-    init(estimatedArrivalDate: Date, waypoints: [MapsLocation],
-         transportationType: MapsTransportTypeEnum,
-         preferences: [MapsNavigationPreferencesEnum], destinationName: String) {
+    init(
+        estimatedArrivalDate: Date, waypoints: [MapsLocation],
+        transportationType: MapsTransportTypeEnum,
+        preferences: [MapsNavigationPreferencesEnum], destinationName: String
+    ) {
         // The plain field first: the schema fields are wrapped properties,
         // and setting one needs every plain field already set.
         self.destinationName = destinationName
@@ -360,7 +373,8 @@ struct MapsNavigationSessionEntity: UniqueAppEntity {
     @MainActor
     static func current() -> MapsNavigationSessionEntity? {
         guard let model = AppModel.shared, model.mode == .navigating,
-              let leg = model.navigation.route else { return nil }
+            let leg = model.navigation.route
+        else { return nil }
         let legs = [leg] + [model.upcomingLeg].compactMap { $0 }
         let stops: [MapsLocation] = legs.compactMap { leg in
             legEnd(leg).flatMap { MapsPlaceEntity(coordinate: $0, name: leg.destinationName) }
@@ -430,8 +444,10 @@ struct MapsStartNavigationIntent {
             return .result(value: nil, dialog: "Tell me where to go.")
         }
         guard let to = await coordinate(of: target) else {
-            return .result(value: nil, dialog: IntentDialog(
-                "Couldn't find \(target.name ?? "that place")."))
+            return .result(
+                value: nil,
+                dialog: IntentDialog(
+                    "Couldn't find \(target.name ?? "that place")."))
         }
         let name = target.name ?? target.place.commonName ?? "your stop"
         let start: (coordinate: CLLocationCoordinate2D, label: String)
@@ -443,26 +459,32 @@ struct MapsStartNavigationIntent {
                 return .result(value: nil, dialog: "You're on a trip now. End it first, then ask again.")
             }
             guard let c = await coordinate(of: from) else {
-                return .result(value: nil, dialog: IntentDialog(
-                    "Couldn't find \(from.name ?? "where to start")."))
+                return .result(
+                    value: nil,
+                    dialog: IntentDialog(
+                        "Couldn't find \(from.name ?? "where to start")."))
             }
             start = (c, from.name ?? from.place.commonName ?? "that place")
         case .currentLocation:
             // No fix → the planner's own fallback start (Home, or the usual
             // area), as the "From:" row shows it.
-            guard let here = model.effectivePosition.map({ (coordinate: $0, label: "Current location") })
-                    ?? model.bestKnownPosition else {
+            guard
+                let here = model.effectivePosition.map({ (coordinate: $0, label: "Current location") })
+                    ?? model.bestKnownPosition
+            else {
                 return .result(value: nil, dialog: "I need a location fix first — open FLOWS.")
             }
             start = here
         }
         // A new mode or road choice re-plans what is on screen; under a
         // live trip that would replan the road being driven, so it waits.
-        let walkingBefore = model.walkingMode, filtersBefore = model.routeFilters
+        let walkingBefore = model.walkingMode
+        let filtersBefore = model.routeFilters
         switch SiriSchemaRules.tripRequest(
             mode: transportationType.mode, preferences: Set(preferences.map(\.preference)),
             walkingNow: model.walkingMode, filters: model.routeFilters,
-            tripUnderway: model.tripUnderway) {
+            tripUnderway: model.tripUnderway)
+        {
         case .finishTripFirst:
             return .result(value: nil, dialog: "You're on a trip now. End it first, then ask again.")
         case .plan(let walking, let addFilters):
@@ -473,7 +495,8 @@ struct MapsStartNavigationIntent {
         // back: "walk to Denver" that found no way left Walk on, and the next
         // trip planned on foot. Only what this request set is undone; a
         // switch made on screen meanwhile is the driver's and stays.
-        let askedWalking = model.walkingMode, askedFilters = model.routeFilters
+        let askedWalking = model.walkingMode
+        let askedFilters = model.routeFilters
         func putBack() {
             if model.walkingMode == askedWalking, askedWalking != walkingBefore {
                 model.walkingMode = walkingBefore
@@ -484,17 +507,22 @@ struct MapsStartNavigationIntent {
         }
         let routes: [PlannedRoute]
         do {
-            routes = try await model.plan(from: start.coordinate, fromName: start.label,
-                                          to: to, toName: name)
+            routes = try await model.plan(
+                from: start.coordinate, fromName: start.label,
+                to: to, toName: name)
         } catch is CancellationError {
             // Walk or Drive was switched on screen while this planned.
-            return .result(value: nil, dialog: IntentDialog(
-                "The trip changed on screen while I planned. Ask me again."))
+            return .result(
+                value: nil,
+                dialog: IntentDialog(
+                    "The trip changed on screen while I planned. Ask me again."))
         } catch {
             // The router did not answer: that is not "no road goes there".
             putBack()
-            return .result(value: nil, dialog: IntentDialog(
-                "I couldn't plan that right now. Check the connection and ask again."))
+            return .result(
+                value: nil,
+                dialog: IntentDialog(
+                    "I couldn't plan that right now. Check the connection and ask again."))
         }
         guard !routes.isEmpty else {
             putBack()
@@ -538,15 +566,17 @@ struct MapsUpdateNavigationWaypointsIntent {
     func perform() async throws -> some ReturnsValue<MapsNavigationSessionEntity> & ProvidesDialog {
         guard let model = AppModel.shared else { throw SchemaIntentError("Open FLOWS first.") }
         guard model.mode == .navigating, let position = model.effectivePosition,
-              let trip = MapsNavigationSessionEntity.current() else {
+            let trip = MapsNavigationSessionEntity.current()
+        else {
             throw SchemaIntentError("Start a route first — then I can add a stop to it.")
         }
         var asked: [(entity: MapsPlaceEntity, coordinate: CLLocationCoordinate2D)] = []
         for case .place(let p) in waypoints.prefix(SiriSchemaRules.maxWaypoints) {
             if let c = await coordinate(of: p) { asked.append((p, c)) }
         }
-        let fresh = SiriSchemaRules.newWaypoints(asked.map(\.coordinate),
-                                                 existing: trip.stopCoordinates)
+        let fresh = SiriSchemaRules.newWaypoints(
+            asked.map(\.coordinate),
+            existing: trip.stopCoordinates)
         // None of the places could be found: "already on your trip" was
         // said for a stop FLOWS never looked up.
         guard !asked.isEmpty else {
@@ -554,8 +584,10 @@ struct MapsUpdateNavigationWaypointsIntent {
         }
         guard let first = fresh.first else {
             // Siri may also send the list with a stop left out.
-            return .result(value: trip, dialog:
-                "That's already on your trip. I can add a stop, but I can't take one off.")
+            return .result(
+                value: trip,
+                dialog:
+                    "That's already on your trip. I can add a stop, but I can't take one off.")
         }
         let pick = asked[first]
         let name = pick.entity.name ?? pick.entity.place.commonName ?? "Stop"
@@ -565,22 +597,28 @@ struct MapsUpdateNavigationWaypointsIntent {
         if let found = try? await MKMapItemRequest(placeDescriptor: pick.entity.place).mapItem {
             item = found
         } else {
-            item = MKMapItem(location: CLLocation(latitude: pick.coordinate.latitude,
-                                                  longitude: pick.coordinate.longitude),
-                             address: nil)
+            item = MKMapItem(
+                location: CLLocation(
+                    latitude: pick.coordinate.latitude,
+                    longitude: pick.coordinate.longitude),
+                address: nil)
         }
         item.name = name
         guard await model.addStop(item) else {
-            return .result(value: MapsNavigationSessionEntity.current() ?? trip, dialog: IntentDialog(
-                "Couldn't route to \(name) right now. Try again in a moment."))
+            return .result(
+                value: MapsNavigationSessionEntity.current() ?? trip,
+                dialog: IntentDialog(
+                    "Couldn't route to \(name) right now. Try again in a moment."))
         }
-        var line = SiriSummaries.addedStop(name: name,
-                                           meters: POIRanking.meters(position, pick.coordinate))
+        var line = SiriSummaries.addedStop(
+            name: name,
+            meters: POIRanking.meters(position, pick.coordinate))
         if fresh.count > 1 {
             line += " I add one stop at a time. Ask me for the next one after this."
         }
-        return .result(value: MapsNavigationSessionEntity.current() ?? trip,
-                       dialog: IntentDialog("\(line)"))
+        return .result(
+            value: MapsNavigationSessionEntity.current() ?? trip,
+            dialog: IntentDialog("\(line)"))
     }
 }
 
@@ -641,7 +679,8 @@ struct LiveRadioStationEntity {
             await MainActor.run {
                 identifiers.prefix(SiriSchemaRules.maxStations).compactMap { id in
                     guard let ref = SiriSchemaRules.StationRef(id: id),
-                          let channel = StationLookup.channel(for: ref) else { return nil }
+                        let channel = StationLookup.channel(for: ref)
+                    else { return nil }
                     return LiveRadioStationEntity(ref: ref, title: channel.name)
                 }
             }
@@ -675,7 +714,8 @@ private enum StationLookup {
         guard let model = AppModel.shared else { return [] }
         var found: [(ref: SiriSchemaRules.StationRef, channel: TruckerRadio.Channel)] = []
         if SiriSchemaRules.wantsWeatherRadio(text) {
-            let channel = model.effectivePosition
+            let channel =
+                model.effectivePosition
                 .flatMap { model.radio.nearestChannel(to: $0)?.channel }
                 ?? model.radio.nearestChannel(stateCode: model.currentStateCode)
             if let channel { found = [(.weather(name: channel.name), channel)] }
@@ -772,7 +812,8 @@ struct PlayAudioIntent {
         switch audioEntity {
         case .liveRadioStation(let station):
             guard let ref = SiriSchemaRules.StationRef(id: station.id),
-                  let channel = StationLookup.channel(for: ref) else {
+                let channel = StationLookup.channel(for: ref)
+            else {
                 return .result(dialog: "That station isn't in FLOWS's list now. Ask me again.")
             }
             model.radio.play(channel)

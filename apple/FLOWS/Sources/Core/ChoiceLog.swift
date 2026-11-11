@@ -44,9 +44,9 @@ struct ChoiceLog: Codable {
 
     /// One decision: the whole option set, one of them marked chosen.
     struct Event: Codable {
-        var kind: String            // "gas", "food", "hotel", "route", …
-        var t: Double               // epoch seconds
-        var hourBucket: Int         // 0…5 (4-hour bins) — choices are time-shaped
+        var kind: String  // "gas", "food", "hotel", "route", …
+        var t: Double  // epoch seconds
+        var hourBucket: Int  // 0…5 (4-hour bins) — choices are time-shaped
         var weekend: Bool
         var options: [Option]
     }
@@ -63,7 +63,7 @@ struct ChoiceLog: Codable {
     mutating func record(_ event: Event) {
         var e = event
         e.options = Array(e.options.prefix(Self.optionsPerEvent))
-        guard e.options.contains(where: \.chosen) else { return }   // no label, no value
+        guard e.options.contains(where: \.chosen) else { return }  // no label, no value
         events.append(e)
         if events.count > Self.cap { events.removeFirst(events.count - Self.cap) }
     }
@@ -84,7 +84,8 @@ final class ChoiceLogStore: ObservableObject {
     private var persistQueue: DispatchQueue { SecureBehaviorStore.persistQueue }
 
     init(directory: URL? = nil) {
-        let dir = directory
+        let dir =
+            directory
             ?? (try? FileManager.default.url(
                 for: .applicationSupportDirectory, in: .userDomainMask,
                 appropriateFor: nil, create: true))
@@ -101,11 +102,12 @@ final class ChoiceLogStore: ObservableObject {
         let cal = Calendar.current
         let hour = cal.component(.hour, from: now)
         let weekday = cal.component(.weekday, from: now)
-        log.record(ChoiceLog.Event(
-            kind: kind, t: now.timeIntervalSince1970,
-            hourBucket: min(hour / 4, 5),
-            weekend: weekday == 1 || weekday == 7,
-            options: options))
+        log.record(
+            ChoiceLog.Event(
+                kind: kind, t: now.timeIntervalSince1970,
+                hourBucket: min(hour / 4, 5),
+                weekend: weekday == 1 || weekday == 7,
+                options: options))
         let snapshot = log
         let url = self.url
         persistQueue.async { SecureBehaviorStore.save(snapshot, to: url) }

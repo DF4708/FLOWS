@@ -81,41 +81,50 @@ final class RoutePlanningRulesTests: XCTestCase {
     // MARK: Cheapest and tolls
 
     func testCheapestGivesWayToATollFreeRouteWithinTheAllowance() {
-        let tolled = UUID(), tollFree = UUID(), longWay = UUID()
+        let tolled = UUID()
+        let tollFree = UUID()
+        let longWay = UUID()
         // 100 mi with tolls vs 103 mi without: $0.40 more fuel pays no toll.
-        XCTAssertEqual(CheapestRoute.pick([
-            .init(id: tolled, fuelUSD: 13.00, hasTolls: true),
-            .init(id: tollFree, fuelUSD: 13.40, hasTolls: false),
-        ]), tollFree)
+        XCTAssertEqual(
+            CheapestRoute.pick([
+                .init(id: tolled, fuelUSD: 13.00, hasTolls: true),
+                .init(id: tollFree, fuelUSD: 13.40, hasTolls: false),
+            ]), tollFree)
         // A toll-free way that burns $12 more leaves the tolled road cheapest.
-        XCTAssertEqual(CheapestRoute.pick([
-            .init(id: tolled, fuelUSD: 13, hasTolls: true),
-            .init(id: longWay, fuelUSD: 25, hasTolls: false),
-        ]), tolled)
+        XCTAssertEqual(
+            CheapestRoute.pick([
+                .init(id: tolled, fuelUSD: 13, hasTolls: true),
+                .init(id: longWay, fuelUSD: 25, hasTolls: false),
+            ]), tolled)
         // No tolls anywhere: the lowest fuel.
-        XCTAssertEqual(CheapestRoute.pick([
-            .init(id: longWay, fuelUSD: 25, hasTolls: false),
-            .init(id: tollFree, fuelUSD: 13.4, hasTolls: false),
-        ]), tollFree)
+        XCTAssertEqual(
+            CheapestRoute.pick([
+                .init(id: longWay, fuelUSD: 25, hasTolls: false),
+                .init(id: tollFree, fuelUSD: 13.4, hasTolls: false),
+            ]), tollFree)
         XCTAssertNil(CheapestRoute.pick([]))
     }
 
     func testWalksEarnNoFuelChips() {
-        let short = UUID(), long = UUID()
+        let short = UUID()
+        let long = UUID()
         // A walker buys no gas: no "Cheapest", no "Efficient" among walks.
-        XCTAssertNil(CheapestRoute.pick([
-            .init(id: short, fuelUSD: 0, hasTolls: false, isWalk: true),
-            .init(id: long, fuelUSD: 0, hasTolls: false, isWalk: true),
-        ]))
-        XCTAssertNil(EfficientRoute.pick([
-            .init(id: short, meters: 4_000, isWalk: true),
-            .init(id: long, meters: 6_000, isWalk: true),
-        ]))
+        XCTAssertNil(
+            CheapestRoute.pick([
+                .init(id: short, fuelUSD: 0, hasTolls: false, isWalk: true),
+                .init(id: long, fuelUSD: 0, hasTolls: false, isWalk: true),
+            ]))
+        XCTAssertNil(
+            EfficientRoute.pick([
+                .init(id: short, meters: 4_000, isWalk: true),
+                .init(id: long, meters: 6_000, isWalk: true),
+            ]))
         // Drives: the shortest burns least.
-        XCTAssertEqual(EfficientRoute.pick([
-            .init(id: long, meters: 6_000),
-            .init(id: short, meters: 4_000),
-        ]), short)
+        XCTAssertEqual(
+            EfficientRoute.pick([
+                .init(id: long, meters: 6_000),
+                .init(id: short, meters: 4_000),
+            ]), short)
         XCTAssertNil(EfficientRoute.pick([]))
     }
 
@@ -124,25 +133,32 @@ final class RoutePlanningRulesTests: XCTestCase {
     /// A route that doesn't exist won't appear on a retry, so its message
     /// must not say "try again".
     func testPlanningErrorsSayWhetherARetryCanHelp() {
-        let noDirections = NSError(domain: MKErrorDomain,
-                                   code: Int(MKError.Code.directionsNotFound.rawValue))
-        XCTAssertEqual(RouteError.plainMessage(for: noDirections),
-                       "No drivable route found between those places.")
-        XCTAssertEqual(RouteError.plainMessage(for: RouteError.noRoute),
-                       "No drivable route found between those points.")
-        XCTAssertEqual(RouteError.plainMessage(for: RouteError.notFound("Zzyzx Rd")),
-                       "Couldn't find “Zzyzx Rd”. Try a ZIP, city, or county.")
+        let noDirections = NSError(
+            domain: MKErrorDomain,
+            code: Int(MKError.Code.directionsNotFound.rawValue))
+        XCTAssertEqual(
+            RouteError.plainMessage(for: noDirections),
+            "No drivable route found between those places.")
+        XCTAssertEqual(
+            RouteError.plainMessage(for: RouteError.noRoute),
+            "No drivable route found between those points.")
+        XCTAssertEqual(
+            RouteError.plainMessage(for: RouteError.notFound("Zzyzx Rd")),
+            "Couldn't find “Zzyzx Rd”. Try a ZIP, city, or county.")
         let noRetry: [Error] = [noDirections, RouteError.noRoute, RouteError.noStart]
         for error in noRetry {
             XCTAssertFalse(RouteError.plainMessage(for: error).contains("Try again"))
         }
         // The old mappings stay.
-        XCTAssertEqual(RouteError.plainMessage(for: NSError(domain: kCLErrorDomain, code: 8)),
-                       "Couldn't find that place. Check the spelling or add a city or state.")
-        XCTAssertEqual(RouteError.plainMessage(for: URLError(.notConnectedToInternet)),
-                       "No internet right now — try again when you're back in coverage.")
-        XCTAssertEqual(RouteError.plainMessage(for: NSError(domain: "other", code: 1)),
-                       "Couldn't plan that route. Try again in a moment.")
+        XCTAssertEqual(
+            RouteError.plainMessage(for: NSError(domain: kCLErrorDomain, code: 8)),
+            "Couldn't find that place. Check the spelling or add a city or state.")
+        XCTAssertEqual(
+            RouteError.plainMessage(for: URLError(.notConnectedToInternet)),
+            "No internet right now — try again when you're back in coverage.")
+        XCTAssertEqual(
+            RouteError.plainMessage(for: NSError(domain: "other", code: 1)),
+            "Couldn't plan that route. Try again in a moment.")
     }
 
     // MARK: Try again beside the bridge and hill checks
@@ -153,7 +169,7 @@ final class RoutePlanningRulesTests: XCTestCase {
     func testAWeatherScoreLandsWithoutWipingTheBridgeChecks() {
         let copy = PlannedRoute(route: MKRoute(), sourceName: "A", destinationName: "B")
         var card = copy
-        card.clearancesMeters = [3.3]   // about 11 ft
+        card.clearancesMeters = [3.3]  // about 11 ft
         card.maxGradePercent = 8
         card.attributesScored = true
         card.scoringProgress = 0.5
@@ -172,7 +188,7 @@ final class RoutePlanningRulesTests: XCTestCase {
         XCTAssertEqual(landed.maxGradePercent, 8)
         XCTAssertTrue(landed.attributesScored)
         XCTAssertFalse(RouteFilter.lowBridges.passes(landed))
-        XCTAssertTrue(RouteFilter.lowBridges.passes(complete))   // what a whole write left
+        XCTAssertTrue(RouteFilter.lowBridges.passes(complete))  // what a whole write left
 
         // Still incomplete: the card keeps its "so far" picture too.
         let partial = copy.landing(on: card)
@@ -216,15 +232,19 @@ final class RoutePlanningRulesTests: XCTestCase {
         defaults.removePersistentDomain(forName: suiteName)
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
-        let home = try XCTUnwrap(FavoriteAddress.typed(
-            " 1 Infinite Loop, Cupertino, CA ", symbol: .home,
-            at: CLLocationCoordinate2D(latitude: 37.3318, longitude: -122.0312)))
-        let office = try XCTUnwrap(FavoriteAddress.typed(
-            "10600 N Tantau Ave, Cupertino", symbol: .office,
-            at: CLLocationCoordinate2D(latitude: 37.3349, longitude: -122.0090)))
+        let home = try XCTUnwrap(
+            FavoriteAddress.typed(
+                " 1 Infinite Loop, Cupertino, CA ", symbol: .home,
+                at: CLLocationCoordinate2D(latitude: 37.3318, longitude: -122.0312)))
+        let office = try XCTUnwrap(
+            FavoriteAddress.typed(
+                "10600 N Tantau Ave, Cupertino", symbol: .office,
+                at: CLLocationCoordinate2D(latitude: 37.3349, longitude: -122.0090)))
         XCTAssertEqual(home.name, "1 Infinite Loop, Cupertino, CA")
-        XCTAssertNil(FavoriteAddress.typed("   ", symbol: .other,
-                                           at: CLLocationCoordinate2D(latitude: 0, longitude: 0)))
+        XCTAssertNil(
+            FavoriteAddress.typed(
+                "   ", symbol: .other,
+                at: CLLocationCoordinate2D(latitude: 0, longitude: 0)))
 
         let store = FavoritesStore(defaults: defaults)
         store.add(home)

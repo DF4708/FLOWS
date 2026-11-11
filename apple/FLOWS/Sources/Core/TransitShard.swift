@@ -8,8 +8,9 @@
 
 import CoreLocation
 import Foundation
+
 #if os(iOS)
-import UIKit
+    import UIKit
 #endif
 
 /// The bridge keeps the timetable it last opened for the next question (a
@@ -25,10 +26,10 @@ private actor ShardKeeper {
 
     init() {
         #if os(iOS)
-        NotificationCenter.default.addObserver(
-            forName: UIApplication.didReceiveMemoryWarningNotification,
-            object: nil, queue: nil
-        ) { _ in flows_transit_release() }
+            NotificationCenter.default.addObserver(
+                forName: UIApplication.didReceiveMemoryWarningNotification,
+                object: nil, queue: nil
+            ) { _ in flows_transit_release() }
         #endif
     }
 
@@ -163,12 +164,15 @@ enum TransitShard {
     /// agency's zone places the trips still running from the days before
     /// across a clock change (`TransitClock.dayStarts`); "" counts whole days.
     @discardableResult
-    static func build(feedDirectory: String, prefix: String, serviceDate: Int,
-                      agencyZone: String = "") throws -> Stamp {
+    static func build(
+        feedDirectory: String, prefix: String, serviceDate: Int,
+        agencyZone: String = ""
+    ) throws -> Stamp {
         let starts = TransitClock.dayStarts(serviceDate: serviceDate, agencyZone: agencyZone)
-        let rows = decode(starts.lent {
-            flows_transit_build(feedDirectory, prefix, Int64(serviceDate), $0)
-        })
+        let rows = decode(
+            starts.lent {
+                flows_transit_build(feedDirectory, prefix, Int64(serviceDate), $0)
+            })
         if let message = firstError(rows) { throw Failure.notBuilt(message) }
         guard let stamp = stamp(rows) else { throw Failure.notBuilt("the feed produced no timetable") }
         return stamp
@@ -207,11 +211,12 @@ enum TransitShard {
         let starts = feeds.flatMap {
             TransitClock.dayStarts(serviceDate: serviceDate, agencyZone: $0.agencyZone)
         }
-        let rows = decode(shifts.lent { shiftBuffer in
-            starts.lent { startBuffer in
-                flows_transit_build_many(joined, shiftBuffer, prefix, Int64(serviceDate), startBuffer)
-            }
-        })
+        let rows = decode(
+            shifts.lent { shiftBuffer in
+                starts.lent { startBuffer in
+                    flows_transit_build_many(joined, shiftBuffer, prefix, Int64(serviceDate), startBuffer)
+                }
+            })
         if let message = firstError(rows) { throw Failure.notBuilt(message) }
         guard let stamp = stamp(rows) else { throw Failure.notBuilt("the feeds produced no timetable") }
         var links = 0
@@ -250,15 +255,18 @@ enum TransitShard {
         limit: Int = 4,
         vehicles: Int = 0
     ) throws -> Answer {
-        guard let seconds = TransitClock.seconds(
-            at: departing, serviceDate: known.serviceDate, agencyZone: known.agencyZone
-        ) else { throw Failure.notBuilt("these times are for a different day") }
+        guard
+            let seconds = TransitClock.seconds(
+                at: departing, serviceDate: known.serviceDate, agencyZone: known.agencyZone
+            )
+        else { throw Failure.notBuilt("these times are for a different day") }
 
-        let rows = decode(flows_transit_departures(
-            prefix, from.latitude, from.longitude, to.latitude, to.longitude,
-            maxStationMeters, Int64(max(0, seconds)), Int64(limit), Int64(vehicles)
-        ))
-        Task { await ShardKeeper.shared.asked() }   // the bridge keeps it open meanwhile
+        let rows = decode(
+            flows_transit_departures(
+                prefix, from.latitude, from.longitude, to.latitude, to.longitude,
+                maxStationMeters, Int64(max(0, seconds)), Int64(limit), Int64(vehicles)
+            ))
+        Task { await ShardKeeper.shared.asked() }  // the bridge keeps it open meanwhile
         if let message = firstError(rows) {
             if message.contains("no station near") { throw Failure.noneNearby }
             if message.contains("no ride") { throw Failure.noRide }
@@ -333,10 +341,11 @@ enum TransitShard {
 
         func flush() {
             guard let p = pending, !rides.isEmpty else { return }
-            out.append(Departure(
-                rides: rides, departSeconds: p.dep, arriveSeconds: p.arr,
-                transfers: p.transfers, walkSeconds: p.walk
-            ))
+            out.append(
+                Departure(
+                    rides: rides, departSeconds: p.dep, arriveSeconds: p.arr,
+                    transfers: p.transfers, walkSeconds: p.walk
+                ))
         }
 
         for row in rows {
@@ -344,9 +353,12 @@ enum TransitShard {
             case "dep":
                 flush()
                 rides = []
-                pending = row.count >= 6
-                    ? (Int(row[1]) ?? 0, Int(row[2]) ?? 0, Int(row[3]) ?? 0, Int(row[4]) ?? 0,
-                       Int(row[5]) ?? 0)
+                pending =
+                    row.count >= 6
+                    ? (
+                        Int(row[1]) ?? 0, Int(row[2]) ?? 0, Int(row[3]) ?? 0, Int(row[4]) ?? 0,
+                        Int(row[5]) ?? 0
+                    )
                     : nil
             case "leg":
                 guard row.count >= 11 else { continue }
@@ -401,9 +413,9 @@ extension TransitShard {
         locale: Locale = .current
     ) -> TransitSchedule? {
         guard let first = answer.departures.first,
-              let ride = first.rides.first,
-              let board = moment(first.departSeconds, answer.stamp),
-              let arrive = moment(first.arriveSeconds, answer.stamp)
+            let ride = first.rides.first,
+            let board = moment(first.departSeconds, answer.stamp),
+            let arrive = moment(first.arriveSeconds, answer.stamp)
         else { return nil }
 
         let endZone = first.rides.last?.alightZone ?? ride.alightZone
@@ -415,13 +427,15 @@ extension TransitShard {
         // One ride means one train and its name is worth saying. Several means
         // a change, and naming only the first would mislead — the legs below
         // name each one, so the headline says how many changes there are.
-        let route = first.rides.count == 1
+        let route =
+            first.rides.count == 1
             ? ride.routeName
             : (first.transfers == 1 ? "1 change" : "\(first.transfers) changes")
 
         let legs: [TransitSchedule.Leg] = first.rides.compactMap { r in
             guard let on = moment(r.departSeconds, answer.stamp),
-                  let off = moment(r.arriveSeconds, answer.stamp) else { return nil }
+                let off = moment(r.arriveSeconds, answer.stamp)
+            else { return nil }
             return TransitSchedule.Leg(
                 clockSpan: TransitClock.span(
                     board: on, boardZone: r.boardZone,

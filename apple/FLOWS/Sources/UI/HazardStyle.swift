@@ -9,9 +9,9 @@
 import SwiftUI
 
 #if os(macOS)
-import AppKit
+    import AppKit
 #else
-import UIKit
+    import UIKit
 #endif
 
 /// The hazard visual language: each weather/risk type gets a color, an SF
@@ -59,34 +59,44 @@ enum HazardStyle {
     /// own icon so a 60% summer thunderstorm chance never wears the flood
     /// costume ("I have many flood warnings between Augusta and Columbia" —
     /// no, those were rain-chance badges drawn with the flood wave).
-    static let rain = HazardKind(name: "Rain chance", symbol: "cloud.rain.fill",
-                                 color: Color(red: 0.3, green: 0.55, blue: 0.75))
+    static let rain = HazardKind(
+        name: "Rain chance", symbol: "cloud.rain.fill",
+        color: Color(red: 0.3, green: 0.55, blue: 0.75))
     static let snow = HazardKind(name: "Snow", symbol: "snowflake", color: .cyan)
     static let ice = HazardKind(name: "Ice", symbol: "thermometer.snowflake", color: .teal)
     static let heat = HazardKind(name: "Heat", symbol: "thermometer.sun.fill", color: .orange)
     static let cold = HazardKind(name: "Cold", symbol: "thermometer.low", color: .indigo)
     static let wind = HazardKind(name: "Wind", symbol: "wind", color: Color(red: 0.35, green: 0.5, blue: 0.65))
     static let fire = HazardKind(name: "Fire", symbol: "flame.fill", color: Color(red: 0.85, green: 0.35, blue: 0.1))
-    static let hurricane = HazardKind(name: "Tropical", symbol: "hurricane", color: Color(red: 0.6, green: 0.1, blue: 0.4))
+    static let hurricane = HazardKind(
+        name: "Tropical", symbol: "hurricane", color: Color(red: 0.6, green: 0.1, blue: 0.4))
     static let fog = HazardKind(name: "Fog", symbol: "cloud.fog.fill", color: .gray)
     /// A dust storm is two hazards at once — zero visibility on the road AND
     /// air you should not breathe — so it gets its own kind instead of the
     /// air-quality icon it used to borrow. The band treats a Dust Storm
     /// Warning as a realized storm (Red-capable); the advice covers both.
-    static let dust = HazardKind(name: "Dust storm", symbol: "sun.dust.fill",
-                                 color: Color(red: 0.72, green: 0.52, blue: 0.2))
+    static let dust = HazardKind(
+        name: "Dust storm", symbol: "sun.dust.fill",
+        color: Color(red: 0.72, green: 0.52, blue: 0.2))
     static let air = HazardKind(name: "Air/Smoke", symbol: "aqi.medium", color: .brown)
-    static let radiation = HazardKind(name: "Radiation/UV", symbol: "sun.max.trianglebadge.exclamationmark", color: .yellow)
-    static let seismic = HazardKind(name: "Seismic", symbol: "waveform.path.ecg", color: Color(red: 0.5, green: 0.35, blue: 0.2))
-    static let volcanic = HazardKind(name: "Volcanic", symbol: "mountain.2.fill", color: Color(red: 0.55, green: 0.15, blue: 0.05))
-    static let avalanche = HazardKind(name: "Avalanche", symbol: "snowflake.circle.fill", color: Color(red: 0.2, green: 0.55, blue: 0.8))
-    static let tsunami = HazardKind(name: "Tsunami", symbol: "water.waves.and.arrow.up", color: Color(red: 0.0, green: 0.35, blue: 0.55))
+    static let radiation = HazardKind(
+        name: "Radiation/UV", symbol: "sun.max.trianglebadge.exclamationmark", color: .yellow)
+    static let seismic = HazardKind(
+        name: "Seismic", symbol: "waveform.path.ecg", color: Color(red: 0.5, green: 0.35, blue: 0.2))
+    static let volcanic = HazardKind(
+        name: "Volcanic", symbol: "mountain.2.fill", color: Color(red: 0.55, green: 0.15, blue: 0.05))
+    static let avalanche = HazardKind(
+        name: "Avalanche", symbol: "snowflake.circle.fill", color: Color(red: 0.2, green: 0.55, blue: 0.8))
+    static let tsunami = HazardKind(
+        name: "Tsunami", symbol: "water.waves.and.arrow.up", color: Color(red: 0.0, green: 0.35, blue: 0.55))
     /// A neutral graphite, outside the band palette: this kind names risk no
     /// single hazard explains, and in the Yellow band's own colour its areas
     /// and badges claimed Yellow whatever their band.
-    static let generic = HazardKind(name: "Hazard", symbol: "exclamationmark.triangle.fill",
-                                    color: Color(red: 0.33, green: 0.35, blue: 0.40))
-    static let closure = HazardKind(name: "Road closed", symbol: "road.lanes.curved.right", color: Color(red: 0.8, green: 0.15, blue: 0.15))
+    static let generic = HazardKind(
+        name: "Hazard", symbol: "exclamationmark.triangle.fill",
+        color: Color(red: 0.33, green: 0.35, blue: 0.40))
+    static let closure = HazardKind(
+        name: "Road closed", symbol: "road.lanes.curved.right", color: Color(red: 0.8, green: 0.15, blue: 0.15))
 
     /// The kinds the map key explains: the everyday ones, with rain chance
     /// (the most common badge) and road closures among them.
@@ -139,11 +149,12 @@ enum HazardStyle {
 
     /// The family that should NAME an area — see `HazardRanking`, which
     /// holds the rule itself so it can be tested without SwiftUI.
-    static func dominantFamily(_ families: [String: Double],
-                               floor: Double = 0.45) -> String? {
+    static func dominantFamily(
+        _ families: [String: Double],
+        floor: Double = 0.45
+    ) -> String? {
         HazardRanking.dominantFamily(families, floor: floor)
     }
-
 
     // MARK: risk-level color
 
@@ -217,8 +228,10 @@ struct ScannerIncidentPin: View {
         .shadow(radius: 2)
         // Scoped to THIS view — a repeatForever driven through withAnimation
         // catches every view in the transaction, not just the pulsing one.
-        .animation(.easeInOut(duration: 1.3).repeatForever(autoreverses: true),
-                   value: glow)
+        .animation(
+            .easeInOut(duration: 1.3).repeatForever(autoreverses: true),
+            value: glow
+        )
         .onAppear { glow = true }
         .help("\(incident.kind.title) — heard on the local feed near \(incident.placeText)")
         .accessibilityLabel("\(incident.kind.title) reported near \(incident.placeText)")

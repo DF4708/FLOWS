@@ -58,14 +58,18 @@ final class PoiAndCostTests: XCTestCase {
 
     // Hotel chains carry their brand site; non-hotels and non-brands do not.
     func testHotelWebsites() {
-        XCTAssertEqual(BrandKnowledge.website(name: "Hilton Nashville Downtown")?.host,
-                       "www.hilton.com")
-        XCTAssertEqual(BrandKnowledge.website(name: "Motel 6 Amarillo")?.host,
-                       "www.motel6.com")
-        XCTAssertEqual(BrandKnowledge.website(name: "Waldorf Astoria Chicago")?.host,
-                       "www.waldorfastoria.com")
-        XCTAssertEqual(BrandKnowledge.website(name: "Hampton Inn by Hilton")?.host,
-                       "www.hilton.com")
+        XCTAssertEqual(
+            BrandKnowledge.website(name: "Hilton Nashville Downtown")?.host,
+            "www.hilton.com")
+        XCTAssertEqual(
+            BrandKnowledge.website(name: "Motel 6 Amarillo")?.host,
+            "www.motel6.com")
+        XCTAssertEqual(
+            BrandKnowledge.website(name: "Waldorf Astoria Chicago")?.host,
+            "www.waldorfastoria.com")
+        XCTAssertEqual(
+            BrandKnowledge.website(name: "Hampton Inn by Hilton")?.host,
+            "www.hilton.com")
         XCTAssertNil(BrandKnowledge.website(name: "Hiltonia Cafe"))
         XCTAssertNil(BrandKnowledge.website(name: "McDonald's"))
         XCTAssertNil(BrandKnowledge.website(name: "Joe's Motor Lodge"))
@@ -74,9 +78,11 @@ final class PoiAndCostTests: XCTestCase {
     // Gym shower table: the national chains where showers are the brand
     // standard say yes; a known no-shower format says no; unknown says nil.
     func testGymShowerTable() {
-        for gym in ["Planet Fitness", "LA Fitness", "Gold's Gym Downtown",
-                    "Anytime Fitness", "Crunch Fitness", "24 Hour Fitness",
-                    "YMCA of Middle Tennessee"] {
+        for gym in [
+            "Planet Fitness", "LA Fitness", "Gold's Gym Downtown",
+            "Anytime Fitness", "Crunch Fitness", "24 Hour Fitness",
+            "YMCA of Middle Tennessee",
+        ] {
             XCTAssertEqual(BrandKnowledge.gymHasShowers(name: gym), true, gym)
         }
         XCTAssertEqual(BrandKnowledge.gymHasShowers(name: "Curves"), false)
@@ -107,25 +113,35 @@ final class PoiAndCostTests: XCTestCase {
     // Shelter typing: the name decides first, the query second, and the
     // general case falls back to "Emergency shelter".
     func testShelterTypeInference() {
-        XCTAssertEqual(BrandKnowledge.shelterType(name: "Smithville Tornado Shelter"),
-                       "Storm shelter")
-        XCTAssertEqual(BrandKnowledge.shelterType(name: "County Storm Shelter #3"),
-                       "Storm shelter")
-        XCTAssertEqual(BrandKnowledge.shelterType(name: "High Ground Evacuation Site"),
-                       "Flood shelter")
-        XCTAssertEqual(BrandKnowledge.shelterType(name: "Cooling Center at Main Library"),
-                       "Cooling center")
-        XCTAssertEqual(BrandKnowledge.shelterType(name: "Downtown Warming Center"),
-                       "Warming center")
-        XCTAssertEqual(BrandKnowledge.shelterType(name: "Lincoln High School Gymnasium"),
-                       "Emergency shelter")
+        XCTAssertEqual(
+            BrandKnowledge.shelterType(name: "Smithville Tornado Shelter"),
+            "Storm shelter")
+        XCTAssertEqual(
+            BrandKnowledge.shelterType(name: "County Storm Shelter #3"),
+            "Storm shelter")
+        XCTAssertEqual(
+            BrandKnowledge.shelterType(name: "High Ground Evacuation Site"),
+            "Flood shelter")
+        XCTAssertEqual(
+            BrandKnowledge.shelterType(name: "Cooling Center at Main Library"),
+            "Cooling center")
+        XCTAssertEqual(
+            BrandKnowledge.shelterType(name: "Downtown Warming Center"),
+            "Warming center")
+        XCTAssertEqual(
+            BrandKnowledge.shelterType(name: "Lincoln High School Gymnasium"),
+            "Emergency shelter")
         // Query fallback: a plain-named civic center under a tornado search.
-        XCTAssertEqual(BrandKnowledge.shelterType(name: "Community Center",
-                                                  query: "tornado shelter storm shelter"),
-                       "Storm shelter")
-        XCTAssertEqual(BrandKnowledge.shelterType(name: "Civic Center",
-                                                  query: "emergency shelter"),
-                       "Emergency shelter")
+        XCTAssertEqual(
+            BrandKnowledge.shelterType(
+                name: "Community Center",
+                query: "tornado shelter storm shelter"),
+            "Storm shelter")
+        XCTAssertEqual(
+            BrandKnowledge.shelterType(
+                name: "Civic Center",
+                query: "emergency shelter"),
+            "Emergency shelter")
     }
 
     // Shelter noise filter: private/animal/service listings are not public
@@ -156,8 +172,9 @@ final class PoiAndCostTests: XCTestCase {
 
     func testLivePricesRankOneToFiveAgainstEachOther() {
         XCTAssertEqual(BrandMark.comparativeTiers([3.10, 3.50, nil, 3.30]), [1, 5, nil, 3])
-        XCTAssertEqual(BrandMark.comparativeTiers([3.10, 3.10]), [nil, nil],
-                       "the same price everywhere ranks nothing")
+        XCTAssertEqual(
+            BrandMark.comparativeTiers([3.10, 3.10]), [nil, nil],
+            "the same price everywhere ranks nothing")
         XCTAssertEqual(BrandMark.comparativeTiers([nil]), [nil])
     }
 
@@ -166,16 +183,18 @@ final class PoiAndCostTests: XCTestCase {
     func testTouristStopsAreSpreadOverTheWholeDrive() {
         // A 114 km road east from 90° W; ten museums in the starting city,
         // one halfway, one near the end. Soonest-first listed only the ten.
-        let route = POIRanking.RoutePath(coords: (0..<141).map {
-            CLLocationCoordinate2D(latitude: 43, longitude: -90 + Double($0) * 0.01)
-        })
+        let route = POIRanking.RoutePath(
+            coords: (0..<141).map {
+                CLLocationCoordinate2D(latitude: 43, longitude: -90 + Double($0) * 0.01)
+            })
         var items = (0..<10).map {
-            CLLocationCoordinate2D(latitude: 43 + Double($0) * 0.001,
-                                   longitude: -89.99 + Double($0) * 0.002)
+            CLLocationCoordinate2D(
+                latitude: 43 + Double($0) * 0.001,
+                longitude: -89.99 + Double($0) * 0.002)
         }
         items.append(CLLocationCoordinate2D(latitude: 43.01, longitude: -89.3))
         items.append(CLLocationCoordinate2D(latitude: 43.02, longitude: -88.65))
-        let tourist: UInt8 = 3   // places.rs kind::TOURIST
+        let tourist: UInt8 = 3  // places.rs kind::TOURIST
         let start = CLLocationCoordinate2D(latitude: 43, longitude: -89.995)
         let picked = route.spreadAlong(items, kind: tourist, trucker: false, from: start)
         XCTAssertEqual(picked.count, 8)

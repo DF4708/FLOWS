@@ -160,8 +160,9 @@ final class GTFSZipTests: XCTestCase {
         let length = packed.subdata(in: 8..<16).enumerated()
             .reduce(UInt64(0)) { $0 | UInt64($1.element) << (8 * UInt64($1.offset)) }
         XCTAssertEqual(length, UInt64(trips.count))
-        XCTAssertEqual(inflate(packed.subdata(in: 16..<packed.count), expected: trips.count), trips,
-                       "and what follows is the member, still compressed")
+        XCTAssertEqual(
+            inflate(packed.subdata(in: 16..<packed.count), expected: trips.count), trips,
+            "and what follows is the member, still compressed")
     }
 
     func testTheLocalExtraFieldIsSkippedNotRead() throws {
@@ -179,8 +180,9 @@ final class GTFSZipTests: XCTestCase {
             Member(name: "stops.txt", body: stops, method: 0, extra: 0),
         ])
         let found = try entries(zip)
-        XCTAssertEqual(found.map(\.name), ["stops.txt"],
-                       "shapes.txt is the bulk of a feed and the router never reads it")
+        XCTAssertEqual(
+            found.map(\.name), ["stops.txt"],
+            "shapes.txt is the bulk of a feed and the router never reads it")
         let asked = found.reduce(0) { $0 + $1.safeRange.clamped(to: 0..<zip.count).count }
         XCTAssertLessThan(asked, zip.count / 2, "the big member is not in any range we ask for")
     }
@@ -191,8 +193,9 @@ final class GTFSZipTests: XCTestCase {
     }
 
     func testAnArchiveCommentDoesNotHideTheDirectory() throws {
-        let zip = archive([Member(name: "stops.txt", body: stops, method: 0, extra: 0)],
-                          comment: "built by a publisher that leaves notes")
+        let zip = archive(
+            [Member(name: "stops.txt", body: stops, method: 0, extra: 0)],
+            comment: "built by a publisher that leaves notes")
         XCTAssertEqual(try kept(zip)["stops.txt"], stops)
     }
 
@@ -204,14 +207,16 @@ final class GTFSZipTests: XCTestCase {
         // A directory that claims to start past the end of the file.
         var lying = zip
         let eocd = lying.count - 22
-        lying.replaceSubrange((lying.startIndex + eocd + 16)..<(lying.startIndex + eocd + 20),
-                              with: u32(zip.count * 4))
+        lying.replaceSubrange(
+            (lying.startIndex + eocd + 16)..<(lying.startIndex + eocd + 20),
+            with: u32(zip.count * 4))
         XCTAssertThrowsError(
             try GTFSZip.directoryRange(tail: Data(lying.suffix(1024)), totalSize: lying.count)
         )
         // Something other than a local header where one should start.
-        XCTAssertThrowsError(try GTFSZip.dataRange(
-            of: try XCTUnwrap(try? entries(zip).first), localHeader: junk))
+        XCTAssertThrowsError(
+            try GTFSZip.dataRange(
+                of: try XCTUnwrap(try? entries(zip).first), localHeader: junk))
     }
 
     /// A password-locked member is refused: its bytes would be kept and read
@@ -219,7 +224,7 @@ final class GTFSZipTests: XCTestCase {
     func testALockedMemberIsRefused() throws {
         var zip = archive([Member(name: "stops.txt", body: stops, method: 0, extra: 0)])
         let range = try GTFSZip.directoryRange(tail: Data(zip.suffix(1024)), totalSize: zip.count)
-        zip[range.lowerBound + 8] |= 1   // general-purpose flag bit 0
+        zip[range.lowerBound + 8] |= 1  // general-purpose flag bit 0
         XCTAssertThrowsError(try entries(zip)) { error in
             guard case GTFSZip.Failure.unsupported = error else {
                 return XCTFail("expected a locked-member refusal, got \(error)")
@@ -291,12 +296,14 @@ final class GTFSZipTests: XCTestCase {
     func testAShortBufferAsksAgainInsteadOfReturningHalfAFile() throws {
         let zip = archive([Member(name: "stops.txt", body: stops, method: 0, extra: 0)])
         let entry = try XCTUnwrap(try entries(zip).first)
-        XCTAssertNil(try GTFSZip.dataRange(of: entry, localHeader: zip.prefix(29)),
-                     "not even a whole header yet")
+        XCTAssertNil(
+            try GTFSZip.dataRange(of: entry, localHeader: zip.prefix(29)),
+            "not even a whole header yet")
         let short = zip.subdata(in: 0..<(entry.headerOffset + 32))
         let data = try XCTUnwrap(try GTFSZip.dataRange(of: entry, localHeader: short))
-        XCTAssertGreaterThan(data.upperBound, short.count,
-                             "a truncated fetch must say so, not hand back a partial schedule")
+        XCTAssertGreaterThan(
+            data.upperBound, short.count,
+            "a truncated fetch must say so, not hand back a partial schedule")
     }
 
     // MARK: packed files, end to end through the timetable builder
@@ -312,18 +319,21 @@ final class GTFSZipTests: XCTestCase {
     }
 
     private var feed: [String: Data] {
-        let calendar = "service_id,monday,tuesday,wednesday,thursday,friday,saturday,sunday,"
+        let calendar =
+            "service_id,monday,tuesday,wednesday,thursday,friday,saturday,sunday,"
             + "start_date,end_date\nWK,1,1,1,1,1,1,1,20260901,20261231\n"
         return [
             "agency.txt": Data("agency_id,agency_name,agency_timezone\n1,Rail,America/Chicago\n".utf8),
-            "stops.txt": Data(("stop_id,stop_name,stop_lat,stop_lon\n"
-                + "A,Alpha,41.88,-87.64\nB,Bravo,41.97,-87.66\n").utf8),
+            "stops.txt": Data(
+                ("stop_id,stop_name,stop_lat,stop_lon\n"
+                    + "A,Alpha,41.88,-87.64\nB,Bravo,41.97,-87.66\n").utf8),
             "routes.txt": Data("route_id,route_short_name,route_long_name,route_type\nR,22,Clark,3\n".utf8),
             "calendar.txt": Data(calendar.utf8),
             "trips.txt": Data("route_id,service_id,trip_id\nR,WK,t1\nR,WK,t2\n".utf8),
-            "stop_times.txt": Data(("trip_id,arrival_time,departure_time,stop_id,stop_sequence\n"
-                + "t1,08:00:00,08:00:00,A,1\nt1,08:30:00,08:30:00,B,2\n"
-                + "t2,09:00:00,09:00:00,A,1\nt2,09:30:00,09:30:00,B,2\n").utf8),
+            "stop_times.txt": Data(
+                ("trip_id,arrival_time,departure_time,stop_id,stop_sequence\n"
+                    + "t1,08:00:00,08:00:00,A,1\nt1,08:30:00,08:30:00,B,2\n"
+                    + "t2,09:00:00,09:00:00,A,1\nt2,09:30:00,09:30:00,B,2\n").utf8),
         ]
     }
 
@@ -342,16 +352,18 @@ final class GTFSZipTests: XCTestCase {
             }
         }
         XCTAssertTrue(GTFSZip.hasMember("stops.txt", in: packedDir))
-        XCTAssertEqual(GTFSZip.unpackedSize(of: "stop_times.txt", in: packedDir),
-                       feed["stop_times.txt"]?.count, "read from the packed header")
+        XCTAssertEqual(
+            GTFSZip.unpackedSize(of: "stop_times.txt", in: packedDir),
+            feed["stop_times.txt"]?.count, "read from the packed header")
         XCTAssertEqual(TransitShard.agencyZone(feedDirectory: packedDir.path), "America/Chicago")
 
-        try TransitShard.build(feedDirectory: plainDir.path, prefix: plainOut, serviceDate: 20260930)
-        try TransitShard.build(feedDirectory: packedDir.path, prefix: packedOut, serviceDate: 20260930)
+        try TransitShard.build(feedDirectory: plainDir.path, prefix: plainOut, serviceDate: 20_260_930)
+        try TransitShard.build(feedDirectory: packedDir.path, prefix: packedOut, serviceDate: 20_260_930)
         for ext in [".ftt", ".fts"] {
-            XCTAssertEqual(try Data(contentsOf: URL(fileURLWithPath: plainOut + ext)),
-                           try Data(contentsOf: URL(fileURLWithPath: packedOut + ext)),
-                           "byte for byte, \(ext)")
+            XCTAssertEqual(
+                try Data(contentsOf: URL(fileURLWithPath: plainOut + ext)),
+                try Data(contentsOf: URL(fileURLWithPath: packedOut + ext)),
+                "byte for byte, \(ext)")
         }
     }
 
@@ -370,7 +382,7 @@ final class GTFSZipTests: XCTestCase {
             try? FileManager.default.removeItem(atPath: out + ".fts")
         }
         XCTAssertThrowsError(
-            try TransitShard.build(feedDirectory: dir.path, prefix: out, serviceDate: 20260930),
+            try TransitShard.build(feedDirectory: dir.path, prefix: out, serviceDate: 20_260_930),
             "a corrupted download is an error, not a timetable missing trips")
     }
 
@@ -389,11 +401,11 @@ final class GTFSZipTests: XCTestCase {
         guard let moment = calendar.date(from: honolulu) else { return XCTFail("no date") }
 
         XCTAssertEqual(
-            TransitFeeds.serviceDate(moment, zone: "Pacific/Honolulu"), 20260922,
+            TransitFeeds.serviceDate(moment, zone: "Pacific/Honolulu"), 20_260_922,
             "locally it is still the 22nd"
         )
         XCTAssertEqual(
-            TransitFeeds.serviceDate(moment, zone: "America/New_York"), 20260923,
+            TransitFeeds.serviceDate(moment, zone: "America/New_York"), 20_260_923,
             "the operator is already on the 23rd"
         )
     }

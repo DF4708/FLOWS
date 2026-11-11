@@ -61,9 +61,11 @@ enum SiriSchemaRules {
         case finishTripFirst
     }
 
-    static func tripRequest(mode: TripMode, preferences: Set<TripPreference>,
-                            walkingNow: Bool, filters: Set<RouteFilter>,
-                            tripUnderway: Bool) -> TripRequest {
+    static func tripRequest(
+        mode: TripMode, preferences: Set<TripPreference>,
+        walkingNow: Bool, filters: Set<RouteFilter>,
+        tripUnderway: Bool
+    ) -> TripRequest {
         let switchMode = mode.walks != walkingNow
         let add = Set(preferences.map(\.filter)).subtracting(filters)
         if tripUnderway && (switchMode || !add.isEmpty) { return .finishTripFirst }
@@ -84,9 +86,11 @@ enum SiriSchemaRules {
     /// `sameStopMeters` of a point in `existing` or of an earlier ask. Siri
     /// sends the whole list it wants on the route, so the stops already on
     /// it come back and must not be added twice.
-    static func newWaypoints(_ asked: [CLLocationCoordinate2D],
-                             existing: [CLLocationCoordinate2D],
-                             within meters: CLLocationDistance = sameStopMeters) -> [Int] {
+    static func newWaypoints(
+        _ asked: [CLLocationCoordinate2D],
+        existing: [CLLocationCoordinate2D],
+        within meters: CLLocationDistance = sameStopMeters
+    ) -> [Int] {
         var kept: [CLLocationCoordinate2D] = existing
         var fresh: [Int] = []
         for (i, point) in asked.enumerated() where isValid(point) {
@@ -122,7 +126,8 @@ enum SiriSchemaRules {
     static func place(fromID id: String) -> (coordinate: CLLocationCoordinate2D, name: String?)? {
         let parts = id.split(separator: ",", maxSplits: 2, omittingEmptySubsequences: false)
         guard parts.count == 3, let lat = Double(parts[0]), let lon = Double(parts[1]),
-              parts[2].count <= maxNameLength else { return nil }
+            parts[2].count <= maxNameLength
+        else { return nil }
         let c = CLLocationCoordinate2D(latitude: lat, longitude: lon)
         guard isValid(c) else { return nil }
         return (c, parts[2].isEmpty ? nil : String(parts[2]))
@@ -175,8 +180,10 @@ enum SiriSchemaRules {
     /// names that contain it, then the rest in the directory's own order
     /// (its search already ranks by votes). Indices into `names`, at most
     /// `limit` of them.
-    static func rankStations(names: [String], query: String,
-                             limit: Int = maxStations) -> [Int] {
+    static func rankStations(
+        names: [String], query: String,
+        limit: Int = maxStations
+    ) -> [Int] {
         func fold(_ s: String) -> String {
             s.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil)
                 .trimmingCharacters(in: .whitespacesAndNewlines)

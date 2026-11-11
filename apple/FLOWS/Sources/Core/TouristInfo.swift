@@ -19,10 +19,12 @@ enum TouristInfo {
         let notes: [String: String]
 
         static func loadBundled() -> FeeTable {
-            guard let url = Bundle.main.url(forResource: "nps_entry_fees",
-                                            withExtension: "json"),
-                  let data = try? Data(contentsOf: url),
-                  let rows = try? JSONSerialization.jsonObject(with: data) as? [[String: String]]
+            guard
+                let url = Bundle.main.url(
+                    forResource: "nps_entry_fees",
+                    withExtension: "json"),
+                let data = try? Data(contentsOf: url),
+                let rows = try? JSONSerialization.jsonObject(with: data) as? [[String: String]]
             else { return FeeTable(notes: [:]) }
             var m: [String: String] = [:]
             for row in rows {
@@ -58,9 +60,11 @@ enum TouristInfo {
             return hit?.value
                 ?? "Free at most park spots. Big parks often charge for each car."
         }
-        for site in ["national monument", "national memorial", "national historic",
-                     "national historical", "national seashore", "national lakeshore",
-                     "national recreation", "national battlefield", "national preserve"]
+        for site in [
+            "national monument", "national memorial", "national historic",
+            "national historical", "national seashore", "national lakeshore",
+            "national recreation", "national battlefield", "national preserve",
+        ]
         where n.contains(site) {
             return "Free at most sites like this. Some charge a small fee."
         }

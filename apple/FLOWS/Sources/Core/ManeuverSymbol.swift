@@ -36,7 +36,8 @@ enum ManeuverSymbol {
         // "Keep straight to stay on I-94" and "Stay on US-12" name no side:
         // straight ahead, not a guessed bear right.
         if s.contains("slight") || s.contains("bear ")
-            || s.contains("keep ") || s.contains("stay ") {
+            || s.contains("keep ") || s.contains("stay ")
+        {
             switch side(of: s) {
             case .left: return "arrow.up.left"
             case .right: return "arrow.up.right"
@@ -139,8 +140,9 @@ enum LaneGuidance {
             let count = phrase.count
             let plural = count == 1 ? "lane" : "lanes"
             let sideWord = side == .left ? "left" : side == .right ? "right" : "center"
-            return Advice(laneCount: count, side: side,
-                          text: "Use the \(count) \(sideWord) \(plural)")
+            return Advice(
+                laneCount: count, side: side,
+                text: "Use the \(count) \(sideWord) \(plural)")
         }
         // "Keep left at the fork" implies a side without naming lanes.
         if s.contains("keep left") || s.contains("stay left") {
@@ -153,8 +155,10 @@ enum LaneGuidance {
     }
 
     private static let laneNumbers =
-        ["1": 1, "2": 2, "3": 3, "4": 4, "5": 5, "6": 6,
-         "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6]
+        [
+            "1": 1, "2": 2, "3": 3, "4": 4, "5": 5, "6": 6,
+            "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6,
+        ]
 
     /// "the 2 right lanes", "the left 3 lanes", "the three left lanes", "the
     /// middle lane" in lowercased text: the side and the count (1 when none
@@ -162,10 +166,11 @@ enum LaneGuidance {
     /// side of the side word. nil when the text has no such phrase.
     static func lanePhrase(in s: String) -> (side: Side, count: Int)? {
         let n = #"(\d|one|two|three|four|five|six)"#
-        let pattern = #"\b(?:"# + n + #"\s+)?(left|right|center|middle)\s+(?:"# + n
+        let pattern =
+            #"\b(?:"# + n + #"\s+)?(left|right|center|middle)\s+(?:"# + n
             + #"\s+)?lanes?\b"#
         guard let regex = try? NSRegularExpression(pattern: pattern),
-              let match = regex.firstMatch(in: s, range: NSRange(s.startIndex..., in: s))
+            let match = regex.firstMatch(in: s, range: NSRange(s.startIndex..., in: s))
         else { return nil }
         func group(_ i: Int) -> String? {
             Range(match.range(at: i), in: s).map { String(s[$0]) }
@@ -203,8 +208,10 @@ extension ManeuverSymbol {
     /// no numbered exit ("take the exit toward Madison", "the 2nd exit" of a
     /// roundabout).
     static func exitNumber(in instruction: String) -> String? {
-        guard let r = instruction.range(of: #"(?i)\bexit\s+\d{1,4}[a-z]?\b"#,
-                                        options: .regularExpression)
+        guard
+            let r = instruction.range(
+                of: #"(?i)\bexit\s+\d{1,4}[a-z]?\b"#,
+                options: .regularExpression)
         else { return nil }
         return instruction[r].split(whereSeparator: \.isWhitespace).last
             .map { $0.uppercased() }
@@ -218,7 +225,8 @@ extension ManeuverSymbol {
         if s.contains("u-turn") || s.contains("make a u turn") { return .reverse }
         let side = side(of: s)
         if s.contains("slight") || s.contains("bear ")
-            || s.contains("keep ") || s.contains("stay ") {
+            || s.contains("keep ") || s.contains("stay ")
+        {
             return side == .left ? .slightLeft : side == .right ? .slightRight : .through
         }
         if s.contains("merge") { return side == .left ? .mergeToLeft : .mergeToRight }
@@ -248,23 +256,27 @@ enum LaneBox {
         let uTurnLeft: Bool
     }
 
-    static func arrows(lanes: [LaneData.Lane], recommended: Set<Int>,
-                       instruction: String) -> [Arrow] {
+    static func arrows(
+        lanes: [LaneData.Lane], recommended: Set<Int>,
+        instruction: String
+    ) -> [Arrow] {
         let maneuver = ManeuverSymbol.turn(for: instruction)
         let curlsLeft = ManeuverSymbol.side(of: instruction) != .right
         if !lanes.isEmpty {
             // A U-turn lane curls toward the side of the road it is on.
             return lanes.enumerated().map { i, lane in
-                Arrow(turn: lane.primary, lit: recommended.contains(i),
-                      uTurnLeft: i < (lanes.count + 1) / 2)
+                Arrow(
+                    turn: lane.primary, lit: recommended.contains(i),
+                    uTurnLeft: i < (lanes.count + 1) / 2)
             }
         }
         if let advice = LaneGuidance.advice(for: instruction) {
             let total = max(advice.laneCount + 2, 3)
             let lit = LaneGuidance.highlighted(advice: advice, total: total)
             return (0..<total).map { i in
-                Arrow(turn: lit.contains(i) ? maneuver : .through, lit: lit.contains(i),
-                      uTurnLeft: curlsLeft)
+                Arrow(
+                    turn: lit.contains(i) ? maneuver : .through, lit: lit.contains(i),
+                    uTurnLeft: curlsLeft)
             }
         }
         return [Arrow(turn: maneuver, lit: true, uTurnLeft: curlsLeft)]

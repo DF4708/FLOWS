@@ -27,8 +27,10 @@ enum RiskAreaFallback {
     /// placed keeps what they decided: for Toronto or open water that is its
     /// blob for good, and waiting again blinked it out at every re-sweep.
     /// Outside the box the blob is the only answer and never waits.
-    static func blobWaits(at c: CLLocationCoordinate2D, lookupsDone: Bool,
-                          placedBefore: Bool) -> Bool {
+    static func blobWaits(
+        at c: CLLocationCoordinate2D, lookupsDone: Bool,
+        placedBefore: Bool
+    ) -> Bool {
         inZIPBox(c) && !lookupsDone && !placedBefore
     }
 
@@ -40,9 +42,11 @@ enum RiskAreaFallback {
     /// places. A grid centred on the camera slid with every pan: each sweep
     /// read slightly different spots, caught different ZIPs, and risk areas
     /// came and went though the weather had not changed.
-    static func lattice(centerLatitude: Double, centerLongitude: Double,
-                        spanLatitude: Double, spanLongitude: Double,
-                        perSide: Int) -> [CLLocationCoordinate2D] {
+    static func lattice(
+        centerLatitude: Double, centerLongitude: Double,
+        spanLatitude: Double, spanLongitude: Double,
+        perSide: Int
+    ) -> [CLLocationCoordinate2D] {
         let across = Double(max(perSide, 1))
         func rung(_ wanted: Double) -> Double {
             guard wanted.isFinite, wanted > 0 else { return 1 }
@@ -50,8 +54,10 @@ enum RiskAreaFallback {
         }
         let stepLat = rung(spanLatitude / across)
         let stepLon = rung(spanLongitude / across)
-        let lat0 = centerLatitude - spanLatitude / 2, lat1 = centerLatitude + spanLatitude / 2
-        let lon0 = centerLongitude - spanLongitude / 2, lon1 = centerLongitude + spanLongitude / 2
+        let lat0 = centerLatitude - spanLatitude / 2
+        let lat1 = centerLatitude + spanLatitude / 2
+        let lon0 = centerLongitude - spanLongitude / 2
+        let lon1 = centerLongitude + spanLongitude / 2
         var out: [CLLocationCoordinate2D] = []
         // Whole multiples by index, not by repeated addition: a running sum
         // drifts, and a drifted point is a different point to every cache.
@@ -70,14 +76,17 @@ enum RiskAreaFallback {
     /// A circle as a ring of `points` vertices — the outline for risk with no
     /// ZIP under it (open water, Canada, Mexico). It was a padded hull,
     /// which for one point is a box: "squares over the lake".
-    static func circleRing(center: CLLocationCoordinate2D, radiusMeters: Double,
-                           points: Int = 32) -> [CLLocationCoordinate2D] {
+    static func circleRing(
+        center: CLLocationCoordinate2D, radiusMeters: Double,
+        points: Int = 32
+    ) -> [CLLocationCoordinate2D] {
         let dLat = radiusMeters / 111_320
         let dLon = radiusMeters / (111_320 * max(cos(center.latitude * .pi / 180), 1e-6))
         return (0..<max(points, 3)).map { k in
             let a = Double(k) / Double(max(points, 3)) * 2 * .pi
-            return CLLocationCoordinate2D(latitude: center.latitude + dLat * sin(a),
-                                          longitude: center.longitude + dLon * cos(a))
+            return CLLocationCoordinate2D(
+                latitude: center.latitude + dLat * sin(a),
+                longitude: center.longitude + dLon * cos(a))
         }
     }
 
@@ -90,7 +99,8 @@ enum RiskAreaFallback {
         guard ring.count >= 3, !contains(ring, c) else { return c }
         var xs: [Double] = []
         for i in 0..<ring.count {
-            let a = ring[i], b = ring[(i + 1) % ring.count]
+            let a = ring[i]
+            let b = ring[(i + 1) % ring.count]
             if (a.latitude <= c.latitude) != (b.latitude <= c.latitude) {
                 let t = (c.latitude - a.latitude) / (b.latitude - a.latitude)
                 xs.append(a.longitude + t * (b.longitude - a.longitude))
@@ -111,9 +121,12 @@ enum RiskAreaFallback {
     /// its vertices; the vertex mean for a ring with no area.
     static func centroid(of ring: [CLLocationCoordinate2D]) -> CLLocationCoordinate2D {
         guard !ring.isEmpty else { return CLLocationCoordinate2D() }
-        var area = 0.0, cx = 0.0, cy = 0.0
+        var area = 0.0
+        var cx = 0.0
+        var cy = 0.0
         for i in 0..<ring.count {
-            let a = ring[i], b = ring[(i + 1) % ring.count]
+            let a = ring[i]
+            let b = ring[(i + 1) % ring.count]
             let cross = a.longitude * b.latitude - b.longitude * a.latitude
             area += cross
             cx += (a.longitude + b.longitude) * cross
@@ -130,13 +143,17 @@ enum RiskAreaFallback {
     /// Up to `limit` points spread inside a shape — its icon anchor first,
     /// then a grid over its bounding box kept to the points inside it. A
     /// warning's polygon is drawn by the ZIPs these points fall in.
-    static func interiorSamples(of ring: [CLLocationCoordinate2D],
-                                limit: Int = 9) -> [CLLocationCoordinate2D] {
+    static func interiorSamples(
+        of ring: [CLLocationCoordinate2D],
+        limit: Int = 9
+    ) -> [CLLocationCoordinate2D] {
         guard ring.count >= 3, limit > 0 else { return [] }
         var out = [iconAnchor(of: ring)]
-        let lats = ring.map(\.latitude), lons = ring.map(\.longitude)
+        let lats = ring.map(\.latitude)
+        let lons = ring.map(\.longitude)
         guard let la0 = lats.min(), let la1 = lats.max(),
-              let lo0 = lons.min(), let lo1 = lons.max() else { return out }
+            let lo0 = lons.min(), let lo1 = lons.max()
+        else { return out }
         let side = 4
         for i in 0..<side {
             for j in 0..<side {
@@ -160,9 +177,11 @@ enum RiskAreaFallback {
         var inside = false
         var j = ring.count - 1
         for i in 0..<ring.count {
-            let a = ring[i], b = ring[j]
+            let a = ring[i]
+            let b = ring[j]
             if (a.latitude > p.latitude) != (b.latitude > p.latitude) {
-                let x = a.longitude + (p.latitude - a.latitude) / (b.latitude - a.latitude)
+                let x =
+                    a.longitude + (p.latitude - a.latitude) / (b.latitude - a.latitude)
                     * (b.longitude - a.longitude)
                 if p.longitude < x { inside.toggle() }
             }

@@ -79,11 +79,13 @@ enum FuelWarning {
     /// yet. Without one, it falls back to the direction of travel. With
     /// neither — parked, no course, no route — nothing can be ruled out, so
     /// everything is kept rather than silently dropping real options.
-    static func isReachable(station: CLLocationCoordinate2D,
-                            from here: CLLocationCoordinate2D,
-                            courseDegrees: Double,
-                            routeAhead: [CLLocationCoordinate2D],
-                            corridorMeters: Double = flows_geo_fuel_corridor_meters()) -> Bool {
+    static func isReachable(
+        station: CLLocationCoordinate2D,
+        from here: CLLocationCoordinate2D,
+        courseDegrees: Double,
+        routeAhead: [CLLocationCoordinate2D],
+        corridorMeters: Double = flows_geo_fuel_corridor_meters()
+    ) -> Bool {
         // rust/flows-core geo.rs. With no route the columns hold a
         // placeholder behind a zero count: the bridge never sees an empty
         // buffer.
@@ -99,8 +101,10 @@ enum FuelWarning {
     }
 
     /// Compass bearing from one point to another, 0..<360.
-    static func bearingDegrees(from a: CLLocationCoordinate2D,
-                               to b: CLLocationCoordinate2D) -> Double {
+    static func bearingDegrees(
+        from a: CLLocationCoordinate2D,
+        to b: CLLocationCoordinate2D
+    ) -> Double {
         flows_geo_bearing_degrees(a.latitude, a.longitude, b.latitude, b.longitude)
     }
 
@@ -116,11 +120,15 @@ enum FuelWarning {
 
     /// Stations reachable on the fuel remaining, keeping the reserve intact
     /// (never route a driver to arrive on fumes), nearest first.
-    static func reachable(stationsAhead: [Station], rangeMiles: Double,
-                          reserveMiles: Double = VehicleProfile.reserveMiles) -> [Station] {
+    static func reachable(
+        stationsAhead: [Station], rangeMiles: Double,
+        reserveMiles: Double = VehicleProfile.reserveMiles
+    ) -> [Station] {
         let order = StationColumns(stationsAhead).call { miles, prices, priced, count in
-            Array(flows_long_trips_reachable_stations(miles, prices, priced, count,
-                                                      rangeMiles, reserveMiles))
+            Array(
+                flows_long_trips_reachable_stations(
+                    miles, prices, priced, count,
+                    rangeMiles, reserveMiles))
         }
         return order.map { stationsAhead[Int($0)] }
     }
@@ -128,8 +136,10 @@ enum FuelWarning {
     /// The warning level for this range and this list of matching stations.
     /// `stationsAhead` must already be filtered to the vehicle's fuel type —
     /// a diesel truck is not helped by knowing about gas pumps.
-    static func level(stationsAhead: [Station], rangeMiles: Double,
-                      reserveMiles: Double = VehicleProfile.reserveMiles) -> Level {
+    static func level(
+        stationsAhead: [Station], rangeMiles: Double,
+        reserveMiles: Double = VehicleProfile.reserveMiles
+    ) -> Level {
         // Nothing reachable is .unreachable even when the search found
         // nothing at all — silence is the failure mode this whole feature
         // exists to prevent (rust/flows-core long_trips.rs).
@@ -146,8 +156,10 @@ enum FuelWarning {
     /// Cheapest of the reachable stations (ties → nearest). Stations with no
     /// known price rank behind priced ones, since "cheapest" should mean a
     /// price we can actually stand behind.
-    static func cheapest(stationsAhead: [Station], rangeMiles: Double,
-                         reserveMiles: Double = VehicleProfile.reserveMiles) -> Station? {
+    static func cheapest(
+        stationsAhead: [Station], rangeMiles: Double,
+        reserveMiles: Double = VehicleProfile.reserveMiles
+    ) -> Station? {
         let index = StationColumns(stationsAhead).call { miles, prices, priced, count in
             flows_long_trips_cheapest_station(miles, prices, priced, count, rangeMiles, reserveMiles)
         }
@@ -170,8 +182,12 @@ enum FuelWarning {
             count = Int64(stations.count)
         }
 
-        func call<R>(_ body: (RustLoan<Double>, RustLoan<Double>,
-                              RustLoan<UInt8>, Int64) -> R) -> R {
+        func call<R>(
+            _ body: (
+                RustLoan<Double>, RustLoan<Double>,
+                RustLoan<UInt8>, Int64
+            ) -> R
+        ) -> R {
             miles.lent { m in
                 prices.lent { p in
                     priced.lent { f in body(m, p, f, count) }
@@ -182,15 +198,18 @@ enum FuelWarning {
 
     /// What the app SAYS out loud. Plain words, one breath, names the fuel,
     /// the place, and how far — a driver hears this without looking.
-    static func spokenAdvice(fuel: FuelType, level: Level, station: Station?,
-                             rangeMiles: Double) -> String? {
+    static func spokenAdvice(
+        fuel: FuelType, level: Level, station: Station?,
+        rangeMiles: Double
+    ) -> String? {
         let unitWord = fuel == .electric ? "charging" : fuel.rawValue.lowercased()
         switch level {
         case .none:
             return nil
         case .lastChances(let remaining):
             guard let station else { return nil }
-            let count = remaining == 1
+            let count =
+                remaining == 1
                 ? "This is the last \(unitWord) stop in range"
                 : "Only \(remaining) \(unitWord) stops left in range"
             return "\(count). \(station.name) is "
@@ -211,8 +230,10 @@ enum FuelWarning {
             return nil
         case .lastChances(let remaining):
             guard let station else { return nil }
-            let lead = remaining == 1 ? "Last \(unitWord) stop in range"
-                                      : "\(remaining) \(unitWord) stops left in range"
+            let lead =
+                remaining == 1
+                ? "Last \(unitWord) stop in range"
+                : "\(remaining) \(unitWord) stops left in range"
             return "\(lead) — \(station.name), "
                 + "\(Int(station.milesAhead.rounded())) mi"
                 + pricePhrase(station, fuel: fuel)

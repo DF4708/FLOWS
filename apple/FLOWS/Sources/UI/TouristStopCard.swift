@@ -51,11 +51,14 @@ struct TouristStopCard: View {
                 }
                 .buttonStyle(.plain)
             }
-            Text(String(format: "About %.0f mi ahead · about +%.0f min off your route",
-                        max(stop.aheadMeters, 0) / 1609.344,
-                        2 * stop.detourMeters / POIRanking.detourSpeedMps / 60))
-                .scaledFont(.caption)
-                .foregroundStyle(.secondary)
+            Text(
+                String(
+                    format: "About %.0f mi ahead · about +%.0f min off your route",
+                    max(stop.aheadMeters, 0) / 1609.344,
+                    2 * stop.detourMeters / POIRanking.detourSpeedMps / 60)
+            )
+            .scaledFont(.caption)
+            .foregroundStyle(.secondary)
 
             sectionHeader("Cost to get in")
             Text(TouristInfo.feeNote(name: stop.item.name, table: Self.fees))
@@ -63,8 +66,9 @@ struct TouristStopCard: View {
 
             if let stars = info?.rating {
                 sectionHeader("Stars")
-                StarsAndBucks(stars: stars, costTier: nil, url: info?.url,
-                              credit: RatingsProvider.credit(for: info))
+                StarsAndBucks(
+                    stars: stars, costTier: nil, url: info?.url,
+                    credit: RatingsProvider.credit(for: info))
             }
 
             if hoursToday != nil || info?.isOpenNow != nil {
@@ -115,9 +119,10 @@ struct TouristStopCard: View {
             info = nil
             addedNote = nil
             let c = stop.item.placemark.coordinate
-            info = await RatingsProvider.info(name: stop.item.name ?? "",
-                                              latitude: c.latitude,
-                                              longitude: c.longitude)
+            info = await RatingsProvider.info(
+                name: stop.item.name ?? "",
+                latitude: c.latitude,
+                longitude: c.longitude)
         }
     }
 
@@ -133,10 +138,12 @@ struct TouristStopCard: View {
         let kind = TouristInfo.plainKind(
             name: stop.item.name,
             categoryRaw: stop.item.pointOfInterestCategory?.rawValue)
-        let place = [stop.item.placemark.locality,
-                     stop.item.placemark.administrativeArea]
-            .compactMap { $0 }
-            .joined(separator: ", ")
+        let place = [
+            stop.item.placemark.locality,
+            stop.item.placemark.administrativeArea,
+        ]
+        .compactMap { $0 }
+        .joined(separator: ", ")
         return place.isEmpty ? kind : "\(kind) · \(place)"
     }
 

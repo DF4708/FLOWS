@@ -78,7 +78,7 @@ struct MusicControlIntent: AppIntent {
             await SpotifyRemote.shared.refreshStateIfStale()
         }
         #if os(macOS)
-        if action == .play || action == .pause { music.refreshStateForAsk() }
+            if action == .play || action == .pause { music.refreshStateForAsk() }
         #endif
         let playing = spotify ? SpotifyRemote.shared.isPlaying : music.isPlaying
         switch action {
@@ -169,7 +169,8 @@ enum StopKindOption: String, AppEnum {
 struct FindStopIntent: AppIntent {
     static let title: LocalizedStringResource = "Find a stop ahead"
     static let description = IntentDescription(
-        "Searches for fuel, food, rest areas, hotels, parking, showers, medical help, or shelters ahead — then offers the best options by name.")
+        "Searches for fuel, food, rest areas, hotels, parking, showers, medical help, or shelters ahead — then offers the best options by name."
+    )
     static let openAppWhenRun = true
 
     @Parameter(title: "Kind of stop")
@@ -203,18 +204,23 @@ struct FindStopIntent: AppIntent {
             var cuisineReply = cuisine ?? ""
             if cuisineReply.isEmpty {
                 let asked: String? = try await $cuisine.requestValue(
-                    "Yes — what sounds good: fast food, pizza, American, Mexican, Italian, Chinese, Greek, coffee, or breakfast?")
+                    "Yes — what sounds good: fast food, pizza, American, Mexican, Italian, Chinese, Greek, coffee, or breakfast?"
+                )
                 cuisineReply = asked ?? ""
             }
             // Deterministic match first; when it can't read the reply, the
             // ON-DEVICE model gets one shot at mapping it ("the spicy one
             // with tortillas" → Mexican) before the on-screen fallback —
             // the finding-the-right-words accessibility path.
-            var cuisineOutcome = VoicePick.choose(reply: cuisineReply,
-                                                  options: cuisineNames)
-            if case .picked = cuisineOutcome {} else if model.wordFindingHelp,
-                let idx = await IntentClarifier.pick(reply: cuisineReply,
-                                                     options: cuisineNames) {
+            var cuisineOutcome = VoicePick.choose(
+                reply: cuisineReply,
+                options: cuisineNames)
+            if case .picked = cuisineOutcome {
+            } else if model.wordFindingHelp,
+                let idx = await IntentClarifier.pick(
+                    reply: cuisineReply,
+                    options: cuisineNames)
+            {
                 cuisineOutcome = .picked(idx)
             }
             guard case .picked(let index) = cuisineOutcome else {
@@ -242,8 +248,9 @@ struct FindStopIntent: AppIntent {
             // Not navigating: nothing to add a stop TO — the list on screen
             // is the deliverable.
             guard model.mode == .navigating else {
-                return .result(dialog: IntentDialog(
-                    "Found \(model.poi.results.count) options — they're on screen."))
+                return .result(
+                    dialog: IntentDialog(
+                        "Found \(model.poi.results.count) options — they're on screen."))
             }
             // Offer the top names and take the answer in ANY form: naming
             // one picks it ("let's go to Taco Bell"), a bare yes takes the
@@ -251,19 +258,22 @@ struct FindStopIntent: AppIntent {
             let names = ranked.map { $0.item.name ?? "Unnamed stop" }
             var reply = round == 0 ? (choice ?? "") : ""
             if reply.isEmpty {
-                let question = names.count == 1
+                let question =
+                    names.count == 1
                     ? "Does \(names[0]) work for you?"
                     : "Does \(names.dropLast().joined(separator: ", ")) or \(names.last ?? "") work for you?"
                 let asked: String? = try await $choice.requestValue(IntentDialog("\(question)"))
                 reply = asked ?? ""
             }
             let onlyFoodCuisines = kind == .food ? cuisineNames : []
-            var outcome = VoicePick.placeReply(reply, places: names,
-                                               cuisines: onlyFoodCuisines)
+            var outcome = VoicePick.placeReply(
+                reply, places: names,
+                cuisines: onlyFoodCuisines)
             // Same on-device rescue as the cuisine step: "the one with the
             // tacos" should reach Taco Bell, not dead-end at the list.
             if outcome == .unclear, model.wordFindingHelp,
-               let idx = await IntentClarifier.pick(reply: reply, options: names) {
+                let idx = await IntentClarifier.pick(reply: reply, options: names)
+            {
                 outcome = .picked(idx)
             }
             switch outcome {
@@ -277,11 +287,13 @@ struct FindStopIntent: AppIntent {
                 // back differently there ("Stop") than here, so comparing
                 // names called a nameless stop that was added a failure.
                 guard await model.addStop(pick.item) else {
-                    return .result(dialog: IntentDialog(
-                        "Couldn't route to \(name) right now. Try again in a moment."))
+                    return .result(
+                        dialog: IntentDialog(
+                            "Couldn't route to \(name) right now. Try again in a moment."))
                 }
-                return .result(dialog: IntentDialog(
-                    "\(SiriSummaries.addedStop(name: name, meters: meters))"))
+                return .result(
+                    dialog: IntentDialog(
+                        "\(SiriSummaries.addedStop(name: name, meters: meters))"))
             case .switchCuisine(let index):
                 await model.poi.chooseFood(categories[index], aheadOf: position)
                 continue
@@ -290,9 +302,12 @@ struct FindStopIntent: AppIntent {
                     return .result(dialog: "Okay — the list is on screen.")
                 }
                 let asked: String? = try await $cuisine.requestValue(
-                    "What sounds good instead: fast food, pizza, American, Mexican, Italian, Chinese, Greek, coffee, or breakfast?")
-                guard case .picked(let index) = VoicePick.choose(
-                    reply: asked ?? "", options: cuisineNames) else {
+                    "What sounds good instead: fast food, pizza, American, Mexican, Italian, Chinese, Greek, coffee, or breakfast?"
+                )
+                guard
+                    case .picked(let index) = VoicePick.choose(
+                        reply: asked ?? "", options: cuisineNames)
+                else {
                     return .result(dialog: "Okay — the list is on screen.")
                 }
                 await model.poi.chooseFood(categories[index], aheadOf: position)
@@ -396,8 +411,9 @@ private func addRouteStop(named term: String) async -> IntentDialog {
     // chain names — "the book-ease place"): the on-device model maps the
     // ask onto the chain vocabulary and the corridor search retries once.
     if candidates.isEmpty, model.wordFindingHelp,
-       let idx = await IntentClarifier.pick(
-           reply: term, options: ChainOption.allCases.map(\.rawValue)) {
+        let idx = await IntentClarifier.pick(
+            reply: term, options: ChainOption.allCases.map(\.rawValue))
+    {
         candidates = await model.poi.namedStops(
             ChainOption.allCases[idx].rawValue, aheadOf: position)
     }
@@ -452,8 +468,9 @@ struct RouteAheadIntent: AppIntent {
     @MainActor
     func perform() async throws -> some IntentResult & ProvidesDialog {
         guard let model = AppModel.shared,
-              let guidance = model.navigation.guidance,
-              let remaining = model.tripRemaining else {
+            let guidance = model.navigation.guidance,
+            let remaining = model.tripRemaining
+        else {
             return .result(dialog: "Start a route first.")
         }
         // What's left to the final destination (an added stop's way on and
@@ -461,7 +478,8 @@ struct RouteAheadIntent: AppIntent {
         // alerts on the road still ahead as the live watch last saw them,
         // a warning on screen first. The plan-time list said "No weather
         // alerts" through a warning issued mid-drive.
-        let alerts = [model.imminentWarning?.event].compactMap { $0 }
+        let alerts =
+            [model.imminentWarning?.event].compactMap { $0 }
             + (model.navigation.route?.alertEventsAhead(alongMeters: guidance.alongMeters) ?? [])
             + (model.upcomingLeg?.alertEventsAhead(alongMeters: 0) ?? [])
         // Until the way on from an added stop is planned, the numbers and
@@ -508,8 +526,9 @@ struct PlayMusicSearchIntent: AppIntent {
             guard let station = await model.playRadioMusicAsk(music) else {
                 return .result(dialog: IntentDialog("No \(music) stations found right now."))
             }
-            return .result(dialog: IntentDialog(
-                "Playing \(music) on \(station). Say skip in FLOWS for another station."))
+            return .result(
+                dialog: IntentDialog(
+                    "Playing \(music) on \(station). Say skip in FLOWS for another station."))
         }
         if provider == .appleMusic {
             // Full catalog first (MusicKit; needs the portal's MusicKit
@@ -527,12 +546,14 @@ struct PlayMusicSearchIntent: AppIntent {
                 return .result(dialog: IntentDialog("Playing \(music) on Spotify."))
             }
             provider.openSearch(query: music)
-            return .result(dialog: IntentDialog(
-                "Opening Spotify's search for \(music)."))
+            return .result(
+                dialog: IntentDialog(
+                    "Opening Spotify's search for \(music)."))
         }
         provider.openSearch(query: music)
-        return .result(dialog: IntentDialog(
-            "Opening \(provider.displayName)'s search for \(music)."))
+        return .result(
+            dialog: IntentDialog(
+                "Opening \(provider.displayName)'s search for \(music)."))
     }
 }
 
@@ -562,8 +583,9 @@ struct RadioControlIntent: AppIntent {
     @Parameter(title: "Action")
     var action: RadioActionOption
 
-    @Parameter(title: "Station or genre",
-               requestValueDialog: "What station or kind of music?")
+    @Parameter(
+        title: "Station or genre",
+        requestValueDialog: "What station or kind of music?")
     var station: String?
 
     @MainActor
@@ -573,7 +595,8 @@ struct RadioControlIntent: AppIntent {
         }
         switch action {
         case .weatherRadio:
-            let channel = model.effectivePosition
+            let channel =
+                model.effectivePosition
                 .flatMap { model.radio.nearestChannel(to: $0)?.channel }
                 ?? model.radio.nearestChannel(stateCode: model.currentStateCode)
             guard let channel else {
@@ -596,8 +619,9 @@ struct RadioControlIntent: AppIntent {
             // maps the ask onto a known genre tag ("play me some old
             // country" → classic country) and the search retries once.
             if model.radioBrowser.stations.isEmpty, model.wordFindingHelp,
-               let idx = await IntentClarifier.pick(
-                   reply: term, options: RadioBrowser.commonGenres) {
+                let idx = await IntentClarifier.pick(
+                    reply: term, options: RadioBrowser.commonGenres)
+            {
                 await model.radioBrowser.search(text: RadioBrowser.commonGenres[idx])
             }
             guard let top = model.radioBrowser.stations.first else {
@@ -627,13 +651,15 @@ private func rerouteDialog(_ outcome: AppModel.TrafficRerouteOutcome) -> IntentD
         // waiting for its own yes keeps "go ahead", and with the voice off
         // nothing listens. Asking again takes the road just weighed.
         if case .fasterRoute? = AppModel.shared?.pendingVoiceOffer,
-           AppModel.shared?.voiceAlerts == true {
+            AppModel.shared?.voiceAlerts == true
+        {
             return "That road has more risk now. Say yes if you still want it."
         }
         return "That road has more risk now. Ask me again to take the faster route if you still want it."
     case .askedUnchecked:
         if case .fasterRoute? = AppModel.shared?.pendingVoiceOffer,
-           AppModel.shared?.voiceAlerts == true {
+            AppModel.shared?.voiceAlerts == true
+        {
             return "I could not check that road. Say yes if you still want it."
         }
         return "I could not check that road. Ask me again to take the faster route if you still want it."
@@ -655,14 +681,16 @@ struct TakeFasterRouteIntent: AppIntent {
             return .result(dialog: "Start a route first.")
         }
         guard model.trafficDelayMinutes != nil else {
-            return .result(dialog:
-                "No faster route on offer right now — I'll speak up when one appears.")
+            return .result(
+                dialog:
+                    "No faster route on offer right now — I'll speak up when one appears.")
         }
         // FLOWS looked and there is nothing to take (the only faster road is
         // red, or none is faster): the chip has no button, so Siri has none.
         guard !model.trafficOfferBlocked else {
-            return .result(dialog:
-                "There's no faster road I can take right now, so I'm staying on this one.")
+            return .result(
+                dialog:
+                    "There's no faster road I can take right now, so I'm staying on this one.")
         }
         return .result(dialog: rerouteDialog(await model.rerouteForTraffic()))
     }
@@ -689,15 +717,19 @@ struct GoAheadIntent: AppIntent {
             case .started(let name):
                 return .result(dialog: IntentDialog("Starting to \(name)."))
             case .stillChecking:
-                return .result(dialog: IntentDialog(
-                    "Still checking the weather on that route. Ask me again in a moment."))
+                return .result(
+                    dialog: IntentDialog(
+                        "Still checking the weather on that route. Ask me again in a moment."))
             case .changed(let pick):
-                let line = SiriSummaries.tripOfferChanged(meters: pick.distanceMeters,
-                                                          seconds: pick.eta)
+                let line = SiriSummaries.tripOfferChanged(
+                    meters: pick.distanceMeters,
+                    seconds: pick.eta)
                 return .result(dialog: IntentDialog("\(line)"))
             case .closed:
-                return .result(dialog: IntentDialog(
-                    "Every road found is closed ahead — the state reports a closed or flooded road on each one. Not starting."))
+                return .result(
+                    dialog: IntentDialog(
+                        "Every road found is closed ahead — the state reports a closed or flooded road on each one. Not starting."
+                    ))
             case .nothing:
                 return .result(dialog: "Nothing is waiting for a yes right now.")
             }
@@ -726,8 +758,10 @@ struct StartTripIntent: AppIntent {
         }
         // No fix → the planner's own fallback start (Home, or the usual
         // area), as the "From:" row shows it.
-        guard let start = model.effectivePosition.map({ (coordinate: $0, label: "Current location") })
-                ?? model.bestKnownPosition else {
+        guard
+            let start = model.effectivePosition.map({ (coordinate: $0, label: "Current location") })
+                ?? model.bestKnownPosition
+        else {
             return .result(dialog: "I need a location fix first — open FLOWS.")
         }
         let from = start.coordinate
@@ -746,8 +780,10 @@ struct StartTripIntent: AppIntent {
         // confirmation still stands between this pick and any driving.
         let hitNames = hits.prefix(5).map { $0.name ?? "" }
         if Set(hitNames).count > 1, model.wordFindingHelp,
-           let idx = await IntentClarifier.pick(reply: destination,
-                                                options: hitNames) {
+            let idx = await IntentClarifier.pick(
+                reply: destination,
+                options: hitNames)
+        {
             place = hits[idx]
         }
         let name = place.name ?? destination
@@ -759,8 +795,9 @@ struct StartTripIntent: AppIntent {
         } catch is CancellationError {
             // Walk or Drive was switched on screen while this planned: the
             // plan it started answers, and this one is not "no route".
-            return .result(dialog: IntentDialog(
-                "The trip changed on screen while I planned. Ask me again."))
+            return .result(
+                dialog: IntentDialog(
+                    "The trip changed on screen while I planned. Ask me again."))
         } catch {
             routes = []
         }
@@ -790,7 +827,9 @@ struct StartTripIntent: AppIntent {
         }
         // A start that isn't here is said out loud: miles and time from Home
         // read as if from here, and "go ahead" starts that route.
-        let startNote = start.label == "Current location" ? ""
+        let startNote =
+            start.label == "Current location"
+            ? ""
             : " from " + (start.label == "Home" ? "Home" : start.label.lowercased())
         let summary = SiriSummaries.tripOffer(
             name: name + startNote, meters: staged.distanceMeters, seconds: staged.eta,
@@ -838,9 +877,11 @@ struct FLOWSShortcuts: AppShortcutsProvider {
         // its place, and music/radio ride ONE parameterized slot each.
         AppShortcut(
             intent: MusicControlIntent(),
-            phrases: ["\(\.$action) music in \(.applicationName)",
-                      "\(\.$action) the music in \(.applicationName)",
-                      "\(\.$action) in \(.applicationName)"],
+            phrases: [
+                "\(\.$action) music in \(.applicationName)",
+                "\(\.$action) the music in \(.applicationName)",
+                "\(\.$action) in \(.applicationName)",
+            ],
             shortTitle: "Music",
             systemImageName: "playpause.fill")
         // Case display text IS the phrase: "Play the weather radio in
@@ -854,38 +895,46 @@ struct FLOWSShortcuts: AppShortcutsProvider {
         // "find showers in FLOWS", "find truck parking in FLOWS".
         AppShortcut(
             intent: FindStopIntent(),
-            phrases: ["Find a stop in \(.applicationName)",
-                      "Find \(\.$kind) in \(.applicationName)",
-                      "Find \(\.$kind) ahead in \(.applicationName)",
-                      "Find a \(\.$kind) stop in \(.applicationName)"],
+            phrases: [
+                "Find a stop in \(.applicationName)",
+                "Find \(\.$kind) in \(.applicationName)",
+                "Find \(\.$kind) ahead in \(.applicationName)",
+                "Find a \(\.$kind) stop in \(.applicationName)",
+            ],
             shortTitle: "Find a stop",
             systemImageName: "fuelpump.fill")
         // Chain names become spoken vocabulary via \(\.$chain):
         // "add a Starbucks to our route in FLOWS", "stop at Love's in FLOWS".
         AppShortcut(
             intent: AddChainStopIntent(),
-            phrases: ["Add a \(\.$chain) to my route in \(.applicationName)",
-                      "Add a \(\.$chain) to our route in \(.applicationName)",
-                      "Add a \(\.$chain) to the route in \(.applicationName)",
-                      "Add a \(\.$chain) stop in \(.applicationName)",
-                      "Stop at \(\.$chain) in \(.applicationName)",
-                      "Can you add a \(\.$chain) to our route in \(.applicationName)"],
+            phrases: [
+                "Add a \(\.$chain) to my route in \(.applicationName)",
+                "Add a \(\.$chain) to our route in \(.applicationName)",
+                "Add a \(\.$chain) to the route in \(.applicationName)",
+                "Add a \(\.$chain) stop in \(.applicationName)",
+                "Stop at \(\.$chain) in \(.applicationName)",
+                "Can you add a \(\.$chain) to our route in \(.applicationName)",
+            ],
             shortTitle: "Add a chain stop",
             systemImageName: "plus.circle.fill")
         AppShortcut(
             intent: AddPlaceStopIntent(),
-            phrases: ["Add a stop in \(.applicationName)",
-                      "Add a stop to my route in \(.applicationName)",
-                      "Add a stop to our route in \(.applicationName)",
-                      "Add a place to my route in \(.applicationName)"],
+            phrases: [
+                "Add a stop in \(.applicationName)",
+                "Add a stop to my route in \(.applicationName)",
+                "Add a stop to our route in \(.applicationName)",
+                "Add a place to my route in \(.applicationName)",
+            ],
             shortTitle: "Add a stop",
             systemImageName: "mappin.circle.fill")
         AppShortcut(
             intent: RouteAheadIntent(),
-            phrases: ["How's the road ahead in \(.applicationName)",
-                      "What's ahead in \(.applicationName)",
-                      "How far to go in \(.applicationName)",
-                      "How much longer in \(.applicationName)"],
+            phrases: [
+                "How's the road ahead in \(.applicationName)",
+                "What's ahead in \(.applicationName)",
+                "How far to go in \(.applicationName)",
+                "How much longer in \(.applicationName)",
+            ],
             shortTitle: "Road ahead",
             systemImageName: "road.lanes")
         // TakeFasterRouteIntent keeps working from the Shortcuts app, but
@@ -893,32 +942,40 @@ struct FLOWSShortcuts: AppShortcutsProvider {
         // the plain spoken yes) already accept the faster-route offer.
         AppShortcut(
             intent: PlayMusicSearchIntent(),
-            phrases: ["Play something in \(.applicationName)",
-                      "Play some music in \(.applicationName)",
-                      "Put on music in \(.applicationName)",
-                      "Put something on in \(.applicationName)"],
+            phrases: [
+                "Play something in \(.applicationName)",
+                "Play some music in \(.applicationName)",
+                "Put on music in \(.applicationName)",
+                "Put something on in \(.applicationName)",
+            ],
             shortTitle: "Play something",
             systemImageName: "music.note.list")
         AppShortcut(
             intent: GoAheadIntent(),
-            phrases: ["Go ahead in \(.applicationName)",
-                      "Yes go ahead in \(.applicationName)",
-                      "Do it in \(.applicationName)"],
+            phrases: [
+                "Go ahead in \(.applicationName)",
+                "Yes go ahead in \(.applicationName)",
+                "Do it in \(.applicationName)",
+            ],
             shortTitle: "Go ahead",
             systemImageName: "checkmark.circle.fill")
         AppShortcut(
             intent: StartTripIntent(),
-            phrases: ["Start a trip in \(.applicationName)",
-                      "Navigate in \(.applicationName)",
-                      "Plan a route in \(.applicationName)",
-                      "Take me somewhere in \(.applicationName)"],
+            phrases: [
+                "Start a trip in \(.applicationName)",
+                "Navigate in \(.applicationName)",
+                "Plan a route in \(.applicationName)",
+                "Take me somewhere in \(.applicationName)",
+            ],
             shortTitle: "Start a trip",
             systemImageName: "map.fill")
         AppShortcut(
             intent: ReadAlertIntent(),
-            phrases: ["Read the alert in \(.applicationName)",
-                      "Read the emergency alert in \(.applicationName)",
-                      "What's the alert in \(.applicationName)"],
+            phrases: [
+                "Read the alert in \(.applicationName)",
+                "Read the emergency alert in \(.applicationName)",
+                "What's the alert in \(.applicationName)",
+            ],
             shortTitle: "Read the alert",
             systemImageName: "exclamationmark.triangle.fill")
     }

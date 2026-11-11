@@ -45,7 +45,7 @@ final class IntlWeatherParsingTests: XCTestCase {
         XCTAssertEqual(c.temperatureF!, (34.4 + 19.0) / 2 * 9 / 5 + 32, accuracy: 0.001)
         XCTAssertEqual(c.windMph!, 7.7 / 1.609344, accuracy: 0.001)
         XCTAssertEqual(c.popPercent!, 50)
-        XCTAssertNil(IntlWeatherParsing.smnRow(["tmax": "30"]))   // no coords
+        XCTAssertNil(IntlWeatherParsing.smnRow(["tmax": "30"]))  // no coords
     }
 
     func testGunzipRoundTrip() {
@@ -62,10 +62,10 @@ final class IntlWeatherParsingTests: XCTestCase {
             }
         }
         deflated.removeSubrange(written..<deflated.count)
-        var gz = Data([0x1f, 0x8b, 0x08, 0x08, 0, 0, 0, 0, 0, 0])   // FNAME flag
+        var gz = Data([0x1f, 0x8b, 0x08, 0x08, 0, 0, 0, 0, 0, 0])  // FNAME flag
         gz.append(Data("x.json\0".utf8))
         gz.append(deflated)
-        gz.append(Data([0, 0, 0, 0]))   // CRC (unchecked by our reader)
+        gz.append(Data([0, 0, 0, 0]))  // CRC (unchecked by our reader)
         var isize = UInt32(payload.count).littleEndian
         gz.append(Data(bytes: &isize, count: 4))
 

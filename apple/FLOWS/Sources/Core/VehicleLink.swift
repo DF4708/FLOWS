@@ -8,8 +8,9 @@
 
 import CoreBluetooth
 import Foundation
+
 #if canImport(ExternalAccessory)
-import ExternalAccessory
+    import ExternalAccessory
 #endif
 
 /// The phone's own wireless path to REAL vehicle data — no OEM account
@@ -49,7 +50,6 @@ final class VehicleLink: NSObject, ObservableObject {
         guard let obdFuelFraction, let obdFuelReadAt else { return nil }
         return FuelReading(fraction: obdFuelFraction, at: obdFuelReadAt)
     }
-
 
     /// Threshold for the low-tire chip (AppModel.lowTireWarning).
     static let lowPressurePsi = flows_tags_low_pressure_psi()
@@ -195,8 +195,10 @@ final class VehicleLink: NSObject, ObservableObject {
         let bytes = manufacturerData.map { [UInt8]($0) } ?? []
         let buffer = bytes.isEmpty ? [UInt8(0)] : bytes
         let reading = buffer.lent {
-            Array(flows_tags_parse_tpms(name ?? "", name != nil, $0,
-                                        Int64(bytes.count), manufacturerData != nil))
+            Array(
+                flows_tags_parse_tpms(
+                    name ?? "", name != nil, $0,
+                    Int64(bytes.count), manufacturerData != nil))
         }
         guard reading.count == 2, let name else { return nil }
         return ("Tire \(flows_tags_tpms_position(name).text)", reading[0], reading[1])
@@ -212,7 +214,7 @@ final class VehicleLink: NSObject, ObservableObject {
 
     private func start() {
         status = "Looking for tire sensors and car plug-ins…"
-        notAdapters = []   // a fresh look tries every likely name again
+        notAdapters = []  // a fresh look tries every likely name again
         failedDiscoveries = [:]
         central = CBCentralManager(delegate: self, queue: .main)
         startMFiIfAvailable()
@@ -233,124 +235,131 @@ final class VehicleLink: NSObject, ObservableObject {
     // MFi protocol; requires UISupportedExternalAccessoryProtocols (set in
     // Info.plist). Same ELM327 conversation, different transport.
     #if canImport(ExternalAccessory) && os(iOS)
-    static let mfiProtocols = ["com.scantool.stn", "com.obdlink.obd"]
-    private var mfiSession: EASession?
-    private var mfiPollTask: Task<Void, Never>?
+        static let mfiProtocols = ["com.scantool.stn", "com.obdlink.obd"]
+        private var mfiSession: EASession?
+        private var mfiPollTask: Task<Void, Never>?
 
-    private func startMFiIfAvailable() {
-        // Reentry guard: the scanning toggle calls start() on every off→on
-        // flip — without this, each flip spawned ANOTHER permanent poll loop
-        // and orphaned the previous EASession with its streams still open.
-        guard mfiSession == nil else { return }
-        for accessory in EAAccessoryManager.shared().connectedAccessories {
-            guard let proto = accessory.protocolStrings.first(
-                where: { Self.mfiProtocols.contains($0) }) else { continue }
-            guard let session = EASession(accessory: accessory, forProtocol: proto),
-                  let output = session.outputStream,
-                  let input = session.inputStream else { continue }
-            output.schedule(in: .main, forMode: .default)
-            input.schedule(in: .main, forMode: .default)
-            output.open()
-            input.open()
-            mfiSession = session
-            status = "Car plug-in connected (\(accessory.name))"
-            // ELM init + fuel poll over the accessory streams. Stored so
-            // stop() can actually end it — the Task.isCancelled guard was
-            // dead code while nothing held the handle.
+        private func startMFiIfAvailable() {
+            // Reentry guard: the scanning toggle calls start() on every off→on
+            // flip — without this, each flip spawned ANOTHER permanent poll loop
+            // and orphaned the previous EASession with its streams still open.
+            guard mfiSession == nil else { return }
+            for accessory in EAAccessoryManager.shared().connectedAccessories {
+                guard
+                    let proto = accessory.protocolStrings.first(
+                        where: { Self.mfiProtocols.contains($0) })
+                else { continue }
+                guard let session = EASession(accessory: accessory, forProtocol: proto),
+                    let output = session.outputStream,
+                    let input = session.inputStream
+                else { continue }
+                output.schedule(in: .main, forMode: .default)
+                input.schedule(in: .main, forMode: .default)
+                output.open()
+                input.open()
+                mfiSession = session
+                status = "Car plug-in connected (\(accessory.name))"
+                // ELM init + fuel poll over the accessory streams. Stored so
+                // stop() can actually end it — the Task.isCancelled guard was
+                // dead code while nothing held the handle.
+                mfiPollTask?.cancel()
+                mfiPollTask = Task { [weak self] in
+                    for cmd in ["ATZ", "ATE0", "ATSP0"] {
+                        self?.mfiWrite(cmd)
+                        try? await Task.sleep(for: .seconds(1))
+                    }
+                    while !Task.isCancelled, self?.mfiSession != nil {
+                        self?.mfiWrite("012F")
+                        try? await Task.sleep(for: .seconds(5))
+                        self?.mfiReadFuel()
+                        try? await Task.sleep(for: .seconds(25))
+                    }
+                }
+                return
+            }
+        }
+
+        private var mfiWatchers: [NSObjectProtocol] = []
+
+        /// A wired reader was only looked for when listening began: one plugged
+        /// in after that (the usual order: start the app, then the car) was
+        /// never found, and one pulled out left its last fuel level standing.
+        /// The system says when an accessory comes or goes; look again then.
+        private func watchForWiredReader() {
+            guard mfiWatchers.isEmpty else { return }
+            let manager = EAAccessoryManager.shared()
+            manager.registerForLocalNotifications()
+            let center = NotificationCenter.default
+            mfiWatchers.append(
+                center.addObserver(
+                    forName: .EAAccessoryDidConnect, object: nil, queue: .main
+                ) { [weak self] _ in
+                    Task { @MainActor in
+                        guard let self, self.scanning else { return }
+                        self.startMFiIfAvailable()
+                    }
+                })
+            mfiWatchers.append(
+                center.addObserver(
+                    forName: .EAAccessoryDidDisconnect, object: nil, queue: .main
+                ) { [weak self] note in
+                    let gone = (note.userInfo?[EAAccessoryKey] as? EAAccessory)?.connectionID
+                    Task { @MainActor in
+                        guard let self, let held = self.mfiSession?.accessory?.connectionID,
+                            gone == nil || gone == held
+                        else { return }
+                        self.stopMFi()
+                        self.obdFuelFraction = nil
+                        self.obdFuelReadAt = nil
+                        if self.scanning { self.status = "Car plug-in disconnected — listening again" }
+                        // Another wired reader may still be in.
+                        if self.scanning { self.startMFiIfAvailable() }
+                    }
+                })
+        }
+
+        private func stopWatchingForWiredReader() {
+            guard !mfiWatchers.isEmpty else { return }
+            mfiWatchers.forEach(NotificationCenter.default.removeObserver)
+            mfiWatchers = []
+            EAAccessoryManager.shared().unregisterForLocalNotifications()
+        }
+
+        private func stopMFi() {
             mfiPollTask?.cancel()
-            mfiPollTask = Task { [weak self] in
-                for cmd in ["ATZ", "ATE0", "ATSP0"] {
-                    self?.mfiWrite(cmd)
-                    try? await Task.sleep(for: .seconds(1))
-                }
-                while !Task.isCancelled, self?.mfiSession != nil {
-                    self?.mfiWrite("012F")
-                    try? await Task.sleep(for: .seconds(5))
-                    self?.mfiReadFuel()
-                    try? await Task.sleep(for: .seconds(25))
-                }
+            mfiPollTask = nil
+            if let session = mfiSession {
+                session.inputStream?.close()
+                session.outputStream?.close()
+                session.inputStream?.remove(from: .main, forMode: .default)
+                session.outputStream?.remove(from: .main, forMode: .default)
             }
-            return
+            mfiSession = nil
         }
-    }
 
-    private var mfiWatchers: [NSObjectProtocol] = []
+        private func mfiWrite(_ command: String) {
+            guard let out = mfiSession?.outputStream,
+                let data = (command + "\r").data(using: .ascii)
+            else { return }
+            _ = RawBytes.write(data, to: out)
+        }
 
-    /// A wired reader was only looked for when listening began: one plugged
-    /// in after that (the usual order: start the app, then the car) was
-    /// never found, and one pulled out left its last fuel level standing.
-    /// The system says when an accessory comes or goes; look again then.
-    private func watchForWiredReader() {
-        guard mfiWatchers.isEmpty else { return }
-        let manager = EAAccessoryManager.shared()
-        manager.registerForLocalNotifications()
-        let center = NotificationCenter.default
-        mfiWatchers.append(center.addObserver(
-            forName: .EAAccessoryDidConnect, object: nil, queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor in
-                guard let self, self.scanning else { return }
-                self.startMFiIfAvailable()
+        private func mfiReadFuel() {
+            guard let input = mfiSession?.inputStream, input.hasBytesAvailable else { return }
+            var buffer = [UInt8](repeating: 0, count: 512)
+            let n = input.read(&buffer, maxLength: buffer.count)
+            guard n > 0, let text = String(bytes: buffer[0..<n], encoding: .ascii) else { return }
+            if let fuel = Self.parseFuelReply(text) {
+                obdFuelFraction = fuel
+                obdFuelReadAt = Date()
+                status = String(format: "Fuel from the car plug-in: %.0f%%", fuel * 100)
             }
-        })
-        mfiWatchers.append(center.addObserver(
-            forName: .EAAccessoryDidDisconnect, object: nil, queue: .main
-        ) { [weak self] note in
-            let gone = (note.userInfo?[EAAccessoryKey] as? EAAccessory)?.connectionID
-            Task { @MainActor in
-                guard let self, let held = self.mfiSession?.accessory?.connectionID,
-                      gone == nil || gone == held else { return }
-                self.stopMFi()
-                self.obdFuelFraction = nil
-                self.obdFuelReadAt = nil
-                if self.scanning { self.status = "Car plug-in disconnected — listening again" }
-                // Another wired reader may still be in.
-                if self.scanning { self.startMFiIfAvailable() }
-            }
-        })
-    }
-
-    private func stopWatchingForWiredReader() {
-        guard !mfiWatchers.isEmpty else { return }
-        mfiWatchers.forEach(NotificationCenter.default.removeObserver)
-        mfiWatchers = []
-        EAAccessoryManager.shared().unregisterForLocalNotifications()
-    }
-
-    private func stopMFi() {
-        mfiPollTask?.cancel()
-        mfiPollTask = nil
-        if let session = mfiSession {
-            session.inputStream?.close()
-            session.outputStream?.close()
-            session.inputStream?.remove(from: .main, forMode: .default)
-            session.outputStream?.remove(from: .main, forMode: .default)
         }
-        mfiSession = nil
-    }
-
-    private func mfiWrite(_ command: String) {
-        guard let out = mfiSession?.outputStream,
-              let data = (command + "\r").data(using: .ascii) else { return }
-        _ = RawBytes.write(data, to: out)
-    }
-
-    private func mfiReadFuel() {
-        guard let input = mfiSession?.inputStream, input.hasBytesAvailable else { return }
-        var buffer = [UInt8](repeating: 0, count: 512)
-        let n = input.read(&buffer, maxLength: buffer.count)
-        guard n > 0, let text = String(bytes: buffer[0..<n], encoding: .ascii) else { return }
-        if let fuel = Self.parseFuelReply(text) {
-            obdFuelFraction = fuel
-            obdFuelReadAt = Date()
-            status = String(format: "Fuel from the car plug-in: %.0f%%", fuel * 100)
-        }
-    }
     #else
-    private func startMFiIfAvailable() {}
-    private func stopMFi() {}
-    private func watchForWiredReader() {}
-    private func stopWatchingForWiredReader() {}
+        private func startMFiIfAvailable() {}
+        private func stopMFi() {}
+        private func watchForWiredReader() {}
+        private func stopWatchingForWiredReader() {}
     #endif
 
     private func stop() {
@@ -395,12 +404,16 @@ final class VehicleLink: NSObject, ObservableObject {
 
 extension VehicleLink: CBCentralManagerDelegate, CBPeripheralDelegate {
     nonisolated func centralManagerDidUpdateState(_ central: CBCentralManager) {
+        // Delivered on the main queue (`queue: .main` above).
+        let state = central.state
+        let central = MainQueueOnly(central)
         Task { @MainActor in
-            switch central.state {
+            switch state {
             case .poweredOn:
                 self.status = "Listening for tire sensors and car plug-ins"
-                central.scanForPeripherals(withServices: nil,
-                                           options: [CBCentralManagerScanOptionAllowDuplicatesKey: true])
+                central.value.scanForPeripherals(
+                    withServices: nil,
+                    options: [CBCentralManagerScanOptionAllowDuplicatesKey: true])
             case .unauthorized:
                 self.status = "Bluetooth permission denied — enable in Settings"
             case .poweredOff:
@@ -422,25 +435,30 @@ extension VehicleLink: CBCentralManagerDelegate, CBPeripheralDelegate {
         _ central: CBCentralManager, didDiscover peripheral: CBPeripheral,
         advertisementData: [String: Any], rssi RSSI: NSNumber
     ) {
-        let name = (advertisementData[CBAdvertisementDataLocalNameKey] as? String)
+        let name =
+            (advertisementData[CBAdvertisementDataLocalNameKey] as? String)
             ?? peripheral.name
         let mfg = advertisementData[CBAdvertisementDataManufacturerDataKey] as? Data
         let sensorID = peripheral.identifier
+        let central = MainQueueOnly(central)
+        let found = MainQueueOnly(peripheral)
         Task { @MainActor in
             // TPMS caps: parse straight from the advertisement — by the
             // sensor's own identity, not its position label alone.
             if let tpms = Self.parseTPMSAdvertisement(name: name, manufacturerData: mfg) {
-                guard self.scanning else { return }   // queued before stop()
+                guard self.scanning else { return }  // queued before stop()
                 self.heardSensor(sensorID, position: tpms.id, psi: tpms.psi)
                 return
             }
             // OBD adapters: connect once to the first likely UART device.
             if self.obdPeripheral == nil,
-               !self.notAdapters.contains(peripheral.identifier),
-               Self.namedLikeAdapter(name ?? "") {
+                !self.notAdapters.contains(sensorID),
+                Self.namedLikeAdapter(name ?? "")
+            {
+                let peripheral = found.value
                 self.obdPeripheral = peripheral
                 peripheral.delegate = self
-                central.connect(peripheral)
+                central.value.connect(peripheral)
                 self.status = "Connecting to \(name ?? "the car plug-in")…"
             }
         }
@@ -476,13 +494,14 @@ extension VehicleLink: CBCentralManagerDelegate, CBPeripheralDelegate {
             // it only after three.
             let id = peripheral.identifier
             let failed = error != nil
+            let held = MainQueueOnly(peripheral)
             Task { @MainActor in
                 if failed { self.failedDiscoveries[id, default: 0] += 1 }
                 if !failed || self.failedDiscoveries[id, default: 0] >= 3 {
                     self.notAdapters.insert(id)
                 }
                 if self.obdPeripheral?.identifier == id {
-                    self.central?.cancelPeripheralConnection(peripheral)
+                    self.central?.cancelPeripheralConnection(held.value)
                     self.dropOBDAdapter(id)
                 }
             }
@@ -502,9 +521,11 @@ extension VehicleLink: CBCentralManagerDelegate, CBPeripheralDelegate {
                 peripheral.setNotifyValue(true, for: ch)
             }
             if ch.properties.contains(.write) || ch.properties.contains(.writeWithoutResponse) {
+                let write = MainQueueOnly(ch)
+                let reader = MainQueueOnly(peripheral)
                 Task { @MainActor in
-                    self.obdWrite = ch
-                    self.beginOBDPolling(peripheral)
+                    self.obdWrite = write.value
+                    self.beginOBDPolling(reader.value)
                 }
             }
         }
@@ -515,10 +536,11 @@ extension VehicleLink: CBCentralManagerDelegate, CBPeripheralDelegate {
         error: Error?
     ) {
         guard let data = characteristic.value,
-              let chunk = String(data: data, encoding: .ascii) else { return }
+            let chunk = String(data: data, encoding: .ascii)
+        else { return }
         Task { @MainActor in
             self.obdBuffer += chunk
-            if self.obdBuffer.contains(">") {   // ELM327 prompt = reply complete
+            if self.obdBuffer.contains(">") {  // ELM327 prompt = reply complete
                 if let fuel = Self.parseFuelReply(self.obdBuffer) {
                     self.obdFuelFraction = fuel
                     self.obdFuelReadAt = Date()
@@ -542,11 +564,11 @@ extension VehicleLink: CBCentralManagerDelegate, CBPeripheralDelegate {
         obdPollTask = Task { [weak self] in
             let setup = ["ATZ", "ATE0", "ATSP0"]
             for cmd in setup {
-                self?.sendOBD(cmd, to: peripheral)   // @MainActor-inherited: no hop
+                self?.sendOBD(cmd, to: peripheral)  // @MainActor-inherited: no hop
                 try? await Task.sleep(for: .seconds(1))
             }
             while !Task.isCancelled {
-                self?.sendOBD("012F", to: peripheral)   // SAE fuel level
+                self?.sendOBD("012F", to: peripheral)  // SAE fuel level
                 try? await Task.sleep(for: .seconds(30))
             }
         }

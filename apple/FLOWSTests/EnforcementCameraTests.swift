@@ -16,21 +16,25 @@ final class EnforcementCameraTests: XCTestCase {
 
     /// A point `meters` due north of `here`.
     private func north(_ meters: Double) -> CLLocationCoordinate2D {
-        CLLocationCoordinate2D(latitude: here.latitude + meters / 111_320,
-                               longitude: here.longitude)
+        CLLocationCoordinate2D(
+            latitude: here.latitude + meters / 111_320,
+            longitude: here.longitude)
     }
 
-    private func camera(_ id: String, _ c: CLLocationCoordinate2D,
-                        kind: EnforcementCameras.Kind = .speed,
-                        limit: Double? = nil) -> EnforcementCameras.Camera {
+    private func camera(
+        _ id: String, _ c: CLLocationCoordinate2D,
+        kind: EnforcementCameras.Kind = .speed,
+        limit: Double? = nil
+    ) -> EnforcementCameras.Camera {
         EnforcementCameras.Camera(id: id, coordinate: c, kind: kind, limitMph: limit)
     }
 
     // MARK: reading the tags
 
     func testTheCommonSpeedCameraTagIsRecognized() {
-        XCTAssertEqual(EnforcementCameras.kind(fromTags: ["highway": "speed_camera"]),
-                       .speed)
+        XCTAssertEqual(
+            EnforcementCameras.kind(fromTags: ["highway": "speed_camera"]),
+            .speed)
     }
 
     func testARedLightCameraIsNotFiledAsASpeedCamera() {
@@ -43,9 +47,12 @@ final class EnforcementCameraTests: XCTestCase {
     }
 
     func testADeviceThatCatchesBothSaysSo() {
-        XCTAssertEqual(EnforcementCameras.kind(
-            fromTags: ["highway": "speed_camera",
-                       "enforcement": "traffic_signals"]), .both)
+        XCTAssertEqual(
+            EnforcementCameras.kind(
+                fromTags: [
+                    "highway": "speed_camera",
+                    "enforcement": "traffic_signals",
+                ]), .both)
     }
 
     func testOrdinaryRoadFurnitureIsNotACamera() {
@@ -67,8 +74,9 @@ final class EnforcementCameraTests: XCTestCase {
 
     func testTheNearestCameraAheadIsTheOneWarnedAbout() {
         let cams = [camera("far", north(500)), camera("near", north(200))]
-        let hit = EnforcementCameras.imminent(among: cams, at: here,
-                                              headingDegrees: 0)
+        let hit = EnforcementCameras.imminent(
+            among: cams, at: here,
+            headingDegrees: 0)
         XCTAssertEqual(hit?.camera.id, "near")
     }
 
@@ -76,48 +84,62 @@ final class EnforcementCameraTests: XCTestCase {
         // Driving north, with the only camera to the south. Warning here
         // would teach the driver to ignore the warning.
         let cams = [camera("behind", north(-200))]
-        XCTAssertNil(EnforcementCameras.imminent(among: cams, at: here,
-                                                 headingDegrees: 0))
+        XCTAssertNil(
+            EnforcementCameras.imminent(
+                among: cams, at: here,
+                headingDegrees: 0))
     }
 
     func testTheOppositeCarriagewayDoesNotTriggerAWarning() {
         // A camera 80 m back on the other side is CLOSER than one 400 m up
         // the road — distance alone picks the wrong one, so heading decides.
         let cams = [camera("oncoming", north(-80)), camera("mine", north(400))]
-        let hit = EnforcementCameras.imminent(among: cams, at: here,
-                                              headingDegrees: 0)
+        let hit = EnforcementCameras.imminent(
+            among: cams, at: here,
+            headingDegrees: 0)
         XCTAssertEqual(hit?.camera.id, "mine")
     }
 
     func testACameraAlreadyPassedDropsOut() {
         let cams = [camera("underfoot", north(20))]
-        XCTAssertNil(EnforcementCameras.imminent(among: cams, at: here,
-                                                 headingDegrees: 0))
+        XCTAssertNil(
+            EnforcementCameras.imminent(
+                among: cams, at: here,
+                headingDegrees: 0))
     }
 
     func testACameraTooFarOffStaysQuiet() {
         let cams = [camera("miles", north(3_000))]
-        XCTAssertNil(EnforcementCameras.imminent(among: cams, at: here,
-                                                 headingDegrees: 0))
+        XCTAssertNil(
+            EnforcementCameras.imminent(
+                among: cams, at: here,
+                headingDegrees: 0))
     }
 
     func testWithNoHeadingEverythingCounts() {
         // Stopped, or a fix with no course: there is nothing better to say
         // than "there is a camera near you".
         let cams = [camera("somewhere", north(-200))]
-        XCTAssertNotNil(EnforcementCameras.imminent(among: cams, at: here,
-                                                    headingDegrees: nil))
-        XCTAssertNotNil(EnforcementCameras.imminent(among: cams, at: here,
-                                                    headingDegrees: -1))
+        XCTAssertNotNil(
+            EnforcementCameras.imminent(
+                among: cams, at: here,
+                headingDegrees: nil))
+        XCTAssertNotNil(
+            EnforcementCameras.imminent(
+                among: cams, at: here,
+                headingDegrees: -1))
     }
 
     func testBearingIsMeasuredFromNorthClockwise() {
-        XCTAssertEqual(EnforcementCameras.bearingDegrees(from: here, to: north(100)),
-                       0, accuracy: 0.5)
-        let east = CLLocationCoordinate2D(latitude: here.latitude,
-                                          longitude: here.longitude + 0.001)
-        XCTAssertEqual(EnforcementCameras.bearingDegrees(from: here, to: east),
-                       90, accuracy: 0.5)
+        XCTAssertEqual(
+            EnforcementCameras.bearingDegrees(from: here, to: north(100)),
+            0, accuracy: 0.5)
+        let east = CLLocationCoordinate2D(
+            latitude: here.latitude,
+            longitude: here.longitude + 0.001)
+        XCTAssertEqual(
+            EnforcementCameras.bearingDegrees(from: here, to: east),
+            90, accuracy: 0.5)
     }
 
     // MARK: what it says

@@ -22,14 +22,20 @@ final class PlanningBurstTests: XCTestCase {
     private actor Peak {
         var cur = 0
         var hi = 0
-        func enter() { cur += 1; hi = Swift.max(hi, cur) }
+        func enter() {
+            cur += 1
+            hi = Swift.max(hi, cur)
+        }
         func leave() { cur -= 1 }
         func peak() -> Int { hi }
-        func reset() { cur = 0; hi = 0 }
+        func reset() {
+            cur = 0
+            hi = 0
+        }
     }
 
     /// Push `count` holds through the gate and report the peak concurrency.
-    private func drive(_ gate: RequestGate, count: Int, peak: Peak) async -> Int {
+    private static func drive(_ gate: RequestGate, count: Int, peak: Peak) async -> Int {
         await peak.reset()
         await withTaskGroup(of: Void.self) { group in
             for _ in 0..<count {
@@ -51,17 +57,17 @@ final class PlanningBurstTests: XCTestCase {
         let gate = RequestGate(baseCeiling: { 2 }, burstCeiling: { 5 })
         let peak = Peak()
 
-        let atRest = await drive(gate, count: 12, peak: peak)
+        let atRest = await Self.drive(gate, count: 12, peak: peak)
         XCTAssertGreaterThan(atRest, 0)
         XCTAssertLessThanOrEqual(atRest, 2)
 
         await gate.beginPlanningBurst()
-        let bursting = await drive(gate, count: 12, peak: peak)
-        XCTAssertGreaterThan(bursting, 2)          // proof the lane opened
-        XCTAssertLessThanOrEqual(bursting, 5)      // …and stayed capped
+        let bursting = await Self.drive(gate, count: 12, peak: peak)
+        XCTAssertGreaterThan(bursting, 2)  // proof the lane opened
+        XCTAssertLessThanOrEqual(bursting, 5)  // …and stayed capped
         await gate.endPlanningBurst()
 
-        let after = await drive(gate, count: 12, peak: peak)
+        let after = await Self.drive(gate, count: 12, peak: peak)
         XCTAssertLessThanOrEqual(after, 2)
     }
 
@@ -73,10 +79,10 @@ final class PlanningBurstTests: XCTestCase {
         await gate.beginPlanningBurst()
         await gate.beginPlanningBurst()
         await gate.endPlanningBurst()
-        let stillBursting = await drive(gate, count: 12, peak: peak)
+        let stillBursting = await Self.drive(gate, count: 12, peak: peak)
         XCTAssertGreaterThan(stillBursting, 2)
         await gate.endPlanningBurst()
-        let closed = await drive(gate, count: 12, peak: peak)
+        let closed = await Self.drive(gate, count: 12, peak: peak)
         XCTAssertLessThanOrEqual(closed, 2)
     }
 
@@ -87,11 +93,11 @@ final class PlanningBurstTests: XCTestCase {
         let gate = RequestGate(baseCeiling: { 2 }, burstCeiling: { 5 })
         let peak = Peak()
         await gate.withPlanningBurst {
-            let inside = await self.drive(gate, count: 12, peak: peak)
+            let inside = await Self.drive(gate, count: 12, peak: peak)
             XCTAssertGreaterThan(inside, 2)
             XCTAssertLessThanOrEqual(inside, 5)
         }
-        let after = await drive(gate, count: 12, peak: peak)
+        let after = await Self.drive(gate, count: 12, peak: peak)
         XCTAssertLessThanOrEqual(after, 2)
     }
 
@@ -99,12 +105,13 @@ final class PlanningBurstTests: XCTestCase {
     /// spot) self-heals: past the safety window the ceiling is background
     /// again even though the refcount never hit zero.
     func testPlanningBurstSafetyWindowExpires() async {
-        let gate = RequestGate(baseCeiling: { 2 }, burstCeiling: { 6 },
-                               burstSafetyWindow: 0.05)
+        let gate = RequestGate(
+            baseCeiling: { 2 }, burstCeiling: { 6 },
+            burstSafetyWindow: 0.05)
         let peak = Peak()
         await gate.beginPlanningBurst()
         try? await Task.sleep(for: .milliseconds(150))
-        let after = await drive(gate, count: 10, peak: peak)
+        let after = await Self.drive(gate, count: 10, peak: peak)
         XCTAssertLessThanOrEqual(after, 2)
     }
 
@@ -162,7 +169,7 @@ final class PlanningBurstTests: XCTestCase {
         }
         await gate.endPlanningBurst()
         let hi = await peak.peak()
-        XCTAssertGreaterThan(hi, 1)          // waiters actually joined mid-flight
+        XCTAssertGreaterThan(hi, 1)  // waiters actually joined mid-flight
         XCTAssertLessThanOrEqual(hi, 4)
     }
 
@@ -177,7 +184,7 @@ final class PlanningBurstTests: XCTestCase {
         XCTAssertFalse(cells.isEmpty)
         XCTAssertLessThanOrEqual(cells.count, 16)
         let keys = cells.map(WeatherAlertService.cellKey)
-        XCTAssertEqual(Set(keys).count, keys.count)   // one point per cell
+        XCTAssertEqual(Set(keys).count, keys.count)  // one point per cell
         XCTAssertTrue(keys.contains(WeatherAlertService.cellKey(madison)))
         XCTAssertTrue(keys.contains(WeatherAlertService.cellKey(milwaukee)))
     }
@@ -234,8 +241,8 @@ final class PlanningBurstTests: XCTestCase {
         XCTAssertEqual(out[0]?.risk ?? 0, 0.88, accuracy: 1e-9)
         XCTAssertEqual(out[0]?.worstEvent, "Flood Warning")
         XCTAssertEqual(out[0]?.alertID, "a")
-        XCTAssertNil(out[1])                       // still in flight → unknown
-        XCTAssertNotNil(out[2])                    // landed, genuinely clear
+        XCTAssertNil(out[1])  // still in flight → unknown
+        XCTAssertNotNil(out[2])  // landed, genuinely clear
         XCTAssertEqual(out[2]?.risk ?? -1, 0, accuracy: 1e-9)
     }
 
@@ -244,14 +251,19 @@ final class PlanningBurstTests: XCTestCase {
     func testProvisionalSamplesRespectArrivalExpiry() {
         let pt = CLLocationCoordinate2D(latitude: 43.0, longitude: -89.0)
         let now = Date()
-        let cellAlerts = [WeatherAlertService.cellKey(pt):
-                            [alert(id: "a", severity: 0.88,
-                                   expires: now.addingTimeInterval(600))]]
+        let cellAlerts = [
+            WeatherAlertService.cellKey(pt):
+                [
+                    alert(
+                        id: "a", severity: 0.88,
+                        expires: now.addingTimeInterval(600))
+                ]
+        ]
         let out = WeatherAlertService.provisionalSamples(
             samples: [pt, pt], cellAlerts: cellAlerts,
             arrivalOffsets: [0, 3600], now: now)
-        XCTAssertEqual(out[0]?.risk ?? 0, 0.88, accuracy: 1e-9)   // active on arrival
-        XCTAssertEqual(out[1]?.risk ?? -1, 0, accuracy: 1e-9)     // expired by then
+        XCTAssertEqual(out[0]?.risk ?? 0, 0.88, accuracy: 1e-9)  // active on arrival
+        XCTAssertEqual(out[1]?.risk ?? -1, 0, accuracy: 1e-9)  // expired by then
     }
 
     /// Several alerts in one cell → the worst active one names the sample.
@@ -259,10 +271,12 @@ final class PlanningBurstTests: XCTestCase {
         let pt = CLLocationCoordinate2D(latitude: 43.0, longitude: -89.0)
         let out = WeatherAlertService.provisionalSamples(
             samples: [pt],
-            cellAlerts: [WeatherAlertService.cellKey(pt): [
-                alert(id: "minor", event: "Dense Fog Advisory", severity: 0.45),
-                alert(id: "severe", event: "Tornado Warning", severity: 0.95),
-            ]],
+            cellAlerts: [
+                WeatherAlertService.cellKey(pt): [
+                    alert(id: "minor", event: "Dense Fog Advisory", severity: 0.45),
+                    alert(id: "severe", event: "Tornado Warning", severity: 0.95),
+                ]
+            ],
             arrivalOffsets: nil, now: Date())
         XCTAssertEqual(out[0]?.risk ?? 0, 0.95, accuracy: 1e-9)
         XCTAssertEqual(out[0]?.alertID, "severe")
@@ -273,10 +287,12 @@ final class PlanningBurstTests: XCTestCase {
         let pt = CLLocationCoordinate2D(latitude: 43.0, longitude: -89.0)
         let out = WeatherAlertService.provisionalSamples(
             samples: [pt],
-            cellAlerts: [WeatherAlertService.cellKey(pt): [
-                alert(id: "watch", event: "Tornado Watch", severity: 0.95),
-                alert(id: "svr", event: "Severe Thunderstorm Warning", severity: 0.88),
-            ]],
+            cellAlerts: [
+                WeatherAlertService.cellKey(pt): [
+                    alert(id: "watch", event: "Tornado Watch", severity: 0.95),
+                    alert(id: "svr", event: "Severe Thunderstorm Warning", severity: 0.88),
+                ]
+            ],
             arrivalOffsets: nil, now: Date())
         XCTAssertEqual(out[0]?.alertID, "svr")
         XCTAssertEqual(out[0]?.worstEvent, "Severe Thunderstorm Warning")
@@ -291,8 +307,8 @@ final class PlanningBurstTests: XCTestCase {
         let mid = CLLocationCoordinate2D(latitude: 40, longitude: -99.75)
         let b = CLLocationCoordinate2D(latitude: 40, longitude: -99.5)
         let out = WeatherAlertService.betweenPoints(samples: [a, b], between: [[a, mid, b]])
-        XCTAssertEqual(out.count, 8)                       // 5…40 km of 42.6
-        XCTAssertEqual(out.filter { $0.sample == 0 }.count, 4)   // the first half
+        XCTAssertEqual(out.count, 8)  // 5…40 km of 42.6
+        XCTAssertEqual(out.filter { $0.sample == 0 }.count, 4)  // the first half
         XCTAssertEqual(out.filter { $0.sample == 1 }.count, 4)
         XCTAssertEqual(POIRanking.meters(a, out[0].point), 5_000, accuracy: 60)
         // along the road, in order
@@ -301,7 +317,7 @@ final class PlanningBurstTests: XCTestCase {
 
     func testBetweenPointsLeaveShortRunsAndMissingRoadAlone() {
         let a = CLLocationCoordinate2D(latitude: 40, longitude: -100)
-        let near = CLLocationCoordinate2D(latitude: 40, longitude: -99.97)   // ~2.6 km
+        let near = CLLocationCoordinate2D(latitude: 40, longitude: -99.97)  // ~2.6 km
         XCTAssertTrue(WeatherAlertService.betweenPoints(samples: [a, near], between: [[a, near]]).isEmpty)
         XCTAssertTrue(WeatherAlertService.betweenPoints(samples: [a, near], between: nil).isEmpty)
         XCTAssertTrue(WeatherAlertService.betweenPoints(samples: [a], between: [[a]]).isEmpty)
@@ -316,7 +332,7 @@ final class PlanningBurstTests: XCTestCase {
         let samples = (0...30).map { CLLocationCoordinate2D(latitude: 40, longitude: -100 + 0.5 * Double($0)) }
         let runs = (0..<30).map { [samples[$0], samples[$0 + 1]] }
         let all = WeatherAlertService.betweenPoints(samples: samples, between: runs)
-        XCTAssertEqual(all.count, 30 * 8)   // 8 per 42.6 km gap
+        XCTAssertEqual(all.count, 30 * 8)  // 8 per 42.6 km gap
         let capped = WeatherAlertService.betweenPoints(samples: samples, between: runs, cap: 20)
         XCTAssertEqual(capped.count, 20)
         XCTAssertEqual(capped.map { $0.point.longitude }, all.prefix(20).map { $0.point.longitude })
@@ -331,7 +347,7 @@ final class PlanningBurstTests: XCTestCase {
         ]
         let runs = WeatherAlertService.runsBetween(halves, gaps: 1)
         XCTAssertEqual(runs?.first?.count, 5)
-        XCTAssertNil(WeatherAlertService.runsBetween(halves, gaps: 2))   // not that route's segments
+        XCTAssertNil(WeatherAlertService.runsBetween(halves, gaps: 2))  // not that route's segments
         XCTAssertNil(WeatherAlertService.runsBetween([], gaps: 0))
     }
 
@@ -339,40 +355,59 @@ final class PlanningBurstTests: XCTestCase {
 
     func testParseAlertFeaturesPolygonAndZoneShapes() {
         let features: [[String: Any]] = [
-            ["id": "urn:a",
-             "properties": ["id": "urn:a", "event": "Tornado Warning",
-                            "headline": "TW", "severity": "Extreme",
-                            "affectedZones": ["https://api.weather.gov/zones/forecast/WIZ064"]],
-             "geometry": ["type": "Polygon",
-                          "coordinates": [[[-89.5, 42.9], [-89.5, 43.1], [-89.3, 43.1],
-                                           [-89.3, 42.9], [-89.5, 42.9]]]]],
-            ["id": "urn:b",
-             "properties": ["id": "urn:b", "event": "Winter Storm Warning",
-                            "headline": "WSW", "severity": "Moderate",
-                            "affectedZones": ["z1", "z2"]],
-             "geometry": NSNull()],
+            [
+                "id": "urn:a",
+                "properties": [
+                    "id": "urn:a", "event": "Tornado Warning",
+                    "headline": "TW", "severity": "Extreme",
+                    "affectedZones": ["https://api.weather.gov/zones/forecast/WIZ064"],
+                ],
+                "geometry": [
+                    "type": "Polygon",
+                    "coordinates": [
+                        [
+                            [-89.5, 42.9], [-89.5, 43.1], [-89.3, 43.1],
+                            [-89.3, 42.9], [-89.5, 42.9],
+                        ]
+                    ],
+                ],
+            ],
+            [
+                "id": "urn:b",
+                "properties": [
+                    "id": "urn:b", "event": "Winter Storm Warning",
+                    "headline": "WSW", "severity": "Moderate",
+                    "affectedZones": ["z1", "z2"],
+                ],
+                "geometry": NSNull(),
+            ],
         ]
         let parsed = WeatherAlertService.parseAlertFeatures(features)
         XCTAssertEqual(parsed.count, 2)
         XCTAssertEqual(parsed[0].id, "urn:a")
         XCTAssertEqual(parsed[0].severityScore, 0.95, accuracy: 1e-9)
         XCTAssertEqual(parsed[0].polygon?.count, 5)
-        XCTAssertEqual(parsed[0].affectedZones,
-                       ["https://api.weather.gov/zones/forecast/WIZ064"])
-        XCTAssertNil(parsed[1].polygon)          // geometry: null survives as nil
+        XCTAssertEqual(
+            parsed[0].affectedZones,
+            ["https://api.weather.gov/zones/forecast/WIZ064"])
+        XCTAssertNil(parsed[1].polygon)  // geometry: null survives as nil
         XCTAssertEqual(parsed[1].severityScore, 0.72, accuracy: 1e-9)
         XCTAssertEqual(parsed[1].affectedZones, ["z1", "z2"])
     }
 
     /// An alert is in force until the EVENT ends, not until its message
     /// lapses (with no end given: testAnAlertWithNoEndRunsAsLongAsItsKind).
-func testACancelledAlertIsNotALiveWarning() {
+    func testACancelledAlertIsNotALiveWarning() {
         func alert(_ type: String) -> [String: Any] {
-            ["id": "urn:x",
-             "properties": ["id": "urn:x", "event": "Tornado Warning", "headline": "TOR",
-                            "severity": "Extreme", "messageType": type,
-                            "expires": "2026-12-01T04:00:00-06:00"],
-             "geometry": NSNull()]
+            [
+                "id": "urn:x",
+                "properties": [
+                    "id": "urn:x", "event": "Tornado Warning", "headline": "TOR",
+                    "severity": "Extreme", "messageType": type,
+                    "expires": "2026-12-01T04:00:00-06:00",
+                ],
+                "geometry": NSNull(),
+            ]
         }
         XCTAssertEqual(WeatherAlertService.parseAlertFeatures([alert("Alert")]).count, 1)
         XCTAssertEqual(WeatherAlertService.parseAlertFeatures([alert("Update")]).count, 1)
@@ -381,11 +416,15 @@ func testACancelledAlertIsNotALiveWarning() {
 
     func testAnAlertLastsUntilItsEventEnds() throws {
         func alert(_ extra: [String: Any]) -> [String: Any] {
-            ["id": "urn:x",
-             "properties": ["id": "urn:x", "event": "Winter Storm Warning", "headline": "WSW",
-                            "severity": "Severe", "expires": "2026-12-01T04:00:00-06:00"]
+            [
+                "id": "urn:x",
+                "properties": [
+                    "id": "urn:x", "event": "Winter Storm Warning", "headline": "WSW",
+                    "severity": "Severe", "expires": "2026-12-01T04:00:00-06:00",
+                ]
                 .merging(extra) { $1 },
-             "geometry": NSNull()]
+                "geometry": NSNull(),
+            ]
         }
         let parse = { (extra: [String: Any]) in
             WeatherAlertService.parseAlertFeatures([alert(extra)]).first?.expires
@@ -408,14 +447,19 @@ func testACancelledAlertIsNotALiveWarning() {
         let memory = AlertLengthMemory(directory: dir)
         let iso = ISO8601DateFormatter()
         let parse: (String) -> Date? = { iso.date(from: $0) }
-        func storm(_ n: Int, hours: Int, action: String = "NEW",
-                   extra: [String: Any] = [:]) -> [String: Any] {
-            let ends = iso.string(from: try! XCTUnwrap(parse("2026-12-01T00:00:00Z"))
-                .addingTimeInterval(Double(hours) * 3600))
+        func storm(
+            _ n: Int, hours: Int, action: String = "NEW",
+            extra: [String: Any] = [:]
+        ) -> [String: Any] {
+            let ends = iso.string(
+                from: try! XCTUnwrap(parse("2026-12-01T00:00:00Z"))
+                    .addingTimeInterval(Double(hours) * 3600))
             let props: [String: Any] = [
                 "id": "urn:storm:\(n):\(action)", "event": "Winter Storm Warning",
                 "onset": "2026-12-01T00:00:00Z", "ends": ends,
-                "parameters": ["VTEC": ["/O.\(action).KBUF.WS.W.\(String(format: "%04d", n)).261201T0000Z-261203T0000Z/"]],
+                "parameters": [
+                    "VTEC": ["/O.\(action).KBUF.WS.W.\(String(format: "%04d", n)).261201T0000Z-261203T0000Z/"]
+                ],
             ]
             return ["id": "urn:storm:\(n):\(action)", "properties": props.merging(extra) { $1 }]
         }
@@ -426,59 +470,73 @@ func testACancelledAlertIsNotALiveWarning() {
         let twenty = (1...20).map { storm($0, hours: 54) }
         memory.record(AlertLengthLearning.samples(from: twenty, parse: parse))
         XCTAssertEqual(memory.eventCount, 20)
-        XCTAssertEqual(memory.usualHours(event: "Winter Storm Warning"),
-                       27 * 2.0.squareRoot(), accuracy: 1e-9)
+        XCTAssertEqual(
+            memory.usualHours(event: "Winter Storm Warning"),
+            27 * 2.0.squareRoot(), accuracy: 1e-9)
         // The same list again, and an update of one storm under a new
         // message id, count nothing twice.
         memory.record(AlertLengthLearning.samples(from: twenty, parse: parse))
-        memory.record(AlertLengthLearning.samples(
-            from: [storm(7, hours: 54, action: "CON")], parse: parse))
+        memory.record(
+            AlertLengthLearning.samples(
+                from: [storm(7, hours: 54, action: "CON")], parse: parse))
         XCTAssertEqual(memory.eventCount, 20)
-        XCTAssertEqual(memory.usualHours(event: "Winter Storm Warning"),
-                       27 * 2.0.squareRoot(), accuracy: 1e-9)
+        XCTAssertEqual(
+            memory.usualHours(event: "Winter Storm Warning"),
+            27 * 2.0.squareRoot(), accuracy: 1e-9)
         // An update of a storm already under way gives its own send time as
         // the start (the VTEC start reads zeros). It must not shorten a
         // storm whose start was seen, and a storm first met half way
         // through teaches nothing: its true start is not known.
         func underWay(_ n: Int) -> [String: Any] {
-            ["id": "urn:storm:\(n):late", "properties": [
-                "id": "urn:storm:\(n):late", "event": "Winter Storm Warning",
-                "messageType": "Update",
-                "onset": "2026-12-03T00:00:00Z", "ends": "2026-12-03T06:00:00Z",
-                "parameters": ["VTEC": ["/O.CON.KBUF.WS.W.\(String(format: "%04d", n)).000000T0000Z-261203T0600Z/"]],
-            ] as [String: Any]]
+            [
+                "id": "urn:storm:\(n):late",
+                "properties": [
+                    "id": "urn:storm:\(n):late", "event": "Winter Storm Warning",
+                    "messageType": "Update",
+                    "onset": "2026-12-03T00:00:00Z", "ends": "2026-12-03T06:00:00Z",
+                    "parameters": [
+                        "VTEC": ["/O.CON.KBUF.WS.W.\(String(format: "%04d", n)).000000T0000Z-261203T0600Z/"]
+                    ],
+                ] as [String: Any],
+            ]
         }
         memory.record(AlertLengthLearning.samples(from: [underWay(7), underWay(99)], parse: parse))
         XCTAssertEqual(memory.eventCount, 20)
-        XCTAssertEqual(memory.usualHours(event: "Winter Storm Warning"),
-                       27 * 2.0.squareRoot(), accuracy: 1e-9)
+        XCTAssertEqual(
+            memory.usualHours(event: "Winter Storm Warning"),
+            27 * 2.0.squareRoot(), accuracy: 1e-9)
         // Other kinds are untouched.
         XCTAssertEqual(memory.usualHours(event: "Flood Warning"), 42, accuracy: 1e-9)
 
         // An alert with no end now runs the learned length.
         let noEnd: [String: Any] = [
             "id": "urn:x",
-            "properties": ["id": "urn:x", "event": "Winter Storm Warning",
-                           "headline": "Winter Storm Warning", "severity": "Severe",
-                           "expires": "2026-12-01T10:00:00Z"],
-            "geometry": NSNull()]
+            "properties": [
+                "id": "urn:x", "event": "Winter Storm Warning",
+                "headline": "Winter Storm Warning", "severity": "Severe",
+                "expires": "2026-12-01T10:00:00Z",
+            ],
+            "geometry": NSNull(),
+        ]
         let message = try XCTUnwrap(parse("2026-12-01T10:00:00Z"))
         let taught = try XCTUnwrap(
             WeatherAlertService.parseAlertFeatures([noEnd], lengths: memory).first?.expires)
-        XCTAssertEqual(taught.timeIntervalSince(message) / 3600,
-                       27 * 2.0.squareRoot() * 1.38, accuracy: 1e-6)
+        XCTAssertEqual(
+            taught.timeIntervalSince(message) / 3600,
+            27 * 2.0.squareRoot() * 1.38, accuracy: 1e-6)
         let plain = try XCTUnwrap(
             WeatherAlertService.parseAlertFeatures([noEnd], lengths: nil).first?.expires)
         XCTAssertEqual(plain.timeIntervalSince(message) / 3600, 27 * 1.38, accuracy: 1e-6)
 
         // What teaches nothing: a cancel, no end, no start, a length that is
         // not a believable event.
-        let nothing = AlertLengthLearning.samples(from: [
-            storm(30, hours: 54, extra: ["messageType": "Cancel"]),
-            noEnd,
-            storm(31, hours: 0),
-            storm(32, hours: 5_000),
-        ], parse: parse)
+        let nothing = AlertLengthLearning.samples(
+            from: [
+                storm(30, hours: 54, extra: ["messageType": "Cancel"]),
+                noEnd,
+                storm(31, hours: 0),
+                storm(32, hours: 5_000),
+            ], parse: parse)
         XCTAssertEqual(nothing, [])
 
         // Kept across launches, sealed; gone on erase.
@@ -499,11 +557,15 @@ func testACancelledAlertIsNotALiveWarning() {
     /// when it began.
     func testAnAlertWithNoEndRunsAsLongAsItsKind() throws {
         func alert(_ event: String, _ extra: [String: Any] = [:]) -> [String: Any] {
-            ["id": "urn:x",
-             "properties": ["id": "urn:x", "event": event, "headline": event,
-                            "severity": "Severe", "expires": "2026-12-01T04:00:00-06:00"]
+            [
+                "id": "urn:x",
+                "properties": [
+                    "id": "urn:x", "event": event, "headline": event,
+                    "severity": "Severe", "expires": "2026-12-01T04:00:00-06:00",
+                ]
                 .merging(extra) { $1 },
-             "geometry": NSNull()]
+                "geometry": NSNull(),
+            ]
         }
         func hoursPastMessage(_ event: String, _ extra: [String: Any] = [:]) throws -> Double {
             let message = try XCTUnwrap(ISO8601DateFormatter().date(from: "2026-12-01T10:00:00Z"))
@@ -530,12 +592,17 @@ func testACancelledAlertIsNotALiveWarning() {
         XCTAssertEqual(try hoursPastMessage("Fire Warning"), 72 * 1.38, accuracy: 1e-6)
         // Wider and seen run longer: four zones is 1.3 times, seen a quarter more.
         XCTAssertEqual(
-            try hoursPastMessage("Fire Warning", ["affectedZones": ["a", "b", "c", "d"],
-                                                  "certainty": "Observed"]),
+            try hoursPastMessage(
+                "Fire Warning",
+                [
+                    "affectedZones": ["a", "b", "c", "d"],
+                    "certainty": "Observed",
+                ]),
             72 * 1.38 * 1.3 * 1.25, accuracy: 1e-6)
         // Less severe runs shorter.
-        XCTAssertEqual(try hoursPastMessage("Fire Warning", ["severity": "Minor"]),
-                       72 * 0.95, accuracy: 1e-6)
+        XCTAssertEqual(
+            try hoursPastMessage("Fire Warning", ["severity": "Minor"]),
+            72 * 0.95, accuracy: 1e-6)
         // Nothing learned yet in a test run: the measured table alone, the
         // same as with no memory at all.
         XCTAssertEqual(
@@ -544,8 +611,9 @@ func testACancelledAlertIsNotALiveWarning() {
             WeatherAlertService.parseAlertFeatures([alert("Hurricane Warning")]).first?.expires)
         // The facade never answers before the message lapses.
         let now = Date(timeIntervalSinceReferenceDate: 800_000_000)
-        let end = RiskTiming.unknownEnd(event: "", severityScore: .nan, zones: 0,
-                                        certainty: nil, onset: nil, message: now)
+        let end = RiskTiming.unknownEnd(
+            event: "", severityScore: .nan, zones: 0,
+            certainty: nil, onset: nil, message: now)
         XCTAssertEqual(end.timeIntervalSince(now), 12 * 3600, accuracy: 1e-6)
     }
 
@@ -579,17 +647,21 @@ func testACancelledAlertIsNotALiveWarning() {
     /// matches through its zones' rings; an alert whose zone rings are
     /// absent can never match.
     func testAlertsCoveringJoinSemantics() {
-        func ring(_ latLo: Double, _ latHi: Double,
-                  _ lonLo: Double, _ lonHi: Double) -> [CLLocationCoordinate2D] {
-            [.init(latitude: latLo, longitude: lonLo), .init(latitude: latHi, longitude: lonLo),
-             .init(latitude: latHi, longitude: lonHi), .init(latitude: latLo, longitude: lonHi)]
+        func ring(
+            _ latLo: Double, _ latHi: Double,
+            _ lonLo: Double, _ lonHi: Double
+        ) -> [CLLocationCoordinate2D] {
+            [
+                .init(latitude: latLo, longitude: lonLo), .init(latitude: latHi, longitude: lonLo),
+                .init(latitude: latHi, longitude: lonHi), .init(latitude: latLo, longitude: lonHi),
+            ]
         }
         let west = ring(42.9, 43.1, -89.5, -89.3)
         let east = ring(42.9, 43.1, -88.2, -88.0)
         var polyAlert = WeatherAlertService.NWSAlert(
             id: "poly", event: "Flood Warning", headline: "h",
             severityScore: 0.88, polygon: west)
-        polyAlert.affectedZones = ["zEast"]      // listed, but polygon wins
+        polyAlert.affectedZones = ["zEast"]  // listed, but polygon wins
         var zoneAlert = alert(id: "zone", event: "Winter Storm Warning", severity: 0.72)
         zoneAlert.affectedZones = ["zEast"]
         var lostAlert = alert(id: "lost", severity: 0.45)
@@ -607,15 +679,19 @@ func testACancelledAlertIsNotALiveWarning() {
             inEast, alerts: [polyAlert, zoneAlert, lostAlert], zoneRings: zoneRings)
         // polygon alert does NOT match via its listed zone — rings only.
         XCTAssertEqual(eastHits.map(\.id), ["zone"])
-        XCTAssertTrue(WeatherAlertService.alertsCovering(
-            outside, alerts: [polyAlert, zoneAlert, lostAlert], zoneRings: zoneRings).isEmpty)
+        XCTAssertTrue(
+            WeatherAlertService.alertsCovering(
+                outside, alerts: [polyAlert, zoneAlert, lostAlert], zoneRings: zoneRings
+            ).isEmpty)
         // extraRings participate for multi-part polygon alerts.
         var multi = WeatherAlertService.NWSAlert(
             id: "multi", event: "Flood Warning", headline: "h",
             severityScore: 0.9, polygon: west)
         multi.extraRings = [east]
-        XCTAssertEqual(WeatherAlertService.alertsCovering(
-            inEast, alerts: [multi], zoneRings: [:]).map(\.id), ["multi"])
+        XCTAssertEqual(
+            WeatherAlertService.alertsCovering(
+                inEast, alerts: [multi], zoneRings: [:]
+            ).map(\.id), ["multi"])
     }
 
     // MARK: ETA tie tolerance (route ordering)
@@ -662,8 +738,9 @@ func testACancelledAlertIsNotALiveWarning() {
     /// cannot clear. Unknown data must still pass, or corridors without OSM
     /// height tags would lose the badge entirely.
     func testSemiClearanceIsADisqualifierNotAPenalty() {
-        let semi = FilterLimits(vehicleHeightMeters: 13.5 * 0.3048,
-                                maxGradePercent: FilterLimits.degreesToPercent(6))
+        let semi = FilterLimits(
+            vehicleHeightMeters: 13.5 * 0.3048,
+            maxGradePercent: FilterLimits.degreesToPercent(6))
         // 12'6" bridge — below a 13'6" semi plus its safety margin.
         let tooLow = [12.5 * 0.3048]
         XCTAssertFalse(semi.passesClearances(tooLow), "a 12'6\" bridge must fail a semi")
@@ -685,7 +762,7 @@ func testACancelledAlertIsNotALiveWarning() {
             CLLocationCoordinate2D(latitude: 43.0 + Double($0) * 0.01, longitude: -89.0)
         }
         let poly = MKPolyline(coordinates: coords, count: coords.count)
-        let stepMiles = 1_113.2 / 1609.344   // ≈ 0.692 mi between vertices
+        let stepMiles = 1_113.2 / 1609.344  // ≈ 0.692 mi between vertices
         let profile = [
             GradeSegment(startMile: 0, endMile: stepMiles * 4, gradePercent: 2),
             GradeSegment(startMile: stepMiles * 4, endMile: stepMiles * 8, gradePercent: 7),
@@ -796,15 +873,16 @@ func testACancelledAlertIsNotALiveWarning() {
     /// window: the window used to run from the burst's start alone, and a
     /// long plan dropped to the background pace partway through.
     func testRequestsInsideTheBurstRenewTheWindow() async {
-        let gate = RequestGate(baseCeiling: { 2 }, burstCeiling: { 6 },
-                               burstSafetyWindow: 0.2)
+        let gate = RequestGate(
+            baseCeiling: { 2 }, burstCeiling: { 6 },
+            burstSafetyWindow: 0.2)
         let peak = Peak()
         let late = await gate.withPlanningBurst {
             // Longer than the window in all, a request every 100 ms.
             for _ in 0..<5 {
                 try? await gate.withPermit { try? await Task.sleep(for: .milliseconds(100)) }
             }
-            return await self.drive(gate, count: 18, peak: peak)
+            return await Self.drive(gate, count: 18, peak: peak)
         }
         XCTAssertGreaterThan(late, 2, "the burst ran out though the plan was still working")
         XCTAssertLessThanOrEqual(late, 6)
@@ -812,14 +890,15 @@ func testACancelledAlertIsNotALiveWarning() {
 
     /// Requests from OUTSIDE the plan do not hold a leaked burst open.
     func testOutsideRequestsDoNotRenewALeakedBurst() async {
-        let gate = RequestGate(baseCeiling: { 2 }, burstCeiling: { 6 },
-                               burstSafetyWindow: 0.2)
+        let gate = RequestGate(
+            baseCeiling: { 2 }, burstCeiling: { 6 },
+            burstSafetyWindow: 0.2)
         let peak = Peak()
         await gate.beginPlanningBurst()
         for _ in 0..<4 {
             try? await gate.withPermit { try? await Task.sleep(for: .milliseconds(100)) }
         }
-        let after = await drive(gate, count: 10, peak: peak)
+        let after = await Self.drive(gate, count: 10, peak: peak)
         XCTAssertLessThanOrEqual(after, 2)
     }
 
@@ -832,7 +911,7 @@ func testACancelledAlertIsNotALiveWarning() {
         let t0 = Date(timeIntervalSince1970: 1_000_000)
         var s = VehicleLink.Sensor(position: "FL", psi: 33, lastHeard: t0)
         for i in 0..<10 { s.heardWhileMoving(at: t0.addingTimeInterval(Double(i)), lastStill: nil) }
-        XCTAssertFalse(s.keptUp)   // nine seconds alongside
+        XCTAssertFalse(s.keptUp)  // nine seconds alongside
         // Two and a half minutes at the light, then heard again.
         let stood = t0.addingTimeInterval(60)
         s.heardWhileMoving(at: t0.addingTimeInterval(160), lastStill: stood)
@@ -850,8 +929,9 @@ func testACancelledAlertIsNotALiveWarning() {
         XCTAssertTrue(s.keptUp)
         var gappy = VehicleLink.Sensor(position: "FR", psi: 33, lastHeard: t0)
         for i in 0..<12 {
-            gappy.heardWhileMoving(at: t0.addingTimeInterval(Double(i) * (VehicleLink.Sensor.longestGap + 1)),
-                                   lastStill: nil)
+            gappy.heardWhileMoving(
+                at: t0.addingTimeInterval(Double(i) * (VehicleLink.Sensor.longestGap + 1)),
+                lastStill: nil)
         }
         XCTAssertEqual(gappy.company, 0, accuracy: 1e-9)
         XCTAssertFalse(gappy.keptUp)
@@ -866,7 +946,8 @@ func testACancelledAlertIsNotALiveWarning() {
             .appendingPathComponent("flows-aside-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: dir) }
-        let store = dir.appendingPathComponent("store"), aside = dir.appendingPathComponent("aside")
+        let store = dir.appendingPathComponent("store")
+        let aside = dir.appendingPathComponent("aside")
         let now = Date()
 
         SecureBehaviorStore.save(SeasonalStore(), to: store)
@@ -891,8 +972,9 @@ func testACancelledAlertIsNotALiveWarning() {
             return r
         }
         func key(_ a: Double, _ b: Double) -> RouteKey {
-            RouteKey(origin: CLLocationCoordinate2D(latitude: a, longitude: -a),
-                     dest: CLLocationCoordinate2D(latitude: b, longitude: -b))
+            RouteKey(
+                origin: CLLocationCoordinate2D(latitude: a, longitude: -a),
+                dest: CLLocationCoordinate2D(latitude: b, longitude: -b))
         }
         let shared = key(10, 20)
         let oldOnly = key(30, 40)

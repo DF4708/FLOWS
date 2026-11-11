@@ -14,16 +14,19 @@ import XCTest
 final class BadgeClusteringTests: XCTestCase {
 
     private func item(_ kind: String, lat: Double, lon: Double, score: Double)
-        -> BadgeClustering.Item<String> {
-        .init(coordinate: CLLocationCoordinate2D(latitude: lat, longitude: lon),
-              kind: kind, score: score)
+        -> BadgeClustering.Item<String>
+    {
+        .init(
+            coordinate: CLLocationCoordinate2D(latitude: lat, longitude: lon),
+            kind: kind, score: score)
     }
 
     func testDozenSameKindNeighborsCollapseToOne() {
         // 12 heat cells ~10 km apart along a line — one badge, at the worst.
         let items = (0..<12).map {
-            item("heat", lat: 43.0, lon: -89.0 + Double($0) * 0.12,
-                 score: $0 == 6 ? 0.9 : 0.5)
+            item(
+                "heat", lat: 43.0, lon: -89.0 + Double($0) * 0.12,
+                score: $0 == 6 ? 0.9 : 0.5)
         }
         let kept = BadgeClustering.cluster(items, minSeparationMeters: 200_000)
         XCTAssertEqual(kept.count, 1)
@@ -35,14 +38,15 @@ final class BadgeClusteringTests: XCTestCase {
             item("tornado", lat: 43.0, lon: -89.0, score: 0.95),
             item("flood", lat: 43.01, lon: -89.01, score: 0.8),
         ]
-        XCTAssertEqual(BadgeClustering.cluster(items, minSeparationMeters: 100_000).count, 2,
-                       "a tornado symbol and a flood symbol may share an area")
+        XCTAssertEqual(
+            BadgeClustering.cluster(items, minSeparationMeters: 100_000).count, 2,
+            "a tornado symbol and a flood symbol may share an area")
     }
 
     func testWellSeparatedSameKindBothSurvive() {
         let items = [
             item("snow", lat: 43.0, lon: -89.0, score: 0.7),
-            item("snow", lat: 46.0, lon: -95.0, score: 0.6),   // ~550 km away
+            item("snow", lat: 46.0, lon: -95.0, score: 0.6),  // ~550 km away
         ]
         XCTAssertEqual(BadgeClustering.cluster(items, minSeparationMeters: 100_000).count, 2)
     }

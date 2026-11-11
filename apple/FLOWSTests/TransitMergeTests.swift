@@ -41,38 +41,41 @@ final class TransitMergeTests: XCTestCase {
         func shift(_ from: String, _ into: String, _ date: Int) -> Int? {
             TransitClock.shift(from: from, into: into, serviceDate: date)
         }
-        XCTAssertEqual(shift(central, eastern, 20260929), 3600, "08:00 Central is 09:00 Eastern")
-        XCTAssertEqual(shift("America/Los_Angeles", eastern, 20260929), 10800)
-        XCTAssertEqual(shift(eastern, eastern, 20260929), 0)
+        XCTAssertEqual(shift(central, eastern, 20_260_929), 3600, "08:00 Central is 09:00 Eastern")
+        XCTAssertEqual(shift("America/Los_Angeles", eastern, 20_260_929), 10800)
+        XCTAssertEqual(shift(eastern, eastern, 20_260_929), 0)
         // Clock-change days: both US zones change, the gap does not.
-        XCTAssertEqual(shift(central, eastern, 20270314), 3600)
-        XCTAssertEqual(shift(central, eastern, 20271107), 3600)
-        XCTAssertEqual(shift("America/Halifax", eastern, 20260929), -3600, "east of the reference")
-        XCTAssertNil(shift("Mars/Olympus", eastern, 20260929))
+        XCTAssertEqual(shift(central, eastern, 20_270_314), 3600)
+        XCTAssertEqual(shift(central, eastern, 20_271_107), 3600)
+        XCTAssertEqual(shift("America/Halifax", eastern, 20_260_929), -3600, "east of the reference")
+        XCTAssertNil(shift("Mars/Olympus", eastern, 20_260_929))
     }
 
     func testPhoenixIsWhyTheShiftIsNotAFixedNumber() {
         // Arizona skips daylight saving: an hour behind Denver in summer,
         // level with it in winter. A table of fixed zone gaps gets one wrong.
         XCTAssertEqual(
-            TransitClock.shift(from: "America/Phoenix", into: "America/Denver", serviceDate: 20260715),
+            TransitClock.shift(from: "America/Phoenix", into: "America/Denver", serviceDate: 20_260_715),
             3600
         )
         XCTAssertEqual(
-            TransitClock.shift(from: "America/Phoenix", into: "America/Denver", serviceDate: 20260115),
+            TransitClock.shift(from: "America/Phoenix", into: "America/Denver", serviceDate: 20_260_115),
             0
         )
     }
 
     // MARK: which feeds, what they are called, who is credited
 
-    private func city(_ name: String, _ op: String, lat: ClosedRange<Double>,
-                      lon: ClosedRange<Double>) -> TransitFeeds.Source {
+    private func city(
+        _ name: String, _ op: String, lat: ClosedRange<Double>,
+        lon: ClosedRange<Double>
+    ) -> TransitFeeds.Source {
         TransitFeeds.Source(
             name: name, url: URL(string: "https://example.invalid/\(name).zip")!,
             operatorName: op,
-            area: .init(minLatitude: lat.lowerBound, maxLatitude: lat.upperBound,
-                        minLongitude: lon.lowerBound, maxLongitude: lon.upperBound)
+            area: .init(
+                minLatitude: lat.lowerBound, maxLatitude: lat.upperBound,
+                minLongitude: lon.lowerBound, maxLongitude: lon.upperBound)
         )
     }
 
@@ -82,60 +85,78 @@ final class TransitMergeTests: XCTestCase {
         let region = city("metrolink", "Metrolink", lat: 33.5...34.8, lon: -119.0 ... -116.8)
         // Union Station to Hollywood: LA Metro holds both ends, and so does
         // the wider regional system — one city's own buses first.
-        let inLA = TransitFeeds.citySources(from: 34.0562, -118.2365, to: 34.1016, -118.3385,
-                                            cities: [chicago, la, region])
+        let inLA = TransitFeeds.citySources(
+            from: 34.0562, -118.2365, to: 34.1016, -118.3385,
+            cities: [chicago, la, region])
         XCTAssertEqual(inLA.map(\.name), ["lametro", "metrolink"])
-        XCTAssertFalse(inLA.contains { $0.name == "amtrak" },
-                       "the train is its own leg, asked separately")
+        XCTAssertFalse(
+            inLA.contains { $0.name == "amtrak" },
+            "the train is its own leg, asked separately")
         // O'Hare to Hollywood is no city leg at all — but each end's own
         // feed is still offered, one per end.
-        let apart = TransitFeeds.citySources(from: 41.9786, -87.9048, to: 34.1016, -118.3385,
-                                             cities: [chicago, la])
+        let apart = TransitFeeds.citySources(
+            from: 41.9786, -87.9048, to: 34.1016, -118.3385,
+            cities: [chicago, la])
         XCTAssertEqual(apart.map(\.name), ["cta", "lametro"])
-        XCTAssertTrue(TransitFeeds.citySources(from: 44.0, -103.0, to: 44.1, -103.1,
-                                               cities: [chicago, la]).isEmpty,
-                      "no city feed there: no city leg")
-        XCTAssertEqual(TransitFeeds.citySources(from: 34.0562, -118.2365, to: 34.1016, -118.3385,
-                                                cities: [chicago, la, region], limit: 1)
-                        .map(\.name), ["lametro"])
+        XCTAssertTrue(
+            TransitFeeds.citySources(
+                from: 44.0, -103.0, to: 44.1, -103.1,
+                cities: [chicago, la]
+            ).isEmpty,
+            "no city feed there: no city leg")
+        XCTAssertEqual(
+            TransitFeeds.citySources(
+                from: 34.0562, -118.2365, to: 34.1016, -118.3385,
+                cities: [chicago, la, region], limit: 1
+            )
+            .map(\.name), ["lametro"])
     }
 
     func testAmtrakAloneKeepsTheCacheNameItAlwaysHad() {
         // Changing it would silently rebuild every timetable already on a
         // phone the day this ships.
-        XCTAssertEqual(TransitFeeds.shardName([TransitFeeds.amtrak], date: 20260929),
-                       "amtrak-20260929")
+        XCTAssertEqual(
+            TransitFeeds.shardName([TransitFeeds.amtrak], date: 20_260_929),
+            "amtrak-20260929")
         let la = city("lametro", "LA Metro", lat: 33.7...34.4, lon: -118.7 ... -117.9)
-        XCTAssertEqual(TransitFeeds.shardName([TransitFeeds.amtrak, la], date: 20260929),
-                       "amtrak+lametro-20260929")
+        XCTAssertEqual(
+            TransitFeeds.shardName([TransitFeeds.amtrak, la], date: 20_260_929),
+            "amtrak+lametro-20260929")
     }
 
     func testEveryOperatorWhoseTimesAreShownIsNamed() {
         XCTAssertEqual(TransitFeeds.amtrak.credit, "Schedule from Amtrak", "unchanged")
-        XCTAssertEqual(TransitFeeds.credit(for: ["Amtrak", "LA Metro"]),
-                       "Schedules from Amtrak and LA Metro")
-        XCTAssertEqual(TransitFeeds.credit(for: ["Amtrak", "Metra", "CTA"]),
-                       "Schedules from Amtrak, Metra and CTA")
+        XCTAssertEqual(
+            TransitFeeds.credit(for: ["Amtrak", "LA Metro"]),
+            "Schedules from Amtrak and LA Metro")
+        XCTAssertEqual(
+            TransitFeeds.credit(for: ["Amtrak", "Metra", "CTA"]),
+            "Schedules from Amtrak, Metra and CTA")
         XCTAssertEqual(TransitFeeds.credit(for: []), "")
-        XCTAssertEqual(TransitFeeds.credit(for: ["Washington State Ferries", "Washington State Ferries"]),
-                       "Schedule from Washington State Ferries", "one operator's two feeds: named once")
+        XCTAssertEqual(
+            TransitFeeds.credit(for: ["Washington State Ferries", "Washington State Ferries"]),
+            "Schedule from Washington State Ferries", "one operator's two feeds: named once")
     }
 
     func testOnlyPastDaysShardsAreSwept() {
-        XCTAssertTrue(TransitFeeds.isShard("amtrak-20260928.ftt", before: 20260929))
-        XCTAssertTrue(TransitFeeds.isShard("amtrak+lametro-20260901.fts", before: 20260929),
-                      "a merge asked for once must not sit in the cache forever")
-        XCTAssertFalse(TransitFeeds.isShard("amtrak-20260929.ftt", before: 20260929), "today's")
-        XCTAssertFalse(TransitFeeds.isShard("amtrak-20260930.ftt", before: 20260929),
-                       "tomorrow's — the operator may already be on it")
-        XCTAssertFalse(TransitFeeds.isShard("amtrak", before: 20260929), "the feed folder")
-        XCTAssertFalse(TransitFeeds.isShard("stops.txt", before: 20260929))
-        XCTAssertFalse(TransitFeeds.isShard("notes-12.ftt", before: 20260929), "not a date")
-        XCTAssertTrue(TransitFeeds.isShard("amtrak-20260928.ftt.new", before: 20260929),
-                      "a build cut short must not leave its half-written file forever")
-        XCTAssertFalse(TransitFeeds.isShard("amtrak-20260929.fts.new", before: 20260929),
-                       "today's build may still be writing it")
-        XCTAssertFalse(TransitFeeds.isShard("amtrak-20260928.new", before: 20260929))
+        XCTAssertTrue(TransitFeeds.isShard("amtrak-20260928.ftt", before: 20_260_929))
+        XCTAssertTrue(
+            TransitFeeds.isShard("amtrak+lametro-20260901.fts", before: 20_260_929),
+            "a merge asked for once must not sit in the cache forever")
+        XCTAssertFalse(TransitFeeds.isShard("amtrak-20260929.ftt", before: 20_260_929), "today's")
+        XCTAssertFalse(
+            TransitFeeds.isShard("amtrak-20260930.ftt", before: 20_260_929),
+            "tomorrow's — the operator may already be on it")
+        XCTAssertFalse(TransitFeeds.isShard("amtrak", before: 20_260_929), "the feed folder")
+        XCTAssertFalse(TransitFeeds.isShard("stops.txt", before: 20_260_929))
+        XCTAssertFalse(TransitFeeds.isShard("notes-12.ftt", before: 20_260_929), "not a date")
+        XCTAssertTrue(
+            TransitFeeds.isShard("amtrak-20260928.ftt.new", before: 20_260_929),
+            "a build cut short must not leave its half-written file forever")
+        XCTAssertFalse(
+            TransitFeeds.isShard("amtrak-20260929.fts.new", before: 20_260_929),
+            "today's build may still be writing it")
+        XCTAssertFalse(TransitFeeds.isShard("amtrak-20260928.new", before: 20_260_929))
     }
 
     // MARK: the whole path — two feeds on disk become one trip
@@ -202,7 +223,7 @@ final class TransitMergeTests: XCTestCase {
     func testTheTrainThenTheCityBusIsOneTripOnEachOperatorsClock() throws {
         let (rail, bus, out) = (try railFeed(), try busFeed(), prefix())
         defer { clean(rail, bus, out) }
-        let date = 20260929
+        let date = 20_260_929
         let shift = try XCTUnwrap(TransitClock.shift(from: central, into: eastern, serviceDate: date))
 
         let merged = try TransitShard.build(
@@ -217,8 +238,10 @@ final class TransitMergeTests: XCTestCase {
             prefix: out,
             from: CLLocationCoordinate2D(latitude: 42.0, longitude: -88.0),
             to: CLLocationCoordinate2D(latitude: 41.965, longitude: -87.655),
-            departing: try XCTUnwrap(TransitClock.instant(serviceDate: date, agencyZone: eastern,
-                                                          seconds: 6 * 3600)),
+            departing: try XCTUnwrap(
+                TransitClock.instant(
+                    serviceDate: date, agencyZone: eastern,
+                    seconds: 6 * 3600)),
             stamp: merged.stamp
         )
         let schedule = try XCTUnwrap(TransitShard.schedule(from: answer, credit: "x", locale: us))
@@ -238,7 +261,7 @@ final class TransitMergeTests: XCTestCase {
     func testARiderWhoChoseTheBusIsNeverPutOnTheTrain() throws {
         let (rail, bus, out) = (try railFeed(), try busFeed(), prefix())
         defer { clean(rail, bus, out) }
-        let date = 20260929
+        let date = 20_260_929
         let shift = try XCTUnwrap(TransitClock.shift(from: central, into: eastern, serviceDate: date))
         let merged = try TransitShard.build(
             feeds: [.init(directory: rail, shiftSeconds: 0), .init(directory: bus, shiftSeconds: shift)],
@@ -246,12 +269,15 @@ final class TransitMergeTests: XCTestCase {
         )
         let start = CLLocationCoordinate2D(latitude: 42.0, longitude: -88.0)
         let uptown = CLLocationCoordinate2D(latitude: 41.965, longitude: -87.655)
-        let six = try XCTUnwrap(TransitClock.instant(serviceDate: date, agencyZone: eastern,
-                                                     seconds: 6 * 3600))
+        let six = try XCTUnwrap(
+            TransitClock.instant(
+                serviceDate: date, agencyZone: eastern,
+                seconds: 6 * 3600))
         let busOnly = TripShape(onFoot: true, modes: [.bus], tripMiles: 5).localVehicles
-        XCTAssertThrowsError(try TransitShard.departures(
-            prefix: out, from: start, to: uptown, departing: six, stamp: merged.stamp,
-            vehicles: busOnly), "the only way from Start is the train")
+        XCTAssertThrowsError(
+            try TransitShard.departures(
+                prefix: out, from: start, to: uptown, departing: six, stamp: merged.stamp,
+                vehicles: busOnly), "the only way from Start is the train")
 
         // Everything allowed: both rides, each saying where its stops are.
         let any = try TransitShard.departures(
@@ -264,8 +290,10 @@ final class TransitMergeTests: XCTestCase {
 
         // From the bus bay, the bus-only rider gets the bus.
         let bay = CLLocationCoordinate2D(latitude: 41.88025, longitude: -87.63990)
-        let ten = try XCTUnwrap(TransitClock.instant(serviceDate: date, agencyZone: eastern,
-                                                     seconds: 10 * 3600))
+        let ten = try XCTUnwrap(
+            TransitClock.instant(
+                serviceDate: date, agencyZone: eastern,
+                seconds: 10 * 3600))
         let byBus = try TransitShard.departures(
             prefix: out, from: bay, to: uptown, departing: ten, stamp: merged.stamp,
             vehicles: busOnly)
@@ -282,22 +310,28 @@ final class TransitMergeTests: XCTestCase {
         XCTAssertEqual(s.mainMode, .rail)
         XCTAssertTrue(s.shows(TripShape.cardMain))
         XCTAssertFalse(s.shows(TripShape.cardLocal), "one trip, one card")
-        XCTAssertEqual(s.modes(ofCard: .rail, active: [.rail, .bus]), [.rail, .bus],
-                       "closing the trip turns off the bus folded into it")
+        XCTAssertEqual(
+            s.modes(ofCard: .rail, active: [.rail, .bus]), [.rail, .bus],
+            "closing the trip turns off the bus folded into it")
     }
 
     func testAnotherCityVehicleMustSaveFifteenMinutes() {
-        XCTAssertTrue(TripShape.otherVehicleWins(chosenSeconds: nil, otherSeconds: 1_800),
-                      "no bus makes the trip: the train does")
-        XCTAssertTrue(TripShape.otherVehicleWins(chosenSeconds: 4_000, otherSeconds: 1_800),
-                      "Minneapolis: the light rail beats buses by way of St. Paul")
-        XCTAssertFalse(TripShape.otherVehicleWins(chosenSeconds: 2_400, otherSeconds: 1_800),
-                       "ten minutes is not enough to overrule the rider")
-        XCTAssertEqual(TripShape(onFoot: true, modes: [.bus, .plane], tripMiles: 600).cityChoice,
-                       "bus")
+        XCTAssertTrue(
+            TripShape.otherVehicleWins(chosenSeconds: nil, otherSeconds: 1_800),
+            "no bus makes the trip: the train does")
+        XCTAssertTrue(
+            TripShape.otherVehicleWins(chosenSeconds: 4_000, otherSeconds: 1_800),
+            "Minneapolis: the light rail beats buses by way of St. Paul")
+        XCTAssertFalse(
+            TripShape.otherVehicleWins(chosenSeconds: 2_400, otherSeconds: 1_800),
+            "ten minutes is not enough to overrule the rider")
+        XCTAssertEqual(
+            TripShape(onFoot: true, modes: [.bus, .plane], tripMiles: 600).cityChoice,
+            "bus")
         XCTAssertNil(TripShape(onFoot: true, modes: [.bus, .rail], tripMiles: 6).cityChoice)
-        XCTAssertEqual(TripShape(onFoot: true, modes: [.bus, .rail], tripMiles: 6).localVehicles,
-                       TripShape.landVehicles, "every bus and train, and still no boat")
+        XCTAssertEqual(
+            TripShape(onFoot: true, modes: [.bus, .rail], tripMiles: 6).localVehicles,
+            TripShape.landVehicles, "every bus and train, and still no boat")
     }
 
     func testWalkBusAndPlaneRidesTheBusBothWaysUnlessARentalIsOn() {
@@ -311,8 +345,9 @@ final class TransitMergeTests: XCTestCase {
         let rental = TripShape(onFoot: true, modes: [.bus, .plane, .rental], tripMiles: 600)
         XCTAssertEqual(rental.access, .local, "still the bus to the airport")
         XCTAssertEqual(rental.egress, .rental, "and a car where the plane lands")
-        XCTAssertEqual(rental.modes(ofCard: .plane, active: [.bus, .plane, .rental]),
-                       [.bus, .plane, .rental])
+        XCTAssertEqual(
+            rental.modes(ofCard: .plane, active: [.bus, .plane, .rental]),
+            [.bus, .plane, .rental])
     }
 
     func testTheShipIsTheRideAndItsCardStandsForTheTrip() {
@@ -323,8 +358,9 @@ final class TransitMergeTests: XCTestCase {
         XCTAssertEqual(s.access, .local)
         XCTAssertEqual(s.egress, .local)
         XCTAssertEqual(s.egressFallback, .rentOrRide)
-        XCTAssertEqual(s.localVehicles & TripShape.shipVehicles, 0,
-                       "the ferry is the ride, not a city vehicle at its ends")
+        XCTAssertEqual(
+            s.localVehicles & TripShape.shipVehicles, 0,
+            "the ferry is the ride, not a city vehicle at its ends")
         XCTAssertTrue(s.shows(TripShape.cardMain))
         XCTAssertFalse(s.shows(TripShape.cardLocal))
         XCTAssertEqual(s.modes(ofCard: .ship, active: [.bus, .ship]), [.bus, .ship])
@@ -333,8 +369,9 @@ final class TransitMergeTests: XCTestCase {
         let fly = TripShape(onFoot: true, modes: [.plane, .ship], tripMiles: 600)
         XCTAssertEqual(fly.main, .plane)
         XCTAssertEqual(fly.localVehicles, TripShape.shipVehicles)
-        XCTAssertEqual(TripShape.shipVehicles & TripShape.landVehicles, 0,
-                       "a bus rider is never put on a boat")
+        XCTAssertEqual(
+            TripShape.shipVehicles & TripShape.landVehicles, 0,
+            "a bus rider is never put on a boat")
         XCTAssertEqual(TripShape.shipVehicles | TripShape.landVehicles, TripShape.allVehicles)
     }
 
@@ -344,35 +381,46 @@ final class TransitMergeTests: XCTestCase {
         let kitsap = city("mdb-1304", "Kitsap Transit", lat: 47.3...47.9, lon: -122.9 ... -122.5)
         // Seattle to Bremerton: the state's ferries are near both ends;
         // Kitsap's boats only near one, so they cannot carry this alone.
-        let both = TransitFeeds.shipSources(from: 47.60, -122.34, to: 47.56, -122.62, reachKm: 40,
-                                            start: [wsf, water], end: [kitsap, wsf])
+        let both = TransitFeeds.shipSources(
+            from: 47.60, -122.34, to: 47.56, -122.62, reachKm: 40,
+            start: [wsf, water], end: [kitsap, wsf])
         XCTAssertEqual(both.map(\.name), ["mdb-283"])
-        XCTAssertTrue(TransitFeeds.shipSources(from: 41.88, -87.63, to: 47.56, -122.62,
-                                               reachKm: 40, start: [water], end: [kitsap]).isEmpty,
-                      "no boat joins Chicago to Puget Sound")
+        XCTAssertTrue(
+            TransitFeeds.shipSources(
+                from: 41.88, -87.63, to: 47.56, -122.62,
+                reachKm: 40, start: [water], end: [kitsap]
+            ).isEmpty,
+            "no boat joins Chicago to Puget Sound")
 
         // A city leg for a rider who chose the ship asks the ferry too,
         // past the city limit; one who did not never downloads it.
         let metro = city("mdb-1080", "Puget Sound", lat: 47.0...48.3, lon: -122.7 ... -121.9)
-        let leg = TransitFeeds.citySources(from: 47.60, -122.34, to: 47.62, -122.52,
-                                           cities: [metro], ships: [wsf])
+        let leg = TransitFeeds.citySources(
+            from: 47.60, -122.34, to: 47.62, -122.52,
+            cities: [metro], ships: [wsf])
         XCTAssertEqual(leg.map(\.name), ["mdb-1080", "mdb-283"])
-        XCTAssertEqual(TransitFeeds.citySources(from: 47.60, -122.34, to: 47.62, -122.52,
-                                                cities: [metro]).map(\.name), ["mdb-1080"])
+        XCTAssertEqual(
+            TransitFeeds.citySources(
+                from: 47.60, -122.34, to: 47.62, -122.52,
+                cities: [metro]
+            ).map(\.name), ["mdb-1080"])
     }
 
     func testTheShipCardSearchesForWhatItCannotShow() throws {
         let ferry = try XCTUnwrap(ShipTravel.ferrySearchURL(from: "Seattle", to: "Bainbridge Island"))
-        XCTAssertEqual(URLComponents(url: ferry, resolvingAgainstBaseURL: false)?
-                        .queryItems?.first?.value, "ferry from Seattle to Bainbridge Island")
+        XCTAssertEqual(
+            URLComponents(url: ferry, resolvingAgainstBaseURL: false)?
+                .queryItems?.first?.value, "ferry from Seattle to Bainbridge Island")
         let toOnly = try XCTUnwrap(ShipTravel.ferrySearchURL(from: "Current location", to: "Nantucket"))
-        XCTAssertEqual(URLComponents(url: toOnly, resolvingAgainstBaseURL: false)?
-                        .queryItems?.first?.value, "ferry to Nantucket",
-                       "a start with no place name is left out of the search")
+        XCTAssertEqual(
+            URLComponents(url: toOnly, resolvingAgainstBaseURL: false)?
+                .queryItems?.first?.value, "ferry to Nantucket",
+            "a start with no place name is left out of the search")
         XCTAssertNil(ShipTravel.ferrySearchURL(from: "Seattle", to: "your destination"))
         let cruise = try XCTUnwrap(ShipTravel.cruiseSearchURL(from: "PortMiami", toward: "Cozumel"))
-        XCTAssertEqual(URLComponents(url: cruise, resolvingAgainstBaseURL: false)?
-                        .queryItems?.first?.value, "cruises from PortMiami to Cozumel")
+        XCTAssertEqual(
+            URLComponents(url: cruise, resolvingAgainstBaseURL: false)?
+                .queryItems?.first?.value, "cruises from PortMiami to Cozumel")
         XCTAssertTrue(ShipTravel.isCruiseTerminal("PortMiami"))
         XCTAssertTrue(ShipTravel.isCruiseTerminal("Port Everglades"))
         XCTAssertTrue(ShipTravel.isCruiseTerminal("Smith Cove Cruise Terminal"))
@@ -402,10 +450,12 @@ final class TransitMergeTests: XCTestCase {
         XCTAssertFalse(badger.sails(on: january, calendar: utc), "not in January")
         XCTAssertNil(badger.cars, "the census left its car count blank: unknown, not no")
 
-        XCTAssertTrue(ShipTravel.crossings(
-            from: CLLocationCoordinate2D(latitude: 39.7392, longitude: -104.9903),
-            to: CLLocationCoordinate2D(latitude: 38.8339, longitude: -104.8214)).isEmpty,
-                      "Denver has no ferry")
+        XCTAssertTrue(
+            ShipTravel.crossings(
+                from: CLLocationCoordinate2D(latitude: 39.7392, longitude: -104.9903),
+                to: CLLocationCoordinate2D(latitude: 38.8339, longitude: -104.8214)
+            ).isEmpty,
+            "Denver has no ferry")
     }
 
     func testAFerryMustLeaveTheRiderWellOnTheirWay() {
@@ -414,8 +464,9 @@ final class TransitMergeTests: XCTestCase {
         let bainbridgeDock = CLLocationCoordinate2D(latitude: 47.6231, longitude: -122.5108)
         let westSeattle = CLLocationCoordinate2D(latitude: 47.5905, longitude: -122.3805)
         XCTAssertTrue(ShipTravel.sailingHelps(start: seattle, landing: bainbridgeDock, end: winslow))
-        XCTAssertFalse(ShipTravel.sailingHelps(start: seattle, landing: westSeattle, end: winslow),
-                       "the water taxi lands 11 km from Bainbridge: not the way there")
+        XCTAssertFalse(
+            ShipTravel.sailingHelps(start: seattle, landing: westSeattle, end: winslow),
+            "the water taxi lands 11 km from Bainbridge: not the way there")
     }
 
     func testAShortTripKeepsItsCardsApart() {
@@ -441,14 +492,21 @@ final class TransitMergeTests: XCTestCase {
 
     func testOneTripsTimetablesReadAsOneSchedule() throws {
         let zone = central
-        func part(_ vehicle: String, _ name: String, from: String, to: String,
-                  _ on: TimeInterval, _ off: TimeInterval, _ op: String) -> TransitSchedule {
-            let a = Date(timeIntervalSince1970: on), b = Date(timeIntervalSince1970: off)
-            let span = TransitClock.span(board: a, boardZone: zone, alight: b,
-                                         alightZone: zone, locale: us)
+        func part(
+            _ vehicle: String, _ name: String, from: String, to: String,
+            _ on: TimeInterval, _ off: TimeInterval, _ op: String
+        ) -> TransitSchedule {
+            let a = Date(timeIntervalSince1970: on)
+            let b = Date(timeIntervalSince1970: off)
+            let span = TransitClock.span(
+                board: a, boardZone: zone, alight: b,
+                alightZone: zone, locale: us)
             return TransitSchedule(
-                legs: [.init(clockSpan: span, vehicle: vehicle, name: name,
-                             boardName: from, alightName: to)],
+                legs: [
+                    .init(
+                        clockSpan: span, vehicle: vehicle, name: name,
+                        boardName: from, alightName: to)
+                ],
                 boardName: from, alightName: to, routeName: name, clockSpan: span,
                 rideSeconds: off - on, laterClocks: ["later"], credit: "Schedule from \(op)",
                 asOf: "Times as of Sep 22", boardAt: a, boardZone: zone, alightAt: b,
@@ -457,10 +515,12 @@ final class TransitMergeTests: XCTestCase {
         // 2026-09-29 13:00Z = 8:00 AM Central.
         let t0: TimeInterval = 1_790_686_800
         let toStation = part("Bus", "30", from: "Home", to: "Station", t0, t0 + 1_200, "MCTS")
-        let train = part("Train", "Hiawatha", from: "Station", to: "Union", t0 + 1_800,
-                         t0 + 7_200, "Amtrak")
-        let fromStation = part("Bus", "22", from: "Union Bay", to: "Uptown", t0 + 7_800,
-                               t0 + 9_600, "CTA")
+        let train = part(
+            "Train", "Hiawatha", from: "Station", to: "Union", t0 + 1_800,
+            t0 + 7_200, "Amtrak")
+        let fromStation = part(
+            "Bus", "22", from: "Union Bay", to: "Uptown", t0 + 7_800,
+            t0 + 9_600, "CTA")
         let one = try XCTUnwrap(TransitSchedule.joined([toStation, train, fromStation], locale: us))
         XCTAssertEqual(one.legs.map(\.vehicle), ["Bus", "Train", "Bus"])
         XCTAssertEqual(one.routeName, "2 changes")
@@ -476,20 +536,23 @@ final class TransitMergeTests: XCTestCase {
         // Door to door: 10 minutes' walk to the first bus, the timetable's
         // 8:00 → 10:40 with every connection's wait inside it, 5 minutes'
         // walk after — 2 h 55 m, not the rides and walks added up.
-        XCTAssertEqual(TransitItinerary.doorToDoor(before: 600, schedule: one, after: 300),
-                       600 + 9_600 + 300)
+        XCTAssertEqual(
+            TransitItinerary.doorToDoor(before: 600, schedule: one, after: 300),
+            600 + 9_600 + 300)
         XCTAssertEqual(TransitItinerary.doorToDoor(before: nil, schedule: one, after: nil), 9_600)
         let noClock = TransitSchedule(
             legs: one.legs, boardName: "A", alightName: "B", routeName: "", clockSpan: "",
             rideSeconds: 60, laterClocks: [], credit: "", asOf: "")
-        XCTAssertNil(TransitItinerary.doorToDoor(before: 600, schedule: noClock, after: 300),
-                     "an estimate has no clock, and its total stays its legs'")
+        XCTAssertNil(
+            TransitItinerary.doorToDoor(before: 600, schedule: noClock, after: 300),
+            "an estimate has no clock, and its total stays its legs'")
     }
 
     func testCityRidesAreSaidTheWayRidersSayThem() {
         XCTAssertEqual(TransitPlanning.cityRide(vehicle: "Bus", name: "30"), "the 30 bus")
-        XCTAssertEqual(TransitPlanning.cityRide(vehicle: "Bus", name: "12 Teutonia Avenue"),
-                       "the 12 Teutonia Avenue bus", "a route number leads, so the vehicle follows")
+        XCTAssertEqual(
+            TransitPlanning.cityRide(vehicle: "Bus", name: "12 Teutonia Avenue"),
+            "the 12 Teutonia Avenue bus", "a route number leads, so the vehicle follows")
         XCTAssertEqual(TransitPlanning.cityRide(vehicle: "Train", name: "Blue Line"), "the Blue Line")
         XCTAssertEqual(TransitPlanning.cityRide(vehicle: "Bus", name: ""), "the bus")
         XCTAssertEqual(TransitPlanning.cityRide(vehicle: "Train", name: "Train"), "the train")
@@ -506,7 +569,7 @@ final class TransitMergeTests: XCTestCase {
         defer { clean(rail, out) }
         let merged = try TransitShard.build(
             feeds: [.init(directory: rail, shiftSeconds: 0), .init(directory: missing, shiftSeconds: 3600)],
-            prefix: out, serviceDate: 20260929
+            prefix: out, serviceDate: 20_260_929
         )
         XCTAssertEqual(merged.skipped.keys.sorted(), [1])
         XCTAssertTrue(merged.skipped[1]?.contains("not a directory") ?? false)
@@ -517,7 +580,7 @@ final class TransitMergeTests: XCTestCase {
     func testNoFeedsIsRefusedBeforeReachingRust() {
         // An empty shift buffer across the bridge is undefined behaviour in
         // swift-bridge; the facade must answer this itself.
-        XCTAssertThrowsError(try TransitShard.build(feeds: [], prefix: prefix(), serviceDate: 20260929))
+        XCTAssertThrowsError(try TransitShard.build(feeds: [], prefix: prefix(), serviceDate: 20_260_929))
     }
 
     func testAFeedWithNoZoneAnswersEmptyInsteadOfTrapping() throws {
@@ -551,14 +614,15 @@ final class TransitMergeTests: XCTestCase {
         TransitFeeds.Source(
             name: "citybus", url: URL(string: "https://example.invalid/citybus.zip")!,
             operatorName: "City Bus",
-            area: .init(minLatitude: 41.6, maxLatitude: 42.1,
-                        minLongitude: -87.95, maxLongitude: -87.5)
+            area: .init(
+                minLatitude: 41.6, maxLatitude: 42.1,
+                minLongitude: -87.95, maxLongitude: -87.5)
         )
     }
 
     /// Noon Eastern on the 29th: the service day both feeds are read for.
     private var noonOnThe29th: Date {
-        TransitClock.instant(serviceDate: 20260929, agencyZone: eastern, seconds: 12 * 3600)!
+        TransitClock.instant(serviceDate: 20_260_929, agencyZone: eastern, seconds: 12 * 3600)!
     }
 
     private func exists(_ root: URL, _ name: String) -> Bool {
@@ -570,15 +634,17 @@ final class TransitMergeTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: root) }
         let keeper = TransitFeeds(cacheRoot: root)
 
-        let ready = try await keeper.ready([TransitFeeds.amtrak, cityBus],
-                                           on: noonOnThe29th, allowNetwork: false)
+        let ready = try await keeper.ready(
+            [TransitFeeds.amtrak, cityBus],
+            on: noonOnThe29th, allowNetwork: false)
         XCTAssertTrue(ready.prefix.hasSuffix("amtrak+citybus-20260929"))
         XCTAssertEqual(ready.credit, "Schedules from Amtrak and City Bus")
         XCTAssertEqual(ready.stamp.agencyZone, eastern)
 
         // Asked again the same day: the same timetable, not a rebuild.
-        let again = try await keeper.ready([TransitFeeds.amtrak, cityBus],
-                                           on: noonOnThe29th, allowNetwork: false)
+        let again = try await keeper.ready(
+            [TransitFeeds.amtrak, cityBus],
+            on: noonOnThe29th, allowNetwork: false)
         XCTAssertEqual(again, ready)
     }
 
@@ -601,12 +667,14 @@ final class TransitMergeTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: root) }
         let keeper = TransitFeeds(cacheRoot: root)
 
-        let ready = try await keeper.ready([TransitFeeds.amtrak, cityBus],
-                                           on: noonOnThe29th, allowNetwork: false)
+        let ready = try await keeper.ready(
+            [TransitFeeds.amtrak, cityBus],
+            on: noonOnThe29th, allowNetwork: false)
         XCTAssertTrue(ready.prefix.hasSuffix("amtrak-20260929"), "Amtrak alone, its usual name")
         XCTAssertEqual(ready.credit, "Schedule from Amtrak")
-        XCTAssertFalse(exists(root, "amtrak+citybus-20260929.ftt"),
-                       "no shard may claim a feed it does not hold")
+        XCTAssertFalse(
+            exists(root, "amtrak+citybus-20260929.ftt"),
+            "no shard may claim a feed it does not hold")
     }
 
     func testACityFeedNotYetDownloadedIsSimplyAbsentOffline() async throws {
@@ -653,13 +721,16 @@ final class TransitMergeTests: XCTestCase {
         let sources = TransitFeeds.citySources(from: 43.0345, -87.9171, to: 43.0389, -87.9065)
         XCTAssertGreaterThanOrEqual(sources.count, 1, "Milwaukee has a key-free feed")
         // "Milwaukee County Transit System (MCTS)" — named as riders say it.
-        XCTAssertTrue(sources.contains { $0.operatorName == "MCTS" },
-                      "\(sources.map(\.operatorName))")
-        XCTAssertTrue(sources.allSatisfy {
-            $0.area?.contains(latitude: 43.0389, longitude: -87.9065) ?? false
-        })
-        XCTAssertTrue(sources.allSatisfy { $0.mirror?.host == "files.mobilitydatabase.org" },
-                      "every city feed carries the catalog's copy for when its own link dies")
+        XCTAssertTrue(
+            sources.contains { $0.operatorName == "MCTS" },
+            "\(sources.map(\.operatorName))")
+        XCTAssertTrue(
+            sources.allSatisfy {
+                $0.area?.contains(latitude: 43.0389, longitude: -87.9065) ?? false
+            })
+        XCTAssertTrue(
+            sources.allSatisfy { $0.mirror?.host == "files.mobilitydatabase.org" },
+            "every city feed carries the catalog's copy for when its own link dies")
     }
 
     func testALegAsksForNoMoreCityFeedsThanTheLimit() {
@@ -672,30 +743,39 @@ final class TransitMergeTests: XCTestCase {
     func testTheOpenOceanHasNoCityLeg() {
         // Not a lake: some feeds' boxes span Lake Superior. A box is where a
         // feed's service ends up, not where it runs.
-        XCTAssertTrue(TransitFeeds.citySources(from: 35.0, -40.0, to: 35.1, -40.1).isEmpty,
-                      "mid-Atlantic has no buses")
+        XCTAssertTrue(
+            TransitFeeds.citySources(from: 35.0, -40.0, to: 35.1, -40.1).isEmpty,
+            "mid-Atlantic has no buses")
     }
 
     func testAFeedFitsByTheMemoryItsBuildCanTakeNotAFixedSize() {
         func entry(_ unpacked: Int, _ packed: Int) -> GTFSZip.Entry {
-            .init(name: "stop_times.txt", method: 8, compressedSize: packed,
-                  uncompressedSize: unpacked, headerOffset: 0)
+            .init(
+                name: "stop_times.txt", method: 8, compressedSize: packed,
+                uncompressedSize: unpacked, headerOffset: 0)
         }
         // Chicago's CTA: 367 MB of stop times, 54 MB as its archive stores
         // them. The old fixed 80 MB line refused it on every phone.
         let cta = [entry(367_361_926, 53_821_322)]
         XCTAssertEqual(TransitFeeds.worstCaseBuildBytes(cta), 367_361_926)
-        XCTAssertTrue(TransitFeeds.fitsDevice(cta, budget: 1 << 30, maxDownload: 200 << 20),
-                      "a phone with a gigabyte to spare builds Chicago")
-        XCTAssertFalse(TransitFeeds.fitsDevice(cta, budget: 300 << 20, maxDownload: 200 << 20),
-                       "one with less than the worst case does not")
-        XCTAssertFalse(TransitFeeds.fitsDevice(cta, budget: 1 << 30, maxDownload: 50 << 20),
-                       "nor past the download limit")
-        XCTAssertTrue(TransitFeeds.fitsDevice([entry(1_600_000, 300_000), entry(60 << 20, 9 << 20)],
-                                              budget: 62 << 20, maxDownload: 10 << 20),
-                      "the files add up, and these fit")
-        XCTAssertFalse(TransitFeeds.fitsDevice([entry(1_600_000, 300_000), entry(61 << 20, 9 << 20)],
-                                               budget: 62 << 20, maxDownload: 10 << 20))
+        XCTAssertTrue(
+            TransitFeeds.fitsDevice(cta, budget: 1 << 30, maxDownload: 200 << 20),
+            "a phone with a gigabyte to spare builds Chicago")
+        XCTAssertFalse(
+            TransitFeeds.fitsDevice(cta, budget: 300 << 20, maxDownload: 200 << 20),
+            "one with less than the worst case does not")
+        XCTAssertFalse(
+            TransitFeeds.fitsDevice(cta, budget: 1 << 30, maxDownload: 50 << 20),
+            "nor past the download limit")
+        XCTAssertTrue(
+            TransitFeeds.fitsDevice(
+                [entry(1_600_000, 300_000), entry(60 << 20, 9 << 20)],
+                budget: 62 << 20, maxDownload: 10 << 20),
+            "the files add up, and these fit")
+        XCTAssertFalse(
+            TransitFeeds.fitsDevice(
+                [entry(1_600_000, 300_000), entry(61 << 20, 9 << 20)],
+                budget: 62 << 20, maxDownload: 10 << 20))
         XCTAssertTrue(TransitFeeds.fitsDevice([], budget: 0, maxDownload: 0))
         XCTAssertGreaterThan(TransitFeeds.buildMemoryBudget, 0)
     }
@@ -711,8 +791,9 @@ final class TransitMergeTests: XCTestCase {
         packed.append(Data(repeating: 0, count: 10))
         try packed.write(to: dir.appendingPathComponent("stop_times.txt.fz"))
         try Data("not ours".utf8).write(to: dir.appendingPathComponent("shapes.txt"))
-        XCTAssertEqual(TransitFeeds.worstCaseBuildBytes(feedDirectory: dir), 5_001_000,
-                       "the packed header's length and the plain file's; shapes.txt is never read")
+        XCTAssertEqual(
+            TransitFeeds.worstCaseBuildBytes(feedDirectory: dir), 5_001_000,
+            "the packed header's length and the plain file's; shapes.txt is never read")
     }
 
     func testAFileIsCopiedAPieceAtATimeAfterItsHeader() throws {
@@ -724,7 +805,7 @@ final class TransitMergeTests: XCTestCase {
         let bytes = Data((0..<3_000_000).map { UInt8(truncatingIfNeeded: $0 &* 31) })
         try bytes.write(to: source)
         let target = dir.appendingPathComponent("stop_times.txt.fz")
-        let range = 1_234..<2_600_000   // spans pieces of a megabyte
+        let range = 1_234..<2_600_000  // spans pieces of a megabyte
         try TransitFeeds.copy(source, range, to: target, after: Data("HEAD".utf8))
         XCTAssertEqual(try Data(contentsOf: target), Data("HEAD".utf8) + bytes.subdata(in: range))
         XCTAssertThrowsError(
@@ -734,12 +815,15 @@ final class TransitMergeTests: XCTestCase {
 
     func testAHostThatWillNotServeRangesIsJudgedByItsWholeSize() {
         let limit = 60 << 20
-        XCTAssertTrue(TransitFeeds.acceptsDownload(length: 400 << 20, servesRanges: true, limit: limit),
-                      "with ranges only the index and a few files come down")
-        XCTAssertFalse(TransitFeeds.acceptsDownload(length: 400 << 20, servesRanges: false, limit: limit),
-                       "without them, 400 MB would land in a phone's memory")
+        XCTAssertTrue(
+            TransitFeeds.acceptsDownload(length: 400 << 20, servesRanges: true, limit: limit),
+            "with ranges only the index and a few files come down")
+        XCTAssertFalse(
+            TransitFeeds.acceptsDownload(length: 400 << 20, servesRanges: false, limit: limit),
+            "without them, 400 MB would land in a phone's memory")
         XCTAssertTrue(TransitFeeds.acceptsDownload(length: 20 << 20, servesRanges: false, limit: limit))
-        XCTAssertTrue(TransitFeeds.acceptsDownload(length: nil, servesRanges: false, limit: limit),
-                      "unknown length: the session's resource limit is the backstop")
+        XCTAssertTrue(
+            TransitFeeds.acceptsDownload(length: nil, servesRanges: false, limit: limit),
+            "unknown length: the session's resource limit is the backstop")
     }
 }

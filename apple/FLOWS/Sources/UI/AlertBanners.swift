@@ -52,8 +52,9 @@ struct ImminentBannerView: View {
 
     /// What sheltering means for THIS hazard, in the words of the button.
     private var shelterKind: ShelterPolicy.Kind {
-        ShelterPolicy.kind(forEvent: warning.event,
-                           severityScore: warning.severityScore)
+        ShelterPolicy.kind(
+            forEvent: warning.event,
+            severityScore: warning.severityScore)
     }
 
     private var shelterButtonTitle: String {
@@ -124,7 +125,9 @@ struct ImminentBannerView: View {
                     }
                 }
                 Spacer()
-                Button { onDismiss() } label: {
+                Button {
+                    onDismiss()
+                } label: {
                     Image(systemName: "xmark.circle.fill")
                         .scaledFont(size: 18)
                         .opacity(0.8)
@@ -243,12 +246,15 @@ struct GasGaugeCard: View {
 
     private var levelText: String {
         let level = Self.level(dial: fraction)
-        return level >= 1 ? "Tank now: Full"
+        return level >= 1
+            ? "Tank now: Full"
             : "Tank now: \(Int((level * 100).rounded()))%"
     }
 
-    private func answer(_ title: String, primary: Bool,
-                        action: @escaping () -> Void) -> some View {
+    private func answer(
+        _ title: String, primary: Bool,
+        action: @escaping () -> Void
+    ) -> some View {
         Button(action: action) {
             Text(title)
                 .scaledFont(size: 16, weight: .heavy)
@@ -289,7 +295,7 @@ struct GasGaugeCard: View {
                 .frame(width: golden.step(1), height: golden.step(1) * 0.6)
             Text(levelText)
                 .scaledFont(size: 13, weight: .semibold)
-                .accessibilityHidden(true)   // the dial speaks its own value
+                .accessibilityHidden(true)  // the dial speaks its own value
             // The two answers, the same size side by side.
             HStack(spacing: 8) {
                 answer("No", primary: false) { onNo() }
@@ -338,8 +344,10 @@ struct GaugeDial: View {
                     .position(center)
                 Circle()
                     .trim(from: 0.5, to: 0.5 + fraction / 2)
-                    .stroke(levelColor.opacity(alarming && alarmPulse ? 0.25 : 0.75),
-                            style: StrokeStyle(lineWidth: 10, lineCap: .round))
+                    .stroke(
+                        levelColor.opacity(alarming && alarmPulse ? 0.25 : 0.75),
+                        style: StrokeStyle(lineWidth: 10, lineCap: .round)
+                    )
                     .frame(width: radius * 2, height: radius * 2)
                     .position(center)
                 // Ticks + labels.
@@ -386,8 +394,10 @@ struct GaugeDial: View {
                 // running costs a redraw every frame for nothing). Reduce
                 // Motion keeps the arc at its full strength instead.
                 if on, !reduceMotion {
-                    withAnimation(.easeInOut(duration: 0.6)
-                        .repeatForever(autoreverses: true)) {
+                    withAnimation(
+                        .easeInOut(duration: 0.6)
+                            .repeatForever(autoreverses: true)
+                    ) {
                         alarmPulse = true
                     }
                 } else {
@@ -404,9 +414,10 @@ struct GaugeDial: View {
                     // needle snapped from Empty to Full (and fed the refuel
                     // learning a reading at the wrong end of the scale).
                     // Clamp to the semicircle by the finger's SIDE instead.
-                    let angle = dy >= 0
-                        ? atan2(dy, dx)                // 0 = right, π = left
-                        : (dx >= 0 ? 0 : .pi)          // below baseline → nearest end
+                    let angle =
+                        dy >= 0
+                        ? atan2(dy, dx)  // 0 = right, π = left
+                        : (dx >= 0 ? 0 : .pi)  // below baseline → nearest end
                     let f = 1 - angle / .pi
                     fraction = min(max(f, 0), 1)
                 }
@@ -415,8 +426,9 @@ struct GaugeDial: View {
     }
 
     private func point(_ center: CGPoint, _ r: CGFloat, _ angle: Angle) -> CGPoint {
-        CGPoint(x: center.x + r * cos(angle.radians),
-                y: center.y + r * sin(angle.radians))
+        CGPoint(
+            x: center.x + r * cos(angle.radians),
+            y: center.y + r * sin(angle.radians))
     }
 }
 
@@ -433,34 +445,44 @@ struct TowingCard: View {
         let violations = model.towingViolations
         VStack(alignment: .leading, spacing: 10) {
             HStack {
-                Label { Text("Towing") } icon: { TowingIcon(size: 14) }
-                    .scaledFont(size: 15, weight: .bold)
+                Label {
+                    Text("Towing")
+                } icon: {
+                    TowingIcon(size: 14)
+                }
+                .scaledFont(size: 15, weight: .bold)
                 Spacer()
                 // Named even with the label hidden: VoiceOver reads it.
                 Toggle("Towing", isOn: $model.towingActive)
                     .labelsHidden()
                     .toggleStyle(.switch)
-                Button { model.showTowingCard = false } label: {
+                Button {
+                    model.showTowingCard = false
+                } label: {
                     Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
                 }
                 .buttonStyle(.plain)
             }
             if model.towingActive {
                 // The filters actually on — the driver can switch any off.
-                Text(RouteFilter.towingSummary(active: model.routeFilters)
-                     + " Fuel prediction switched to the "
-                     + "towing pattern (kept separate from your normal pattern).")
-                    .scaledFont(.caption)
-                    .foregroundStyle(.secondary)
+                Text(
+                    RouteFilter.towingSummary(active: model.routeFilters)
+                        + " Fuel prediction switched to the "
+                        + "towing pattern (kept separate from your normal pattern)."
+                )
+                .scaledFont(.caption)
+                .foregroundStyle(.secondary)
             }
             HStack {
                 // 0 is "not set" (the slider starts at 2,000 lb), as on the
                 // Bridge weight card.
-                Text(model.towVehicleWeightLbs > 0
-                     ? String(format: "Vehicle: %.0f lb", model.towVehicleWeightLbs)
-                     : "Vehicle: not set")
-                    .scaledFont(.caption, weight: .semibold)
-                    .frame(width: 120, alignment: .leading)
+                Text(
+                    model.towVehicleWeightLbs > 0
+                        ? String(format: "Vehicle: %.0f lb", model.towVehicleWeightLbs)
+                        : "Vehicle: not set"
+                )
+                .scaledFont(.caption, weight: .semibold)
+                .frame(width: 120, alignment: .leading)
                 Slider(value: $model.towVehicleWeightLbs, in: 2000...40000, step: 100)
             }
             HStack {
@@ -473,12 +495,17 @@ struct TowingCard: View {
             // (owner, 2026-10-01): dragging a slider across a rating turned
             // the pulse on and off with every step.
             HStack(spacing: 8) {
-                ratingBadge("Max loaded weight", ratings.gvwrLbs,
-                            violated: violations.contains { if case .overGVWR = $0 { return true } else { return false } })
-                ratingBadge("Max towing", ratings.towCapacityLbs,
-                            violated: violations.contains { if case .overTowCapacity = $0 { return true } else { return false } })
-                ratingBadge("Max vehicle + trailer", ratings.effectiveGCWR,
-                            violated: violations.contains { if case .overGCWR = $0 { return true } else { return false } })
+                ratingBadge(
+                    "Max loaded weight", ratings.gvwrLbs,
+                    violated: violations.contains { if case .overGVWR = $0 { return true } else { return false } })
+                ratingBadge(
+                    "Max towing", ratings.towCapacityLbs,
+                    violated: violations.contains {
+                        if case .overTowCapacity = $0 { return true } else { return false }
+                    })
+                ratingBadge(
+                    "Max vehicle + trailer", ratings.effectiveGCWR,
+                    violated: violations.contains { if case .overGCWR = $0 { return true } else { return false } })
             }
             ForEach(Array(violations.enumerated()), id: \.offset) { _, v in
                 VStack(alignment: .leading, spacing: 2) {
@@ -491,11 +518,13 @@ struct TowingCard: View {
                 }
             }
             if ratings.estimated {
-                Text("Class-typical ESTIMATES — the manufacturer publishes no "
-                     + "ratings for this vehicle. Verify against the door-jamb "
-                     + "sticker and owner's manual before towing.")
-                    .scaledFont(.caption)
-                    .foregroundStyle(.secondary)
+                Text(
+                    "Class-typical ESTIMATES — the manufacturer publishes no "
+                        + "ratings for this vehicle. Verify against the door-jamb "
+                        + "sticker and owner's manual before towing."
+                )
+                .scaledFont(.caption)
+                .foregroundStyle(.secondary)
             } else if ratings.gvwrLbs == nil {
                 Text("No ratings available — add a vehicle for towing checks.")
                     .scaledFont(.caption)
@@ -533,7 +562,8 @@ struct DemoAlertsView: View {
 
     private var sampleAmber: AppModel.ImminentWarning {
         let headline = "AMBER Alert: suspect vehicle is a red Toyota pickup truck"
-        let detail = "The child is a 7-year-old girl wearing a blue jacket. "
+        let detail =
+            "The child is a 7-year-old girl wearing a blue jacket. "
             + "If seen, call 911 — do not approach."
         return AppModel.ImminentWarning(
             alertID: "gallery-amber", event: "Child Abduction Emergency",
@@ -555,74 +585,81 @@ struct DemoAlertsView: View {
 
     var body: some View {
         ScrollViewReader { scroller in
-        ScrollView {
-            VStack(alignment: .leading, spacing: 14) {
-                HStack {
-                    Text("Alert & notification gallery")
-                        .scaledFont(size: 17, weight: .bold)
-                    Spacer()
-                    Button("Done") { dismiss() }
-                        .buttonStyle(.plain)
-                        .foregroundStyle(.blue)
-                }
-                Text("Made-up examples — just what each warning looks like "
-                     + "on the road.")
+            ScrollView {
+                VStack(alignment: .leading, spacing: 14) {
+                    HStack {
+                        Text("Alert & notification gallery")
+                            .scaledFont(size: 17, weight: .bold)
+                        Spacer()
+                        Button("Done") { dismiss() }
+                            .buttonStyle(.plain)
+                            .foregroundStyle(.blue)
+                    }
+                    Text(
+                        "Made-up examples — just what each warning looks like "
+                            + "on the road."
+                    )
                     .scaledFont(.caption)
                     .foregroundStyle(.secondary)
 
-                Text("Red emergency alert (stays until you close it)")
-                    .scaledFont(.caption, weight: .bold)
-                ImminentBannerView(warning: sampleAmber, isCompact: true,
-                                   onDismiss: {}, onShelterDelay: {}, onFindRest: nil)
-                Text("Storm passing soon — offers a rest stop to wait it out")
-                    .scaledFont(.caption, weight: .bold)
-                ImminentBannerView(warning: sampleStorm, isCompact: true,
-                                   onDismiss: {}, onShelterDelay: nil, onFindRest: {})
+                    Text("Red emergency alert (stays until you close it)")
+                        .scaledFont(.caption, weight: .bold)
+                    ImminentBannerView(
+                        warning: sampleAmber, isCompact: true,
+                        onDismiss: {}, onShelterDelay: {}, onFindRest: nil)
+                    Text("Storm passing soon — offers a rest stop to wait it out")
+                        .scaledFont(.caption, weight: .bold)
+                    ImminentBannerView(
+                        warning: sampleStorm, isCompact: true,
+                        onDismiss: {}, onShelterDelay: nil, onFindRest: {})
 
-                Text("Fuel gauge check-in (drag the needle)")
-                    .scaledFont(.caption, weight: .bold)
-                    .id("cards")
-                GasGaugeCard(onYes: { _ in }, onNo: {})
+                    Text("Fuel gauge check-in (drag the needle)")
+                        .scaledFont(.caption, weight: .bold)
+                        .id("cards")
+                    GasGaugeCard(onYes: { _ in }, onNo: {})
 
-                Text("Towing card (your own numbers — look only here)")
-                    .scaledFont(.caption, weight: .bold)
-                // Locked: the live card's switch and sliders ARE the towing
-                // settings. Touching the preview turned towing on or off
-                // for real, route filters and all, and it stayed that way.
-                TowingCard()
-                    .disabled(true)
+                    Text("Towing card (your own numbers — look only here)")
+                        .scaledFont(.caption, weight: .bold)
+                    // Locked: the live card's switch and sliders ARE the towing
+                    // settings. Touching the preview turned towing on or off
+                    // for real, route filters and all, and it stayed that way.
+                    TowingCard()
+                        .disabled(true)
 
-                Button {
-                    dismiss()
-                    model.showSettings = false
-                    let center = model.location.coordinate
-                        ?? .init(latitude: 43.0731, longitude: -89.4012)
-                    model.demoRedAlert(near: center)
-                } label: {
-                    Label("Show a practice red alert on the map",
-                          systemImage: "exclamationmark.octagon.fill")
+                    Button {
+                        dismiss()
+                        model.showSettings = false
+                        let center =
+                            model.location.coordinate
+                            ?? .init(latitude: 43.0731, longitude: -89.4012)
+                        model.demoRedAlert(near: center)
+                    } label: {
+                        Label(
+                            "Show a practice red alert on the map",
+                            systemImage: "exclamationmark.octagon.fill"
+                        )
                         .scaledFont(size: 14, weight: .heavy)
                         .frame(maxWidth: .infinity, minHeight: Theme.tapMinimum)
                         .background(Theme.riskRed)
                         .foregroundStyle(.white)
                         .clipShape(Capsule())
+                    }
+                    .buttonStyle(.plain)
                 }
-                .buttonStyle(.plain)
+                .padding(20)
             }
-            .padding(20)
-        }
-        .onAppear {
-            if ProcessInfo.processInfo.environment["FLOWS_DEMO_SECTION"] == "cards" {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
-                    scroller.scrollTo("cards", anchor: .top)
+            .onAppear {
+                if ProcessInfo.processInfo.environment["FLOWS_DEMO_SECTION"] == "cards" {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+                        scroller.scrollTo("cards", anchor: .top)
+                    }
                 }
             }
-        }
         }
         // macOS panel sizing only — an iPhone sheet is narrower than 460 pt
         // and the floor pushed the gallery's edge off-screen in portrait.
         #if os(macOS)
-        .frame(minWidth: 460, minHeight: 560)
+            .frame(minWidth: 460, minHeight: 560)
         #endif
     }
 }
@@ -651,10 +688,13 @@ struct StarsAndBucks: View {
                 let starColor = Color(red: c.r, green: c.g, blue: c.b)
                 HStack(spacing: 1) {
                     ForEach(0..<5) { i in
-                        Image(systemName: Double(i) < stars.rounded(.down) ? "star.fill"
-                              : (Double(i) < stars ? "star.leadinghalf.filled" : "star"))
-                            .scaledFont(size: 11)
-                            .foregroundStyle(starColor)
+                        Image(
+                            systemName: Double(i) < stars.rounded(.down)
+                                ? "star.fill"
+                                : (Double(i) < stars ? "star.leadinghalf.filled" : "star")
+                        )
+                        .scaledFont(size: 11)
+                        .foregroundStyle(starColor)
                     }
                     Text(String(format: "%.1f", stars))
                         .scaledFont(.caption2, weight: .bold)
@@ -664,18 +704,22 @@ struct StarsAndBucks: View {
                 // Gold shimmer: intensity rises with the star count.
                 .overlay {
                     if stars >= 4 {
-                        LinearGradient(colors: [.clear, .white.opacity(0.9), .clear],
-                                       startPoint: .leading, endPoint: .trailing)
-                            .frame(width: 30)
-                            .offset(x: shimmerPhase * 90)
-                            .blendMode(.plusLighter)
-                            .allowsHitTesting(false)
-                            .onAppear {
-                                withAnimation(.linear(duration: 1.6)
-                                    .repeatForever(autoreverses: false)) {
-                                    shimmerPhase = 1
-                                }
+                        LinearGradient(
+                            colors: [.clear, .white.opacity(0.9), .clear],
+                            startPoint: .leading, endPoint: .trailing
+                        )
+                        .frame(width: 30)
+                        .offset(x: shimmerPhase * 90)
+                        .blendMode(.plusLighter)
+                        .allowsHitTesting(false)
+                        .onAppear {
+                            withAnimation(
+                                .linear(duration: 1.6)
+                                    .repeatForever(autoreverses: false)
+                            ) {
+                                shimmerPhase = 1
                             }
+                        }
                     }
                 }
                 .clipped()
@@ -694,10 +738,11 @@ struct StarsAndBucks: View {
                         .scaledFont(size: 8, weight: .semibold)
                         .foregroundStyle(.secondary)
                 }
-                .help("$ = affordable on that country's minimum-wage dining "
-                      + "budget; $$$$$ = top 1–3% income territory. Anchors "
-                      + "switch by GPS: US (USD/BLS), Canada (CAD/StatCan), "
-                      + "Mexico (MXN/CONASAMI-ENIGH).")
+                .help(
+                    "$ = affordable on that country's minimum-wage dining "
+                        + "budget; $$$$$ = top 1–3% income territory. Anchors "
+                        + "switch by GPS: US (USD/BLS), Canada (CAD/StatCan), "
+                        + "Mexico (MXN/CONASAMI-ENIGH).")
             }
             // Credit travels with the content. Google's Places terms require
             // their data to be attributed wherever it is shown, and FLOWS
@@ -713,39 +758,40 @@ struct StarsAndBucks: View {
 }
 
 #if os(iOS)
-import ContactsUI
+    import ContactsUI
 
-/// The sanctioned iOS path to "pull the emergency contact from the phone":
-/// Medical ID is never app-readable, but the Contacts picker needs no
-/// permission and hands over exactly one chosen card.
-struct ContactPicker: UIViewControllerRepresentable {
-    var onPick: (String, String) -> Void
+    /// The sanctioned iOS path to "pull the emergency contact from the phone":
+    /// Medical ID is never app-readable, but the Contacts picker needs no
+    /// permission and hands over exactly one chosen card.
+    struct ContactPicker: UIViewControllerRepresentable {
+        var onPick: (String, String) -> Void
 
-    func makeUIViewController(context: Context) -> CNContactPickerViewController {
-        let picker = CNContactPickerViewController()
-        picker.delegate = context.coordinator
-        return picker
-    }
+        func makeUIViewController(context: Context) -> CNContactPickerViewController {
+            let picker = CNContactPickerViewController()
+            picker.delegate = context.coordinator
+            return picker
+        }
 
-    func updateUIViewController(_ vc: CNContactPickerViewController, context: Context) {}
+        func updateUIViewController(_ vc: CNContactPickerViewController, context: Context) {}
 
-    func makeCoordinator() -> Coordinator { Coordinator(onPick: onPick) }
+        func makeCoordinator() -> Coordinator { Coordinator(onPick: onPick) }
 
-    final class Coordinator: NSObject, CNContactPickerDelegate {
-        let onPick: (String, String) -> Void
-        init(onPick: @escaping (String, String) -> Void) { self.onPick = onPick }
+        final class Coordinator: NSObject, CNContactPickerDelegate {
+            let onPick: (String, String) -> Void
+            init(onPick: @escaping (String, String) -> Void) { self.onPick = onPick }
 
-        func contactPicker(_ picker: CNContactPickerViewController,
-                           didSelect contact: CNContact) {
-            let name = [contact.givenName, contact.familyName]
-                .filter { !$0.isEmpty }.joined(separator: " ")
-            let phone = contact.phoneNumbers.first?.value.stringValue ?? ""
-            onPick(name, phone)
+            func contactPicker(
+                _ picker: CNContactPickerViewController,
+                didSelect contact: CNContact
+            ) {
+                let name = [contact.givenName, contact.familyName]
+                    .filter { !$0.isEmpty }.joined(separator: " ")
+                let phone = contact.phoneNumbers.first?.value.stringValue ?? ""
+                onPick(name, phone)
+            }
         }
     }
-}
 #endif
-
 
 /// A park bench, drawn — SF Symbols ships no bench glyph, and the rest-area
 /// button deserves the real thing.
@@ -754,19 +800,26 @@ struct BenchIcon: View {
 
     var body: some View {
         Canvas { ctx, canvasSize in
-            let w = canvasSize.width, h = canvasSize.height
+            let w = canvasSize.width
+            let h = canvasSize.height
             var p = Path()
             // Backrest slats.
-            p.addRoundedRect(in: CGRect(x: w * 0.08, y: h * 0.10,
-                                        width: w * 0.84, height: h * 0.12),
-                             cornerSize: CGSize(width: 1, height: 1))
-            p.addRoundedRect(in: CGRect(x: w * 0.08, y: h * 0.28,
-                                        width: w * 0.84, height: h * 0.12),
-                             cornerSize: CGSize(width: 1, height: 1))
+            p.addRoundedRect(
+                in: CGRect(
+                    x: w * 0.08, y: h * 0.10,
+                    width: w * 0.84, height: h * 0.12),
+                cornerSize: CGSize(width: 1, height: 1))
+            p.addRoundedRect(
+                in: CGRect(
+                    x: w * 0.08, y: h * 0.28,
+                    width: w * 0.84, height: h * 0.12),
+                cornerSize: CGSize(width: 1, height: 1))
             // Seat.
-            p.addRoundedRect(in: CGRect(x: w * 0.04, y: h * 0.52,
-                                        width: w * 0.92, height: h * 0.14),
-                             cornerSize: CGSize(width: 1, height: 1))
+            p.addRoundedRect(
+                in: CGRect(
+                    x: w * 0.04, y: h * 0.52,
+                    width: w * 0.92, height: h * 0.14),
+                cornerSize: CGSize(width: 1, height: 1))
             // Legs.
             p.addRect(CGRect(x: w * 0.14, y: h * 0.66, width: w * 0.10, height: h * 0.30))
             p.addRect(CGRect(x: w * 0.76, y: h * 0.66, width: w * 0.10, height: h * 0.30))
@@ -805,7 +858,8 @@ struct TowingIcon: View {
             Image(systemName: "truck.pickup.side.fill")
                 .font(.system(size: size, weight: .semibold))
             Canvas { ctx, canvas in
-                let w = canvas.width, h = canvas.height
+                let w = canvas.width
+                let h = canvas.height
                 // The tongue, from the truck's hitch to the box.
                 var tongue = Path()
                 tongue.move(to: CGPoint(x: 0, y: h * 0.72))
@@ -815,8 +869,9 @@ struct TowingIcon: View {
                 let box = CGRect(x: w * 0.2, y: h * 0.08, width: w * 0.78, height: h * 0.66)
                 ctx.fill(Path(roundedRect: box, cornerRadius: h * 0.08), with: .style(.primary))
                 let r = h * 0.17
-                ctx.fill(Path(ellipseIn: CGRect(x: w * 0.55 - r, y: h - 2 * r, width: 2 * r, height: 2 * r)),
-                         with: .style(.primary))
+                ctx.fill(
+                    Path(ellipseIn: CGRect(x: w * 0.55 - r, y: h - 2 * r, width: 2 * r, height: 2 * r)),
+                    with: .style(.primary))
             }
             .frame(width: size * 0.95, height: size * 0.9)
         }
@@ -831,7 +886,8 @@ struct UTurnArrow: Shape {
 
     func path(in r: CGRect) -> Path {
         var p = Path()
-        let w = r.width, h = r.height
+        let w = r.width
+        let h = r.height
         let up = left ? r.minX + w * 0.76 : r.minX + w * 0.24
         let down = left ? r.minX + w * 0.24 : r.minX + w * 0.76
         let radius = abs(up - down) / 2
@@ -840,9 +896,10 @@ struct UTurnArrow: Shape {
         p.addLine(to: CGPoint(x: up, y: crown))
         // Over the top: visually anticlockwise for a left U-turn (SwiftUI's
         // flipped y turns `clockwise: true` into that), clockwise for a right.
-        p.addArc(center: CGPoint(x: (up + down) / 2, y: crown), radius: radius,
-                 startAngle: .degrees(left ? 0 : 180), endAngle: .degrees(left ? 180 : 0),
-                 clockwise: left)
+        p.addArc(
+            center: CGPoint(x: (up + down) / 2, y: crown), radius: radius,
+            startAngle: .degrees(left ? 0 : 180), endAngle: .degrees(left ? 180 : 0),
+            clockwise: left)
         p.addLine(to: CGPoint(x: down, y: r.maxY - h * 0.1))
         // The arrowhead, pointing back down the road.
         p.move(to: CGPoint(x: down - w * 0.2, y: r.maxY - h * 0.3))
@@ -862,8 +919,11 @@ struct LaneArrowGlyph: View {
         Group {
             if arrow.turn == .reverse {
                 UTurnArrow(left: arrow.uTurnLeft)
-                    .stroke(style: StrokeStyle(lineWidth: max(size * 0.13, 2),
-                                               lineCap: .round, lineJoin: .round))
+                    .stroke(
+                        style: StrokeStyle(
+                            lineWidth: max(size * 0.13, 2),
+                            lineCap: .round, lineJoin: .round)
+                    )
                     .frame(width: size * 0.75, height: size)
             } else {
                 Image(systemName: arrow.turn.symbol)

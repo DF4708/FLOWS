@@ -37,8 +37,9 @@ func now() -> Double { CFAbsoluteTimeGetCurrent() }
 func geocode(_ query: String) async throws -> CLLocationCoordinate2D {
     let pms = try await CLGeocoder().geocodeAddressString(query + ", USA")
     guard let c = pms.first?.location?.coordinate else {
-        throw NSError(domain: "bench", code: 1,
-                      userInfo: [NSLocalizedDescriptionKey: "geocode failed: \(query)"])
+        throw NSError(
+            domain: "bench", code: 1,
+            userInfo: [NSLocalizedDescriptionKey: "geocode failed: \(query)"])
     }
     return c
 }
@@ -51,35 +52,46 @@ func samplePoints(_ polyline: MKPolyline, everyMeters: CLLocationDistance) -> [C
     var out = [coords[0]]
     var since: CLLocationDistance = 0
     for i in 1..<n {
-        let a = CLLocation(latitude: coords[i-1].latitude, longitude: coords[i-1].longitude)
+        let a = CLLocation(latitude: coords[i - 1].latitude, longitude: coords[i - 1].longitude)
         let b = CLLocation(latitude: coords[i].latitude, longitude: coords[i].longitude)
         since += b.distance(from: a)
-        if since >= everyMeters { out.append(coords[i]); since = 0 }
+        if since >= everyMeters {
+            out.append(coords[i])
+            since = 0
+        }
     }
     if let last = coords.last { out.append(last) }
     return out
 }
 
-struct AlertHit { let id: String; let severity: Double }
+struct AlertHit {
+    let id: String
+    let severity: Double
+}
 
 func fetchAlerts(_ pt: CLLocationCoordinate2D) async -> [AlertHit] {
-    let url = URL(string: String(format: "https://api.weather.gov/alerts/active?point=%.4f,%.4f",
-                                 pt.latitude, pt.longitude))!
+    let url = URL(
+        string: String(
+            format: "https://api.weather.gov/alerts/active?point=%.4f,%.4f",
+            pt.latitude, pt.longitude))!
     guard let (data, resp) = try? await session.data(from: url),
-          (resp as? HTTPURLResponse)?.statusCode == 200,
-          let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-          let features = json["features"] as? [[String: Any]] else { return [] }
+        (resp as? HTTPURLResponse)?.statusCode == 200,
+        let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+        let features = json["features"] as? [[String: Any]]
+    else { return [] }
     return features.compactMap { f in
         guard let props = f["properties"] as? [String: Any],
-              let id = (props["id"] as? String) ?? (f["id"] as? String) else { return nil }
+            let id = (props["id"] as? String) ?? (f["id"] as? String)
+        else { return nil }
         let sev = (props["severity"] as? String) ?? "Unknown"
-        let score: Double = switch sev {
-        case "Extreme": 0.95
-        case "Severe": 0.88
-        case "Moderate": 0.72
-        case "Minor": 0.45
-        default: 0.30
-        }
+        let score: Double =
+            switch sev {
+            case "Extreme": 0.95
+            case "Severe": 0.88
+            case "Moderate": 0.72
+            case "Minor": 0.45
+            default: 0.30
+            }
         return AlertHit(id: id, severity: score)
     }
 }
@@ -104,8 +116,10 @@ actor AlertCache {
     func put(_ k: String, _ v: [AlertHit]) { store[k] = v }
 }
 
-func scoreConcurrent(_ samples: [CLLocationCoordinate2D], cache: AlertCache,
-                     maxInFlight: Int = 6) async -> (risk: Double, queries: Int) {
+func scoreConcurrent(
+    _ samples: [CLLocationCoordinate2D], cache: AlertCache,
+    maxInFlight: Int = 6
+) async -> (risk: Double, queries: Int) {
     // One representative sample per 0.25° grid cell (~28 km): with 40 km
     // sampling this almost never merges two same-route samples (no accuracy
     // loss) — the dedupe win comes from alternates sharing corridor cells.
@@ -118,8 +132,7 @@ func scoreConcurrent(_ samples: [CLLocationCoordinate2D], cache: AlertCache,
     var fresh: [(String, CLLocationCoordinate2D)] = []
     var hits: [AlertHit] = []
     for (key, pt) in cells {
-        if let cached = await cache.get(key) { hits.append(contentsOf: cached) }
-        else { fresh.append((key, pt)) }
+        if let cached = await cache.get(key) { hits.append(contentsOf: cached) } else { fresh.append((key, pt)) }
     }
     var queries = 0
     var idx = 0
@@ -170,10 +183,12 @@ struct Bench {
             req.departureDate = Date()
             let resp = try await MKDirections(request: req).calculate()
             let tDir = now() - t
-            print(String(format: "MKDirections: %.2fs  (%d routes; best %.0f min, %.0f mi)",
-                         tDir, resp.routes.count,
-                         resp.routes[0].expectedTravelTime / 60,
-                         resp.routes[0].distance / 1609.344))
+            print(
+                String(
+                    format: "MKDirections: %.2fs  (%d routes; best %.0f min, %.0f mi)",
+                    tDir, resp.routes.count,
+                    resp.routes[0].expectedTravelTime / 60,
+                    resp.routes[0].distance / 1609.344))
 
             let sampleSets = resp.routes.map { samplePoints($0.polyline, everyMeters: 40_000) }
 
@@ -185,8 +200,10 @@ struct Bench {
                 t = now()
                 old = await scoreSequential(sampleSets[0])
                 tOld = now() - t
-                print(String(format: "OLD scoring (route 1 of %d): %.2fs  (%d sequential queries, risk %.2f)",
-                             resp.routes.count, tOld, old.queries, old.risk))
+                print(
+                    String(
+                        format: "OLD scoring (route 1 of %d): %.2fs  (%d sequential queries, risk %.2f)",
+                        resp.routes.count, tOld, old.queries, old.risk))
                 print(String(format: "OLD extrapolated all routes: %.2fs", tOld * Double(resp.routes.count)))
             }
 
@@ -201,14 +218,20 @@ struct Bench {
                 newQueries += r.queries
             }
             let tNew = now() - t
-            print(String(format: "NEW scoring (ALL %d routes): %.2fs  (%d network queries total, risks %@)",
-                         resp.routes.count, tNew, newQueries,
-                         newRisks.map { String(format: "%.2f", $0) }.joined(separator: ",")))
+            print(
+                String(
+                    format: "NEW scoring (ALL %d routes): %.2fs  (%d network queries total, risks %@)",
+                    resp.routes.count, tNew, newQueries,
+                    newRisks.map { String(format: "%.2f", $0) }.joined(separator: ",")))
             print(String(format: "route-1 risk agreement: old %.2f vs new %.2f", old.risk, newRisks[0]))
-            print(String(format: "\nperceived latency  OLD (routes blocked on scoring): %.2fs",
-                         tGeo1 + tGeo2 + tDir + tOld * Double(resp.routes.count)))
-            print(String(format: "perceived latency  NEW (routes shown after directions): %.2fs  + badges %.2fs async",
-                         tGeo1 + tGeo2 + tDir, tNew))
+            print(
+                String(
+                    format: "\nperceived latency  OLD (routes blocked on scoring): %.2fs",
+                    tGeo1 + tGeo2 + tDir + tOld * Double(resp.routes.count)))
+            print(
+                String(
+                    format: "perceived latency  NEW (routes shown after directions): %.2fs  + badges %.2fs async",
+                    tGeo1 + tGeo2 + tDir, tNew))
         } catch {
             print("BENCH FAILED: \(error.localizedDescription)")
             exit(1)

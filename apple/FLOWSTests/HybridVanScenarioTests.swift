@@ -125,7 +125,7 @@ final class HybridVanScenarioTests: XCTestCase {
 
     func testNextNeedTracksOdometer() {
         let schedule = TripNeeds.schedule(totalMiles: 2000, intervals: .hybridVan, seed: 1)
-        XCTAssertEqual(TripNeeds.next(after: 0, in: schedule)?.mile, 100)     // first food
+        XCTAssertEqual(TripNeeds.next(after: 0, in: schedule)?.mile, 100)  // first food
         XCTAssertEqual(TripNeeds.next(after: 340, in: schedule)?.mile, 350)  // diesel next
         XCTAssertEqual(TripNeeds.next(after: 499, in: schedule)?.mile, 500)
         // Last event is food at mile 1900 — nothing scheduled after it.
@@ -171,16 +171,19 @@ final class HybridVanScenarioTests: XCTestCase {
         let now = Date(timeIntervalSince1970: 1_750_000_000)
         // The scenario's red set: active tornado / hurricane / fire /
         // radioactive — regardless of expiry.
-        for event in ["Tornado Warning", "Hurricane Warning", "Fire Warning",
-                      "Radiological Hazard Warning", "Shelter In Place Warning"] {
+        for event in [
+            "Tornado Warning", "Hurricane Warning", "Fire Warning",
+            "Radiological Hazard Warning", "Shelter In Place Warning",
+        ] {
             XCTAssertEqual(
                 ImminentAlerts.classify(event: event, severityScore: 0.95, expires: nil, now: now),
                 .shelter, event)
         }
         // Extreme severity is red even without a keyword match.
         XCTAssertEqual(
-            ImminentAlerts.classify(event: "Storm Surge Alert", severityScore: 0.95,
-                                    expires: nil, now: now),
+            ImminentAlerts.classify(
+                event: "Storm Surge Alert", severityScore: 0.95,
+                expires: nil, now: now),
             .shelter)
     }
 
@@ -189,23 +192,27 @@ final class HybridVanScenarioTests: XCTestCase {
         // Severe thunderstorm (0.72, upper yellow) blowing through in 90 min
         // → wait it out at a rest area.
         XCTAssertEqual(
-            ImminentAlerts.classify(event: "Severe Thunderstorm Warning", severityScore: 0.72,
-                                    expires: now.addingTimeInterval(90 * 60), now: now),
+            ImminentAlerts.classify(
+                event: "Severe Thunderstorm Warning", severityScore: 0.72,
+                expires: now.addingTimeInterval(90 * 60), now: now),
             .restArea)
         // Same event lasting 5 more hours → not transient, keep driving/monitoring.
         XCTAssertEqual(
-            ImminentAlerts.classify(event: "Severe Thunderstorm Warning", severityScore: 0.72,
-                                    expires: now.addingTimeInterval(5 * 3600), now: now),
+            ImminentAlerts.classify(
+                event: "Severe Thunderstorm Warning", severityScore: 0.72,
+                expires: now.addingTimeInterval(5 * 3600), now: now),
             .monitor)
         // Minor advisory expiring soon → below the upper-yellow floor.
         XCTAssertEqual(
-            ImminentAlerts.classify(event: "Wind Advisory", severityScore: 0.45,
-                                    expires: now.addingTimeInterval(3600), now: now),
+            ImminentAlerts.classify(
+                event: "Wind Advisory", severityScore: 0.45,
+                expires: now.addingTimeInterval(3600), now: now),
             .monitor)
         // Already expired → nothing to wait out.
         XCTAssertEqual(
-            ImminentAlerts.classify(event: "Severe Thunderstorm Warning", severityScore: 0.72,
-                                    expires: now.addingTimeInterval(-60), now: now),
+            ImminentAlerts.classify(
+                event: "Severe Thunderstorm Warning", severityScore: 0.72,
+                expires: now.addingTimeInterval(-60), now: now),
             .monitor)
     }
 
@@ -219,32 +226,40 @@ final class HybridVanScenarioTests: XCTestCase {
         // not; the TORNADO (worst severity in reach) is surfaced.
         XCTAssertEqual(ImminentAlerts.firstImminent(candidates, speedMps: 29)?.alertID, "tornado")
         // Nothing in reach → nothing surfaced.
-        XCTAssertNil(ImminentAlerts.firstImminent(
-            [ImminentAlerts.Candidate(alertID: "x", distanceMeters: 500_000, severityScore: 1)],
-            speedMps: 29))
+        XCTAssertNil(
+            ImminentAlerts.firstImminent(
+                [ImminentAlerts.Candidate(alertID: "x", distanceMeters: 500_000, severityScore: 1)],
+                speedMps: 29))
     }
 
     func testShelterSearchMatchesTheSpecificWarning() {
-        XCTAssertEqual(ImminentAlerts.shelterQuery(forEvent: "Tornado Warning"),
-                       "tornado shelter storm shelter")
-        XCTAssertEqual(ImminentAlerts.shelterQuery(forEvent: "Fire Warning"),
-                       "evacuation center emergency shelter")
-        XCTAssertEqual(ImminentAlerts.shelterQuery(forEvent: "Radiological Hazard Warning"),
-                       "fallout shelter emergency shelter")
-        XCTAssertEqual(ImminentAlerts.shelterQuery(forEvent: "Hurricane Warning"),
-                       "hurricane shelter evacuation center")
-        XCTAssertEqual(ImminentAlerts.shelterQuery(forEvent: "Dense Fog Advisory"),
-                       "emergency shelter")
+        XCTAssertEqual(
+            ImminentAlerts.shelterQuery(forEvent: "Tornado Warning"),
+            "tornado shelter storm shelter")
+        XCTAssertEqual(
+            ImminentAlerts.shelterQuery(forEvent: "Fire Warning"),
+            "evacuation center emergency shelter")
+        XCTAssertEqual(
+            ImminentAlerts.shelterQuery(forEvent: "Radiological Hazard Warning"),
+            "fallout shelter emergency shelter")
+        XCTAssertEqual(
+            ImminentAlerts.shelterQuery(forEvent: "Hurricane Warning"),
+            "hurricane shelter evacuation center")
+        XCTAssertEqual(
+            ImminentAlerts.shelterQuery(forEvent: "Dense Fog Advisory"),
+            "emergency shelter")
     }
 
     // MARK: risk badges — one symbol at the cluster's central weight
 
     func testBadgeSitsAtScoreWeightedCentroid() {
         let items = [
-            BadgeClustering.Item(coordinate: CLLocationCoordinate2D(latitude: 45.0, longitude: -90.0),
-                                 kind: "storm", score: 0.9),
-            BadgeClustering.Item(coordinate: CLLocationCoordinate2D(latitude: 45.09, longitude: -90.0),
-                                 kind: "storm", score: 0.3),
+            BadgeClustering.Item(
+                coordinate: CLLocationCoordinate2D(latitude: 45.0, longitude: -90.0),
+                kind: "storm", score: 0.9),
+            BadgeClustering.Item(
+                coordinate: CLLocationCoordinate2D(latitude: 45.09, longitude: -90.0),
+                kind: "storm", score: 0.3),
         ]
         let badges = BadgeClustering.cluster(items, minSeparationMeters: 100_000)
         XCTAssertEqual(badges.count, 1, "same-kind neighbors collapse to one symbol")
@@ -265,10 +280,14 @@ final class HybridVanScenarioTests: XCTestCase {
 
         let store = FavoritesStore(defaults: defaults)
         XCTAssertFalse(store.contains(name: "Home"))
-        store.add(FavoriteAddress(name: "Home", symbol: .home,
-                                  latitude: 43.0731, longitude: -89.4012))
-        store.add(FavoriteAddress(name: "Office", symbol: .office,
-                                  latitude: 43.0389, longitude: -87.9065))
+        store.add(
+            FavoriteAddress(
+                name: "Home", symbol: .home,
+                latitude: 43.0731, longitude: -89.4012))
+        store.add(
+            FavoriteAddress(
+                name: "Office", symbol: .office,
+                latitude: 43.0389, longitude: -87.9065))
         XCTAssertTrue(store.contains(name: "Home"))
 
         // A fresh store (fresh launch) reads the same favorites back.
@@ -278,8 +297,10 @@ final class HybridVanScenarioTests: XCTestCase {
         XCTAssertEqual(relaunched.favorites.first?.coordinate.latitude ?? 0, 43.0731, accuracy: 1e-9)
 
         // Re-starring the same name updates instead of duplicating.
-        relaunched.add(FavoriteAddress(name: "Home", symbol: .other,
-                                       latitude: 44.0, longitude: -90.0))
+        relaunched.add(
+            FavoriteAddress(
+                name: "Home", symbol: .other,
+                latitude: 44.0, longitude: -90.0))
         XCTAssertEqual(relaunched.favorites.count, 2)
         XCTAssertEqual(relaunched.favorites.first { $0.name == "Home" }?.symbol, .other)
 

@@ -19,38 +19,53 @@ final class SiriSchemaRulesTests: XCTestCase {
     // MARK: trip requests
 
     func testPlanKeepsTheModeOnScreenWhenTheAskMatches() {
-        XCTAssertEqual(R.tripRequest(mode: .driving, preferences: [], walkingNow: false,
-                                     filters: [], tripUnderway: false),
-                       .plan(walking: nil, addFilters: []))
-        XCTAssertEqual(R.tripRequest(mode: .walking, preferences: [], walkingNow: true,
-                                     filters: [.noTolls], tripUnderway: true),
-                       .plan(walking: nil, addFilters: []))
+        XCTAssertEqual(
+            R.tripRequest(
+                mode: .driving, preferences: [], walkingNow: false,
+                filters: [], tripUnderway: false),
+            .plan(walking: nil, addFilters: []))
+        XCTAssertEqual(
+            R.tripRequest(
+                mode: .walking, preferences: [], walkingNow: true,
+                filters: [.noTolls], tripUnderway: true),
+            .plan(walking: nil, addFilters: []))
     }
 
     func testPlanSwitchesModeAndAddsOnlyMissingFiltersWhenNoTrip() {
-        XCTAssertEqual(R.tripRequest(mode: .walking, preferences: [], walkingNow: false,
-                                     filters: [], tripUnderway: false),
-                       .plan(walking: true, addFilters: []))
-        XCTAssertEqual(R.tripRequest(mode: .driving, preferences: [.avoidTolls, .avoidHighways],
-                                     walkingNow: true, filters: [.noTolls], tripUnderway: false),
-                       .plan(walking: false, addFilters: [.noHighways]))
+        XCTAssertEqual(
+            R.tripRequest(
+                mode: .walking, preferences: [], walkingNow: false,
+                filters: [], tripUnderway: false),
+            .plan(walking: true, addFilters: []))
+        XCTAssertEqual(
+            R.tripRequest(
+                mode: .driving, preferences: [.avoidTolls, .avoidHighways],
+                walkingNow: true, filters: [.noTolls], tripUnderway: false),
+            .plan(walking: false, addFilters: [.noHighways]))
     }
 
     func testAnAskThatChangesTheLiveTripMustWaitForItToEnd() {
-        XCTAssertEqual(R.tripRequest(mode: .walking, preferences: [], walkingNow: false,
-                                     filters: [], tripUnderway: true), .finishTripFirst)
-        XCTAssertEqual(R.tripRequest(mode: .driving, preferences: [.avoidHighways], walkingNow: false,
-                                     filters: [.noTolls], tripUnderway: true), .finishTripFirst)
+        XCTAssertEqual(
+            R.tripRequest(
+                mode: .walking, preferences: [], walkingNow: false,
+                filters: [], tripUnderway: true), .finishTripFirst)
+        XCTAssertEqual(
+            R.tripRequest(
+                mode: .driving, preferences: [.avoidHighways], walkingNow: false,
+                filters: [.noTolls], tripUnderway: true), .finishTripFirst)
         // A preference already on is no change.
-        XCTAssertEqual(R.tripRequest(mode: .driving, preferences: [.avoidTolls], walkingNow: false,
-                                     filters: [.noTolls, .avoidTraffic], tripUnderway: true),
-                       .plan(walking: nil, addFilters: []))
+        XCTAssertEqual(
+            R.tripRequest(
+                mode: .driving, preferences: [.avoidTolls], walkingNow: false,
+                filters: [.noTolls, .avoidTraffic], tripUnderway: true),
+            .plan(walking: nil, addFilters: []))
     }
 
     func testPreferencesReportOnlyTheTwoSiriKnowsInAFixedOrder() {
         XCTAssertEqual(R.preferences(in: []), [])
-        XCTAssertEqual(R.preferences(in: [.noHighways, .avoidTraffic, .noTolls]),
-                       [.avoidTolls, .avoidHighways])
+        XCTAssertEqual(
+            R.preferences(in: [.noHighways, .avoidTraffic, .noTolls]),
+            [.avoidTolls, .avoidHighways])
         XCTAssertEqual(R.preferences(in: [.bridgeWeight, .noHighways]), [.avoidHighways])
         XCTAssertEqual(R.TripPreference.avoidTolls.filter, .noTolls)
         XCTAssertEqual(R.TripPreference.avoidHighways.filter, .noHighways)
@@ -76,7 +91,7 @@ final class SiriSchemaRulesTests: XCTestCase {
 
     func testTheSameStopAskedTwiceCountsOnce() {
         let a = c(41.0, -74.0)
-        let a2 = c(41.0009, -74.0)   // ~100 m away
+        let a2 = c(41.0009, -74.0)  // ~100 m away
         let b = c(41.1, -74.0)
         XCTAssertEqual(R.newWaypoints([a, a2, b, a], existing: []), [0, 2])
     }
@@ -93,7 +108,7 @@ final class SiriSchemaRulesTests: XCTestCase {
         let back = try XCTUnwrap(R.place(fromID: id))
         XCTAssertEqual(back.coordinate.latitude, 37.774929, accuracy: 1e-6)
         XCTAssertEqual(back.coordinate.longitude, -122.419416, accuracy: 1e-6)
-        XCTAssertEqual(back.name, "Main St, Suite 4")   // commas in the name survive
+        XCTAssertEqual(back.name, "Main St, Suite 4")  // commas in the name survive
         let unnamed = try XCTUnwrap(R.placeID(c(1, 2), name: nil))
         XCTAssertNil(try XCTUnwrap(R.place(fromID: unnamed)).name)
     }

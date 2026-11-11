@@ -28,7 +28,7 @@ final class TransitTimesTests: XCTestCase {
         // Amtrak keeps Eastern time for the whole network, so the Coast
         // Starlight's Seattle departure is stored as 12:55:00.
         let moment = TransitClock.instant(
-            serviceDate: 20260923, agencyZone: eastern, seconds: 12 * 3600 + 55 * 60
+            serviceDate: 20_260_923, agencyZone: eastern, seconds: 12 * 3600 + 55 * 60
         )
         guard let dep = moment else { return XCTFail("no instant") }
         XCTAssertEqual(
@@ -41,7 +41,7 @@ final class TransitTimesTests: XCTestCase {
     func testServiceDayStartsAtNoonMinusTwelveHoursNotMidnight() {
         // On the two days a year the clocks change, midnight is the wrong
         // anchor — an hour late in spring, an hour early in autumn.
-        for date in [20270314, 20271107, 20260923] {
+        for date in [20_270_314, 20_271_107, 20_260_923] {
             let moment = TransitClock.instant(
                 serviceDate: date, agencyZone: eastern, seconds: 8 * 3600
             )
@@ -55,7 +55,7 @@ final class TransitTimesTests: XCTestCase {
 
     func testTimesPastMidnightStayOnTheirOwnServiceDay() {
         let moment = TransitClock.instant(
-            serviceDate: 20260923, agencyZone: eastern, seconds: 25 * 3600 + 30 * 60
+            serviceDate: 20_260_923, agencyZone: eastern, seconds: 25 * 3600 + 30 * 60
         )
         guard let moment else { return XCTFail("no instant") }
         XCTAssertEqual(plain(TransitClock.clock(moment, zone: eastern, locale: us)), "1:30 AM")
@@ -65,37 +65,47 @@ final class TransitTimesTests: XCTestCase {
     /// clock change, where the timetable builder must carry yesterday's owl
     /// buses by 25 hours (fall back) or 23 (spring forward).
     func testTheDaysBeforeBeganWhereTheClockSays() {
-        XCTAssertEqual(TransitClock.dayStarts(serviceDate: 20260923, agencyZone: eastern),
-                       [86_400, 172_800, 259_200])
-        XCTAssertEqual(TransitClock.dayStarts(serviceDate: 20261101, agencyZone: eastern),
-                       [90_000, 176_400, 262_800], "fall back: Sunday began 25 h after Saturday")
-        XCTAssertEqual(TransitClock.dayStarts(serviceDate: 20260308, agencyZone: eastern),
-                       [82_800, 169_200, 255_600], "spring forward: 23 h")
-        XCTAssertEqual(TransitClock.dayStarts(serviceDate: 20261103, agencyZone: eastern),
-                       [86_400, 172_800, 262_800], "the change two days back counts there only")
-        XCTAssertEqual(TransitClock.dayStarts(serviceDate: 20261101, agencyZone: ""),
-                       [86_400, 172_800, 259_200], "no zone: whole days")
+        XCTAssertEqual(
+            TransitClock.dayStarts(serviceDate: 20_260_923, agencyZone: eastern),
+            [86_400, 172_800, 259_200])
+        XCTAssertEqual(
+            TransitClock.dayStarts(serviceDate: 20_261_101, agencyZone: eastern),
+            [90_000, 176_400, 262_800], "fall back: Sunday began 25 h after Saturday")
+        XCTAssertEqual(
+            TransitClock.dayStarts(serviceDate: 20_260_308, agencyZone: eastern),
+            [82_800, 169_200, 255_600], "spring forward: 23 h")
+        XCTAssertEqual(
+            TransitClock.dayStarts(serviceDate: 20_261_103, agencyZone: eastern),
+            [86_400, 172_800, 262_800], "the change two days back counts there only")
+        XCTAssertEqual(
+            TransitClock.dayStarts(serviceDate: 20_261_101, agencyZone: ""),
+            [86_400, 172_800, 259_200], "no zone: whole days")
     }
 
     func testImpossibleDatesAndZonesAreRefused() {
-        XCTAssertNil(TransitClock.dayStart(serviceDate: 20260231, agencyZone: eastern),
-                     "February 31st must be refused, not rolled into March")
-        XCTAssertNil(TransitClock.instant(serviceDate: 20260923, agencyZone: "Mars/Olympus", seconds: 0))
-        XCTAssertNil(TransitClock.instant(serviceDate: 20260923, agencyZone: eastern, seconds: -1))
+        XCTAssertNil(
+            TransitClock.dayStart(serviceDate: 20_260_231, agencyZone: eastern),
+            "February 31st must be refused, not rolled into March")
+        XCTAssertNil(TransitClock.instant(serviceDate: 20_260_923, agencyZone: "Mars/Olympus", seconds: 0))
+        XCTAssertNil(TransitClock.instant(serviceDate: 20_260_923, agencyZone: eastern, seconds: -1))
     }
 
     func testTheZoneIsNamedOnlyWhenTheTripCrossesOne() {
-        let board = TransitClock.instant(serviceDate: 20260923, agencyZone: eastern, seconds: 7 * 3600 + 15 * 60)
-        let alight = TransitClock.instant(serviceDate: 20260923, agencyZone: eastern, seconds: 8 * 3600 + 57 * 60)
+        let board = TransitClock.instant(serviceDate: 20_260_923, agencyZone: eastern, seconds: 7 * 3600 + 15 * 60)
+        let alight = TransitClock.instant(serviceDate: 20_260_923, agencyZone: eastern, seconds: 8 * 3600 + 57 * 60)
         guard let board, let alight else { return XCTFail("no instants") }
         XCTAssertEqual(
-            plain(TransitClock.span(board: board, boardZone: "America/Chicago",
-                                    alight: alight, alightZone: "America/Chicago", locale: us)),
+            plain(
+                TransitClock.span(
+                    board: board, boardZone: "America/Chicago",
+                    alight: alight, alightZone: "America/Chicago", locale: us)),
             "6:15 AM – 7:57 AM"
         )
         XCTAssertEqual(
-            plain(TransitClock.span(board: board, boardZone: "America/Denver",
-                                    alight: alight, alightZone: "America/Chicago", locale: us)),
+            plain(
+                TransitClock.span(
+                    board: board, boardZone: "America/Denver",
+                    alight: alight, alightZone: "America/Chicago", locale: us)),
             "5:15 AM – 7:57 AM Central time",
             "crossing a zone, the arrival says which clock it is on"
         )
@@ -105,22 +115,29 @@ final class TransitTimesTests: XCTestCase {
         // The Sunset Limited, as Amtrak stores it (Eastern): New Orleans at
         // 10:00, Los Angeles at 56:35 — 9:00 AM Central, 5:35 AM Pacific two
         // days on. And an overnight train that gets in the next morning.
-        let board = TransitClock.instant(serviceDate: 20260930, agencyZone: eastern, seconds: 10 * 3600)
-        let alight = TransitClock.instant(serviceDate: 20260930, agencyZone: eastern,
-                                          seconds: 56 * 3600 + 35 * 60)
-        let overnight = TransitClock.instant(serviceDate: 20260930, agencyZone: eastern,
-                                             seconds: 32 * 3600 + 53 * 60)
-        let latest = TransitClock.instant(serviceDate: 20260930, agencyZone: eastern,
-                                          seconds: 80 * 3600)
+        let board = TransitClock.instant(serviceDate: 20_260_930, agencyZone: eastern, seconds: 10 * 3600)
+        let alight = TransitClock.instant(
+            serviceDate: 20_260_930, agencyZone: eastern,
+            seconds: 56 * 3600 + 35 * 60)
+        let overnight = TransitClock.instant(
+            serviceDate: 20_260_930, agencyZone: eastern,
+            seconds: 32 * 3600 + 53 * 60)
+        let latest = TransitClock.instant(
+            serviceDate: 20_260_930, agencyZone: eastern,
+            seconds: 80 * 3600)
         guard let board, let alight, let overnight else { return XCTFail("no instants") }
         XCTAssertNotNil(latest, "Amtrak's longest trips reach 80:00:00")
         XCTAssertEqual(
-            plain(TransitClock.span(board: board, boardZone: "America/Chicago",
-                                    alight: alight, alightZone: "America/Los_Angeles", locale: us)),
+            plain(
+                TransitClock.span(
+                    board: board, boardZone: "America/Chicago",
+                    alight: alight, alightZone: "America/Los_Angeles", locale: us)),
             "9:00 AM – 5:35 AM Pacific time 2 days later")
         XCTAssertEqual(
-            plain(TransitClock.span(board: board, boardZone: eastern,
-                                    alight: overnight, alightZone: eastern, locale: us)),
+            plain(
+                TransitClock.span(
+                    board: board, boardZone: eastern,
+                    alight: overnight, alightZone: eastern, locale: us)),
             "10:00 AM – 8:53 AM next day")
     }
 
@@ -168,11 +185,13 @@ final class TransitTimesTests: XCTestCase {
         if fares {
             // The operator's own fare for the Hiawatha; none for the other.
             try "fare_id,price,currency_type,payment_method,transfers\nH,10.25,USD,1,0\n"
-                .write(to: dir.appendingPathComponent("fare_attributes.txt"),
-                       atomically: true, encoding: .utf8)
+                .write(
+                    to: dir.appendingPathComponent("fare_attributes.txt"),
+                    atomically: true, encoding: .utf8)
             try "fare_id,route_id,origin_id,destination_id,contains_id\nH,R1,,,\n"
-                .write(to: dir.appendingPathComponent("fare_rules.txt"),
-                       atomically: true, encoding: .utf8)
+                .write(
+                    to: dir.appendingPathComponent("fare_rules.txt"),
+                    atomically: true, encoding: .utf8)
         }
         return dir.path
     }
@@ -186,10 +205,11 @@ final class TransitTimesTests: XCTestCase {
             try? FileManager.default.removeItem(atPath: prefix + ".ftt")
             try? FileManager.default.removeItem(atPath: prefix + ".fts")
         }
-        let stamp = try TransitShard.build(feedDirectory: feed, prefix: prefix,
-                                           serviceDate: 20260923)
+        let stamp = try TransitShard.build(
+            feedDirectory: feed, prefix: prefix,
+            serviceDate: 20_260_923)
         let six = try XCTUnwrap(
-            TransitClock.instant(serviceDate: 20260923, agencyZone: eastern, seconds: 6 * 3600))
+            TransitClock.instant(serviceDate: 20_260_923, agencyZone: eastern, seconds: 6 * 3600))
         let toChicago = try TransitShard.departures(
             prefix: prefix, from: CLLocationCoordinate2D(latitude: 43.0389, longitude: -87.9065),
             to: CLLocationCoordinate2D(latitude: 41.8781, longitude: -87.6298),
@@ -202,14 +222,16 @@ final class TransitTimesTests: XCTestCase {
             prefix: prefix, from: CLLocationCoordinate2D(latitude: 41.8789, longitude: -87.6399),
             to: CLLocationCoordinate2D(latitude: 39.7525, longitude: -105.0), departing: six,
             stamp: stamp)
-        XCTAssertNil(toDenver.departures.first?.rides.first?.fare,
-                     "no fare published for it: none shown, none guessed")
+        XCTAssertNil(
+            toDenver.departures.first?.rides.first?.fare,
+            "no fare published for it: none shown, none guessed")
     }
 
     func testFaresAreSaidPlainlyAndAddedOnlyWhenAllAreKnown() {
         XCTAssertEqual(TransitFare(cents: 0, currency: "USD").text(locale: us), "free")
-        XCTAssertEqual(TransitFare(cents: 1000, currency: "USD", from: true).text(locale: us),
-                       "from $10.00")
+        XCTAssertEqual(
+            TransitFare(cents: 1000, currency: "USD", from: true).text(locale: us),
+            "from $10.00")
         let bus = TransitFare(cents: 250, currency: "USD")
         let ferry = TransitFare(cents: 1025, currency: "USD")
         XCTAssertEqual(TransitFare.total([bus, ferry]), TransitFare(cents: 1275, currency: "USD"))
@@ -228,20 +250,21 @@ final class TransitTimesTests: XCTestCase {
             try? FileManager.default.removeItem(atPath: prefix + ".fts")
         }
 
-        XCTAssertEqual(TransitShard.agencyZone(feedDirectory: feed), eastern,
-                       "the zone is readable before the timetable is built")
+        XCTAssertEqual(
+            TransitShard.agencyZone(feedDirectory: feed), eastern,
+            "the zone is readable before the timetable is built")
 
         let stamp = try TransitShard.build(
-            feedDirectory: feed, prefix: prefix, serviceDate: 20260923
+            feedDirectory: feed, prefix: prefix, serviceDate: 20_260_923
         )
-        XCTAssertEqual(stamp.serviceDate, 20260923)
+        XCTAssertEqual(stamp.serviceDate, 20_260_923)
         XCTAssertEqual(stamp.agencyZone, eastern)
-        XCTAssertEqual(stamp.published, 20260921)
+        XCTAssertEqual(stamp.published, 20_260_921)
 
         let milwaukee = CLLocationCoordinate2D(latitude: 43.0389, longitude: -87.9065)
         let chicago = CLLocationCoordinate2D(latitude: 41.8781, longitude: -87.6298)
         let sixThirtyAM = try XCTUnwrap(
-            TransitClock.instant(serviceDate: 20260923, agencyZone: eastern, seconds: 6 * 3600)
+            TransitClock.instant(serviceDate: 20_260_923, agencyZone: eastern, seconds: 6 * 3600)
         )
         let answer = try TransitShard.departures(
             prefix: prefix, from: milwaukee, to: chicago, departing: sixThirtyAM, stamp: stamp
@@ -279,24 +302,26 @@ final class TransitTimesTests: XCTestCase {
             try? FileManager.default.removeItem(atPath: prefix + ".fts")
         }
         let stamp = try TransitShard.build(
-            feedDirectory: feed, prefix: prefix, serviceDate: 20260923
+            feedDirectory: feed, prefix: prefix, serviceDate: 20_260_923
         )
         let answer = try TransitShard.departures(
             prefix: prefix,
             from: CLLocationCoordinate2D(latitude: 41.8781, longitude: -87.6298),
             to: CLLocationCoordinate2D(latitude: 39.7392, longitude: -104.9903),
             departing: try XCTUnwrap(
-                TransitClock.instant(serviceDate: 20260923, agencyZone: eastern, seconds: 6 * 3600)
+                TransitClock.instant(serviceDate: 20_260_923, agencyZone: eastern, seconds: 6 * 3600)
             ),
             stamp: stamp
         )
         let ride = try XCTUnwrap(answer.departures.first?.rides.first)
         let board = try XCTUnwrap(TransitShard.moment(ride.departSeconds, stamp))
         let alight = try XCTUnwrap(TransitShard.moment(ride.arriveSeconds, stamp))
-        XCTAssertEqual(plain(TransitClock.clock(board, zone: ride.boardZone, locale: us)), "9:00 AM",
-                       "10:00 Eastern leaves Chicago at 9 AM")
-        XCTAssertEqual(plain(TransitClock.clock(alight, zone: ride.alightZone, locale: us)), "8:00 PM",
-                       "22:00 Eastern arrives in Denver at 8 PM, not 10 PM")
+        XCTAssertEqual(
+            plain(TransitClock.clock(board, zone: ride.boardZone, locale: us)), "9:00 AM",
+            "10:00 Eastern leaves Chicago at 9 AM")
+        XCTAssertEqual(
+            plain(TransitClock.clock(alight, zone: ride.alightZone, locale: us)), "8:00 PM",
+            "22:00 Eastern arrives in Denver at 8 PM, not 10 PM")
     }
 
     func testAskingOnTheWrongDayIsRefusedNotAnswered() throws {
@@ -309,10 +334,10 @@ final class TransitTimesTests: XCTestCase {
             try? FileManager.default.removeItem(atPath: prefix + ".fts")
         }
         let stamp = try TransitShard.build(
-            feedDirectory: feed, prefix: prefix, serviceDate: 20260923
+            feedDirectory: feed, prefix: prefix, serviceDate: 20_260_923
         )
         let tomorrow = try XCTUnwrap(
-            TransitClock.instant(serviceDate: 20260925, agencyZone: eastern, seconds: 9 * 3600)
+            TransitClock.instant(serviceDate: 20_260_925, agencyZone: eastern, seconds: 9 * 3600)
         )
         XCTAssertThrowsError(
             try TransitShard.departures(
@@ -335,7 +360,7 @@ final class TransitTimesTests: XCTestCase {
             try? FileManager.default.removeItem(atPath: prefix + ".fts")
         }
         let stamp = try TransitShard.build(
-            feedDirectory: feed, prefix: prefix, serviceDate: 20260923
+            feedDirectory: feed, prefix: prefix, serviceDate: 20_260_923
         )
         do {
             _ = try TransitShard.departures(
@@ -343,7 +368,7 @@ final class TransitTimesTests: XCTestCase {
                 from: CLLocationCoordinate2D(latitude: 21.3069, longitude: -157.8583),
                 to: CLLocationCoordinate2D(latitude: 41.8781, longitude: -87.6298),
                 departing: try XCTUnwrap(
-                    TransitClock.instant(serviceDate: 20260923, agencyZone: eastern, seconds: 6 * 3600)
+                    TransitClock.instant(serviceDate: 20_260_923, agencyZone: eastern, seconds: 6 * 3600)
                 ),
                 stamp: stamp
             )
@@ -359,10 +384,10 @@ final class TransitTimesTests: XCTestCase {
 
     private func answer(
         rides: [TransitShard.Ride], laterDepartures: [Int] = [], transfers: Int = 0,
-        published: Int = 20260921
+        published: Int = 20_260_921
     ) -> TransitShard.Answer {
         let stamp = TransitShard.Stamp(
-            serviceDate: 20260923, published: published, agencyZone: eastern
+            serviceDate: 20_260_923, published: published, agencyZone: eastern
         )
         let first = TransitShard.Departure(
             rides: rides,
@@ -407,11 +432,16 @@ final class TransitTimesTests: XCTestCase {
             alight: "Chicago Union Station", alightZone: "America/Chicago",
             arrive: 8 * 3600 + 57 * 60
         )
-        let schedule = try XCTUnwrap(TransitShard.schedule(
-            from: answer(rides: [hiawatha], laterDepartures: [9 * 3600 + 15 * 60,
-                                                              11 * 3600 + 15 * 60]),
-            credit: "Schedule from Amtrak", locale: us
-        ))
+        let schedule = try XCTUnwrap(
+            TransitShard.schedule(
+                from: answer(
+                    rides: [hiawatha],
+                    laterDepartures: [
+                        9 * 3600 + 15 * 60,
+                        11 * 3600 + 15 * 60,
+                    ]),
+                credit: "Schedule from Amtrak", locale: us
+            ))
         XCTAssertEqual(plain(schedule.clockSpan), "6:15 AM – 7:57 AM")
         XCTAssertEqual(schedule.routeName, "Hiawatha Service")
         XCTAssertEqual(plain(schedule.plainLine), "6:15 AM – 7:57 AM · Hiawatha Service")
@@ -422,41 +452,49 @@ final class TransitTimesTests: XCTestCase {
     }
 
     func testAChangeOfTrainsIsSaidPlainlyNotNamedAfterTheFirst() throws {
-        let one = ride("Hiawatha Service", board: "Milwaukee Intermodal Station",
-                       boardZone: "America/Chicago", depart: 7 * 3600,
-                       alight: "Chicago Union Station", alightZone: "America/Chicago",
-                       arrive: 9 * 3600)
-        let two = ride("Southwest Chief", board: "Chicago Union Station",
-                       boardZone: "America/Chicago", depart: 10 * 3600,
-                       alight: "Kansas City", alightZone: "America/Chicago",
-                       arrive: 18 * 3600)
-        let schedule = try XCTUnwrap(TransitShard.schedule(
-            from: answer(rides: [one, two], transfers: 1),
-            credit: "Schedule from Amtrak", locale: us
-        ))
-        XCTAssertEqual(schedule.routeName, "1 change",
-                       "naming only the first train would hide the change")
+        let one = ride(
+            "Hiawatha Service", board: "Milwaukee Intermodal Station",
+            boardZone: "America/Chicago", depart: 7 * 3600,
+            alight: "Chicago Union Station", alightZone: "America/Chicago",
+            arrive: 9 * 3600)
+        let two = ride(
+            "Southwest Chief", board: "Chicago Union Station",
+            boardZone: "America/Chicago", depart: 10 * 3600,
+            alight: "Kansas City", alightZone: "America/Chicago",
+            arrive: 18 * 3600)
+        let schedule = try XCTUnwrap(
+            TransitShard.schedule(
+                from: answer(rides: [one, two], transfers: 1),
+                credit: "Schedule from Amtrak", locale: us
+            ))
+        XCTAssertEqual(
+            schedule.routeName, "1 change",
+            "naming only the first train would hide the change")
         XCTAssertEqual(schedule.alightName, "Kansas City", "the far end, not the first stop")
     }
 
     func testALastTrainSaysNothingAboutALaterOne() throws {
-        let last = ride("Empire Builder", board: "Milwaukee Intermodal Station",
-                        boardZone: "America/Chicago", depart: 22 * 3600,
-                        alight: "Chicago Union Station", alightZone: "America/Chicago",
-                        arrive: 23 * 3600 + 30 * 60)
-        let schedule = try XCTUnwrap(TransitShard.schedule(
-            from: answer(rides: [last]), credit: "Schedule from Amtrak", locale: us
-        ))
+        let last = ride(
+            "Empire Builder", board: "Milwaukee Intermodal Station",
+            boardZone: "America/Chicago", depart: 22 * 3600,
+            alight: "Chicago Union Station", alightZone: "America/Chicago",
+            arrive: 23 * 3600 + 30 * 60)
+        let schedule = try XCTUnwrap(
+            TransitShard.schedule(
+                from: answer(rides: [last]), credit: "Schedule from Amtrak", locale: us
+            ))
         XCTAssertTrue(schedule.laterClocks.isEmpty)
         XCTAssertEqual(schedule.laterLine, "", "no empty 'Then' on the card")
     }
 
     func testAFeedThatNeverSaidWhenItWasPublishedShowsNoDate() throws {
-        let hop = ride("Hiawatha Service", board: "A", boardZone: eastern, depart: 3600,
-                       alight: "B", alightZone: eastern, arrive: 7200)
-        let schedule = try XCTUnwrap(TransitShard.schedule(
-            from: answer(rides: [hop], published: 0), credit: "Schedule from Amtrak", locale: us
-        ))
+        let hop = ride(
+            "Hiawatha Service", board: "A", boardZone: eastern, depart: 3600,
+            alight: "B", alightZone: eastern, arrive: 7200)
+        let schedule = try XCTUnwrap(
+            TransitShard.schedule(
+                from: answer(rides: [hop], published: 0), credit: "Schedule from Amtrak", locale: us
+            ))
         XCTAssertEqual(schedule.asOf, "")
         XCTAssertEqual(schedule.credit, "Schedule from Amtrak", "the operator is still credited")
     }
@@ -477,10 +515,11 @@ final class TransitTimesTests: XCTestCase {
             routeName: "Pacific Surfliner", mode: 0,
             departSeconds: 15 * 3600 + 10 * 60, arriveSeconds: 18 * 3600 + 7 * 60
         )
-        let schedule = try XCTUnwrap(TransitShard.schedule(
-            from: answer(rides: [coach, surfliner], transfers: 1),
-            credit: "Schedule from Amtrak", locale: us
-        ))
+        let schedule = try XCTUnwrap(
+            TransitShard.schedule(
+                from: answer(rides: [coach, surfliner], transfers: 1),
+                credit: "Schedule from Amtrak", locale: us
+            ))
         XCTAssertEqual(schedule.legs.count, 2)
         XCTAssertEqual(schedule.legs[0].vehicle, "Bus", "the connecting leg is a bus")
         XCTAssertEqual(schedule.legs[1].vehicle, "Train")
@@ -495,25 +534,29 @@ final class TransitTimesTests: XCTestCase {
     }
 
     func testASingleRideStillGetsOneLeg() throws {
-        let hop = ride("Hiawatha Service", board: "Milwaukee", boardZone: "America/Chicago",
-                       depart: 7 * 3600 + 15 * 60, alight: "Chicago",
-                       alightZone: "America/Chicago", arrive: 8 * 3600 + 57 * 60)
-        let schedule = try XCTUnwrap(TransitShard.schedule(
-            from: answer(rides: [hop]), credit: "Schedule from Amtrak", locale: us
-        ))
+        let hop = ride(
+            "Hiawatha Service", board: "Milwaukee", boardZone: "America/Chicago",
+            depart: 7 * 3600 + 15 * 60, alight: "Chicago",
+            alightZone: "America/Chicago", arrive: 8 * 3600 + 57 * 60)
+        let schedule = try XCTUnwrap(
+            TransitShard.schedule(
+                from: answer(rides: [hop]), credit: "Schedule from Amtrak", locale: us
+            ))
         XCTAssertEqual(schedule.legs.count, 1)
         XCTAssertEqual(schedule.legs[0].vehicleLine, "Train · Hiawatha Service")
     }
 
     func testTheVehicleIsSaidInWordsARiderUses() {
         XCTAssertEqual(TransitShard.vehicleWord(0), "Train")
-        XCTAssertEqual(TransitShard.vehicleWord(1), "Train",
-                       "light rail and trams share the byte; a train to everyone riding one")
+        XCTAssertEqual(
+            TransitShard.vehicleWord(1), "Train",
+            "light rail and trams share the byte; a train to everyone riding one")
         XCTAssertEqual(TransitShard.vehicleWord(2), "Bus")
         XCTAssertEqual(TransitShard.vehicleWord(3), "Bus", "a coach is a bus to the person riding it")
         XCTAssertEqual(TransitShard.vehicleWord(4), "Train")
-        XCTAssertEqual(TransitShard.vehicleWord(5), "Ferry",
-                       "the Staten Island Ferry read \"Bus\" before boats had a mode of their own")
+        XCTAssertEqual(
+            TransitShard.vehicleWord(5), "Ferry",
+            "the Staten Island Ferry read \"Bus\" before boats had a mode of their own")
         XCTAssertEqual(TransitPlanning.vehicleSymbol("Ferry"), "ferry.fill")
     }
 }

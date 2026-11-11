@@ -40,19 +40,32 @@ struct RiskSegment: Identifiable {
 /// router's fastest/safest/metro profile triad. "Safest" is not a request
 /// kind (Apple can't know weather); it's the risk ranking after hydration.
 enum RoutePlanKind {
-    case standard        // default MKDirections + alternates
-    case avoidHighways   // the "local roads / metro" profile
-    case tollFree        // requested with tollPreference = .avoid
+    case standard  // default MKDirections + alternates
+    case avoidHighways  // the "local roads / metro" profile
+    case tollFree  // requested with tollPreference = .avoid
 }
 
 /// A planned route: Apple's traffic-aware MKRoute plus the FLOWS weather-risk
 /// score layered on top.
-struct PlannedRoute: Identifiable {
+struct PlannedRoute: Identifiable, Sendable {
     let id = UUID()
-    let route: MKRoute
+    /// Read-only once MapKit has answered (`SharedMapRoute`, in the islands).
+    private let shared: SharedMapRoute
+    var route: MKRoute { shared.route }
     let sourceName: String
     let destinationName: String
     var planKind: RoutePlanKind = .standard
+
+    init(
+        route: MKRoute, sourceName: String, destinationName: String,
+        planKind: RoutePlanKind = .standard
+    ) {
+        shared = SharedMapRoute(route)
+        self.sourceName = sourceName
+        self.destinationName = destinationName
+        self.planKind = planKind
+    }
+
     /// 0…1 normalized FLOWS corridor risk (noisy-OR of severity×coverage —
     /// same combination shape as the web app's environmental normalization).
     /// Hydrated asynchronously after the routes are already on screen —
@@ -155,7 +168,7 @@ struct PlannedRoute: Identifiable {
     /// road (RouteFilter.avoidsTraffic). (Real per-road congestion history
     /// needs data Apple doesn't expose; documented approx.)
     var congestionRatio: Double {
-        let freeFlowSpeed = hasHighways ? 29.0 : 17.0   // m/s ≈ 65 / 38 mph
+        let freeFlowSpeed = hasHighways ? 29.0 : 17.0  // m/s ≈ 65 / 38 mph
         let freeFlow = distanceMeters / freeFlowSpeed
         return freeFlow > 0 ? eta / freeFlow : 1
     }
@@ -168,7 +181,7 @@ struct PlannedRoute: Identifiable {
     /// neither take the learned driving pace nor teach it.
     var isWalk: Bool { route.transportType == .walking || isWalkingEstimate }
     var etaOverride: TimeInterval?
-    var eta: TimeInterval { etaOverride ?? route.expectedTravelTime }   // traffic-aware unless overridden
+    var eta: TimeInterval { etaOverride ?? route.expectedTravelTime }  // traffic-aware unless overridden
     var distanceMeters: Double { route.distance }
     var riskBand: RiskBand { FlowsCore.riskBand(score: weatherRisk) }
     /// Apple's route descriptor, e.g. "I-90 E" — the "via …" line on cards.
@@ -345,8 +358,10 @@ enum RouteFilter: String, CaseIterable, Identifiable {
 
     /// `routes` are what Avoid traffic compares a route with (see
     /// `avoidsTraffic`); no others means nothing to avoid.
-    func passes(_ route: PlannedRoute, limits: FilterLimits = FilterLimits(),
-                among routes: [PlannedRoute] = []) -> Bool {
+    func passes(
+        _ route: PlannedRoute, limits: FilterLimits = FilterLimits(),
+        among routes: [PlannedRoute] = []
+    ) -> Bool {
         switch self {
         case .noTolls:
             return !route.hasTolls
@@ -399,8 +414,10 @@ extension RouteFilter {
     /// touches some highway, so every route broke No highways once, the
     /// calmest-then-fastest tie-break picked the interstate, and the map
     /// highlighted a highway under a lit No highways chip.
-    static func closestMatch(in routes: [PlannedRoute], filters: Set<RouteFilter>,
-                             limits: FilterLimits) -> PlannedRoute? {
+    static func closestMatch(
+        in routes: [PlannedRoute], filters: Set<RouteFilter>,
+        limits: FilterLimits
+    ) -> PlannedRoute? {
         func broken(_ r: PlannedRoute) -> Int { filters.filter { !$0.passes(r, limits: limits) }.count }
         func onHighways(_ r: PlannedRoute) -> Int {
             filters.contains(.noHighways) && r.planKind != .avoidHighways ? 1 : 0
@@ -448,7 +465,8 @@ extension RouteFilter {
     /// the driver hadn't picked, and `added` is all it may take away again:
     /// a No highways or No low bridges the driver chose stays theirs.
     static func forcing(_ forced: Set<RouteFilter>, onto filters: Set<RouteFilter>)
-        -> (filters: Set<RouteFilter>, added: Set<RouteFilter>) {
+        -> (filters: Set<RouteFilter>, added: Set<RouteFilter>)
+    {
         (filters.union(forced), forced.subtracting(filters))
     }
 
@@ -464,8 +482,10 @@ extension RouteFilter {
     /// crawls clearly worse than the calmest route on the same kind of road
     /// (highways or not); the calmest of each kind always passes. Pure,
     /// pinned by tests.
-    static func avoidsTraffic(ratio: Double, highways: Bool,
-                              among others: [(ratio: Double, highways: Bool)]) -> Bool {
+    static func avoidsTraffic(
+        ratio: Double, highways: Bool,
+        among others: [(ratio: Double, highways: Bool)]
+    ) -> Bool {
         let calmest = others.filter { $0.highways == highways }.map(\.ratio).min() ?? ratio
         return ratio <= min(calmest, ratio) + trafficAllowance
     }
@@ -493,7 +513,6 @@ struct TowingFilterHold: Equatable {
         added.remove(filter)
     }
 }
-
 
 /// Continent-scale route planning WITHOUT a client-side road graph.
 ///
@@ -550,8 +569,10 @@ final class RouteService: ObservableObject {
                 request.region = MKCoordinateRegion(
                     center: near, latitudinalMeters: 200_000, longitudinalMeters: 200_000)
             }
-            guard let item = (try? await MKLocalSearch(request: request).start())?
-                .mapItems.first else { throw error }   // surface the ORIGINAL failure
+            guard
+                let item = (try? await MKLocalSearch(request: request).start())?
+                    .mapItems.first
+            else { throw error }  // surface the ORIGINAL failure
             FlowsDiag.logThrottled(
                 key: "geocode.fallback", .info, "geocode",
                 "CLGeocoder failed — MKLocalSearch answered the plan query")
@@ -588,8 +609,8 @@ final class RouteService: ObservableObject {
             request.source = MKMapItem(placemark: MKPlacemark(coordinate: from))
             request.destination = MKMapItem(placemark: MKPlacemark(coordinate: to))
             request.transportType = walking ? .walking : .automobile
-            request.departureDate = Date()   // "now" → traffic-aware ETAs
-            if walking { return request }    // pedestrian network: one profile
+            request.departureDate = Date()  // "now" → traffic-aware ETAs
+            if walking { return request }  // pedestrian network: one profile
             switch kind {
             case .standard:
                 request.requestsAlternateRoutes = true
@@ -607,11 +628,14 @@ final class RouteService: ObservableObject {
         // and it returns [] instead of throwing so the caller's driving
         // fallback + notice always engage (Apple errors long walking asks).
         if walking {
-            guard let resp = try? await MKDirections(request: request(kind: .standard))
-                .calculate() else { return [] }
+            guard
+                let resp = try? await MKDirections(request: request(kind: .standard))
+                    .calculate()
+            else { return [] }
             return resp.routes.map {
-                PlannedRoute(route: $0, sourceName: fromName, destinationName: toName,
-                             planKind: .standard)
+                PlannedRoute(
+                    route: $0, sourceName: fromName, destinationName: toName,
+                    planKind: .standard)
             }
         }
 
@@ -623,30 +647,37 @@ final class RouteService: ObservableObject {
         // answers one interstate and one local-roads crawl, and a driver
         // crossing states deserves a third real road to compare. Near home
         // the extra request is skipped — the roads there are the same few.
-        let beyondEveryday = POIRanking.meters(from, to)
+        let beyondEveryday =
+            POIRanking.meters(from, to)
             > EverydayStore.defaultMiles * 1609.344
         async let standardResp = MKDirections(request: request(kind: .standard)).calculate()
         async let localResp = try? MKDirections(request: request(kind: .avoidHighways)).calculate()
-        async let tollFreeResp = (includeTollFree || beyondEveryday)
+        async let tollFreeResp =
+            (includeTollFree || beyondEveryday)
             ? (try? MKDirections(request: request(kind: .tollFree)).calculate()) : nil
 
         let standard = try await standardResp
         guard !standard.routes.isEmpty else { throw RouteError.noRoute }
 
         var planned = standard.routes.map {
-            PlannedRoute(route: $0, sourceName: fromName, destinationName: toName,
-                         planKind: .standard)
+            PlannedRoute(
+                route: $0, sourceName: fromName, destinationName: toName,
+                planKind: .standard)
         }
         // Merge the other profiles, dropping geometric near-duplicates of a
         // standard alternate (same length and ETA to within a bucket).
         var seen = Set(planned.map { Self.dedupeKey($0.route) })
         for r in (await tollFreeResp)?.routes ?? [] where seen.insert(Self.dedupeKey(r)).inserted {
-            planned.append(PlannedRoute(route: r, sourceName: fromName,
-                                        destinationName: toName, planKind: .tollFree))
+            planned.append(
+                PlannedRoute(
+                    route: r, sourceName: fromName,
+                    destinationName: toName, planKind: .tollFree))
         }
         for r in (await localResp)?.routes ?? [] where seen.insert(Self.dedupeKey(r)).inserted {
-            planned.append(PlannedRoute(route: r, sourceName: fromName,
-                                        destinationName: toName, planKind: .avoidHighways))
+            planned.append(
+                PlannedRoute(
+                    route: r, sourceName: fromName,
+                    destinationName: toName, planKind: .avoidHighways))
         }
 
         // Cap at 5, but GUARANTEE profile diversity: the local-roads option
@@ -658,7 +689,8 @@ final class RouteService: ObservableObject {
         var rescueSlot = capped.count - 1
         for kind in [RoutePlanKind.avoidHighways, .tollFree] where rescueSlot >= 0 {
             if !capped.contains(where: { $0.planKind == kind }),
-               let candidate = planned.first(where: { $0.planKind == kind }) {
+                let candidate = planned.first(where: { $0.planKind == kind })
+            {
                 capped[rescueSlot] = candidate
                 rescueSlot -= 1
             }
@@ -724,7 +756,8 @@ final class RouteService: ObservableObject {
 
         // First vertex index whose cumulative distance reaches `target`.
         func firstIndex(atOrAbove target: Double) -> Int {
-            var lo = 0, hi = n
+            var lo = 0
+            var hi = n
             while lo < hi {
                 let mid = (lo + hi) / 2
                 if prefix[mid] >= target { hi = mid } else { lo = mid + 1 }
@@ -751,7 +784,8 @@ final class RouteService: ObservableObject {
     /// to 80 km of road red, and a short trip went red end to end. Each half
     /// now takes the check point it is nearer to.
     nonisolated static func halves(_ coords: [CLLocationCoordinate2D])
-        -> (first: [CLLocationCoordinate2D], second: [CLLocationCoordinate2D]) {
+        -> (first: [CLLocationCoordinate2D], second: [CLLocationCoordinate2D])
+    {
         guard coords.count >= 2 else { return (coords, coords) }
         var total = 0.0
         for i in 1..<coords.count { total += POIRanking.meters(coords[i - 1], coords[i]) }
@@ -816,7 +850,7 @@ final class RouteService: ObservableObject {
             }
         }
         if let last = coords.last {
-            samples.append(last)          // preserved duplicate-tail semantics
+            samples.append(last)  // preserved duplicate-tail semantics
             current.append(last)
             segments.append(current)
         }
@@ -890,8 +924,8 @@ enum CheapestRoute {
         }
         guard let lowest = candidates.min(by: cheaper) else { return nil }
         guard lowest.hasTolls,
-              let tollFree = candidates.filter({ !$0.hasTolls }).min(by: cheaper),
-              tollFree.fuelUSD - lowest.fuelUSD <= tollAllowanceUSD
+            let tollFree = candidates.filter({ !$0.hasTolls }).min(by: cheaper),
+            tollFree.fuelUSD - lowest.fuelUSD <= tollAllowanceUSD
         else { return lowest.id }
         return tollFree.id
     }
@@ -956,4 +990,3 @@ enum TruckerDesignation {
             .id
     }
 }
-

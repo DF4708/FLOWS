@@ -41,15 +41,20 @@ enum IntlWeatherParsing {
                 && !$0.contains("-uom") && !$0.contains("-qa") && !$0.contains("flag")
         }.sorted { a, b in
             // Prefer 10 m tower sensors over precip-gauge anemometers.
-            let aTen = a.contains("10m"), bTen = b.contains("10m")
+            let aTen = a.contains("10m")
+            let bTen = b.contains("10m")
             if aTen != bTen { return aTen }
             return a < b
         }
         for key in windKeys {
             let value: Double?
-            if let v = props[key] as? Double { value = v }
-            else if let s = props[key] as? String { value = Double(s) }
-            else { value = nil }
+            if let v = props[key] as? Double {
+                value = v
+            } else if let s = props[key] as? String {
+                value = Double(s)
+            } else {
+                value = nil
+            }
             guard let v = value, v >= 0 else { continue }
             let uom = (props["\(key)-uom"] as? String)?.lowercased() ?? "km/h"
             return uom.contains("m/s") ? msToMph(v) : kmhToMph(v)
@@ -74,8 +79,9 @@ enum IntlWeatherParsing {
             (dict[key] as? Double) ?? (dict[key] as? String).flatMap(Double.init)
         }
         guard let lat = num("lat"), let lon = num("lon") else { return nil }
-        return SMNRow(lat: lat, lon: lon, tmaxC: num("tmax"), tminC: num("tmin"),
-                      windKmh: num("velvien"), popPct: num("probprec"))
+        return SMNRow(
+            lat: lat, lon: lon, tmaxC: num("tmax"), tminC: num("tmin"),
+            windKmh: num("velvien"), popPct: num("probprec"))
     }
 
     /// Daily row → current-conditions approximation: midpoint temperature
@@ -83,9 +89,9 @@ enum IntlWeatherParsing {
     static func conditions(from row: SMNRow) -> ForecastConditions {
         var c = ForecastConditions()
         switch (row.tmaxC, row.tminC) {
-        case let (hi?, lo?): c.temperatureF = celsiusToF((hi + lo) / 2)
-        case let (hi?, nil): c.temperatureF = celsiusToF(hi)
-        case let (nil, lo?): c.temperatureF = celsiusToF(lo)
+        case (let hi?, let lo?): c.temperatureF = celsiusToF((hi + lo) / 2)
+        case (let hi?, nil): c.temperatureF = celsiusToF(hi)
+        case (nil, let lo?): c.temperatureF = celsiusToF(lo)
         default: break
         }
         c.windMph = row.windKmh.map(kmhToMph)
@@ -99,20 +105,20 @@ enum IntlWeatherParsing {
         guard data.count > 18, data[0] == 0x1f, data[1] == 0x8b, data[2] == 8 else { return nil }
         let flags = data[3]
         var offset = 10
-        if flags & 0x04 != 0 {   // FEXTRA
+        if flags & 0x04 != 0 {  // FEXTRA
             guard data.count > offset + 2 else { return nil }
             let xlen = Int(data[offset]) | (Int(data[offset + 1]) << 8)
             offset += 2 + xlen
         }
-        if flags & 0x08 != 0 {   // FNAME — null-terminated
+        if flags & 0x08 != 0 {  // FNAME — null-terminated
             while offset < data.count, data[offset] != 0 { offset += 1 }
             offset += 1
         }
-        if flags & 0x10 != 0 {   // FCOMMENT
+        if flags & 0x10 != 0 {  // FCOMMENT
             while offset < data.count, data[offset] != 0 { offset += 1 }
             offset += 1
         }
-        if flags & 0x02 != 0 { offset += 2 }   // FHCRC
+        if flags & 0x02 != 0 { offset += 2 }  // FHCRC
         guard offset < data.count - 8 else { return nil }
         let deflated = data.subdata(in: offset..<(data.count - 8))
 
@@ -125,7 +131,8 @@ enum IntlWeatherParsing {
         // refused (it was returned as the whole file).
         let capacity = min(max(Int(isize), deflated.count * 4, 64_000), 16 << 20)
         guard let out = RawBytes.inflate(deflated, capacity: capacity),
-              out.count < capacity || out.count == Int(isize) else { return nil }
+            out.count < capacity || out.count == Int(isize)
+        else { return nil }
         return out
     }
 }

@@ -24,75 +24,103 @@ enum RiskAdvice {
         case "cold":
             switch band {
             case .green:
-                return ["Cooler than typical for this area — a light jacket or "
-                        + "layers is plenty."]
+                return [
+                    "Cooler than typical for this area — a light jacket or "
+                        + "layers is plenty."
+                ]
             case .yellow:
-                return ["Coat, hat, and gloves for time outside.",
-                        "Keep fuel above half a tank; batteries weaken in cold."]
+                return [
+                    "Coat, hat, and gloves for time outside.",
+                    "Keep fuel above half a tank; batteries weaken in cold.",
+                ]
             default:
-                return ["Dangerous cold: limit exposed skin — frostbite risk in "
+                return [
+                    "Dangerous cold: limit exposed skin — frostbite risk in "
                         + "minutes (NWS wind-chill guidance).",
-                        "Carry blankets, food, water in the vehicle; tell someone "
+                    "Carry blankets, food, water in the vehicle; tell someone "
                         + "your route.",
-                        "If stranded, stay with the vehicle and run the engine "
-                        + "briefly with a cracked window."]
+                    "If stranded, stay with the vehicle and run the engine "
+                        + "briefly with a cracked window.",
+                ]
             }
         case "heat":
             switch band {
             case .green:
                 return ["Warmer than typical — hydrate normally, use AC as needed."]
             case .yellow:
-                return ["Hydrate before you're thirsty; never leave people or "
+                return [
+                    "Hydrate before you're thirsty; never leave people or "
                         + "pets in a parked vehicle (CDC).",
-                        "Take breaks in shade or AC on long drives."]
+                    "Take breaks in shade or AC on long drives.",
+                ]
             default:
-                return ["Extreme heat: limit outdoor exertion; heat stroke is a "
+                return [
+                    "Extreme heat: limit outdoor exertion; heat stroke is a "
                         + "911 emergency (confusion, no sweating).",
-                        "Check coolant and tire pressures — blowouts spike in "
-                        + "extreme heat."]
+                    "Check coolant and tire pressures — blowouts spike in "
+                        + "extreme heat.",
+                ]
             }
         case "flood":
             switch band {
             case .green:
-                return ["Ponding possible in low spots — slow through standing "
-                        + "water."]
+                return [
+                    "Ponding possible in low spots — slow through standing "
+                        + "water."
+                ]
             case .yellow:
-                return ["Turn Around, Don't Drown: never cross flooded roads — "
+                return [
+                    "Turn Around, Don't Drown: never cross flooded roads — "
                         + "12 inches of moving water floats most cars (NWS).",
-                        "Avoid underpasses and low crossings."]
+                    "Avoid underpasses and low crossings.",
+                ]
             default:
-                return ["Flash-flood conditions: leave low-lying routes NOW.",
-                        "If water surrounds the vehicle, abandon it and move to "
-                        + "high ground (FEMA)."]
+                return [
+                    "Flash-flood conditions: leave low-lying routes NOW.",
+                    "If water surrounds the vehicle, abandon it and move to "
+                        + "high ground (FEMA).",
+                ]
             }
         case "wind":
             switch band {
             case .green:
-                return ["Breezy — expect light buffeting, keep both hands on "
-                        + "the wheel."]
+                return [
+                    "Breezy — expect light buffeting, keep both hands on "
+                        + "the wheel."
+                ]
             case .yellow:
-                return ["Gusts can push high-profile vehicles across lanes — "
+                return [
+                    "Gusts can push high-profile vehicles across lanes — "
                         + "slow down, grip firm, give trucks room.",
-                        "Secure loose cargo and trailers."]
+                    "Secure loose cargo and trailers.",
+                ]
             default:
-                return ["Damaging winds: high-profile vehicles and towing should "
+                return [
+                    "Damaging winds: high-profile vehicles and towing should "
                         + "delay travel or use sheltered routes.",
-                        "Watch for downed lines and debris; treat dead signals "
-                        + "as four-way stops."]
+                    "Watch for downed lines and debris; treat dead signals "
+                        + "as four-way stops.",
+                ]
             }
         case "snow", "ice":
             switch band {
             case .green:
-                return ["Light accumulation possible — increase following "
-                        + "distance."]
+                return [
+                    "Light accumulation possible — increase following "
+                        + "distance."
+                ]
             case .yellow:
-                return ["Slow well below the limit; brake gently and early.",
-                        "Carry chains where required; bridges freeze first."]
+                return [
+                    "Slow well below the limit; brake gently and early.",
+                    "Carry chains where required; bridges freeze first.",
+                ]
             default:
-                return ["Whiteout/ice-storm conditions: delay travel if possible "
+                return [
+                    "Whiteout/ice-storm conditions: delay travel if possible "
                         + "(NWS winter guidance).",
-                        "If you must drive: full tank, blankets, charged phone; "
-                        + "if stranded stay with the vehicle."]
+                    "If you must drive: full tank, blankets, charged phone; "
+                        + "if stranded stay with the vehicle.",
+                ]
             }
         case "storm":
             // A severe thunderstorm is not a tornado: for lightning and hail
@@ -102,152 +130,210 @@ enum RiskAdvice {
             case .green:
                 return ["Thunderstorms possible — expect brief heavy rain."]
             case .yellow:
-                return ["When thunder roars, go indoors — a vehicle beats open "
+                return [
+                    "When thunder roars, go indoors — a vehicle beats open "
                         + "ground (NWS lightning).",
-                        "Hail-prone: covered parking if available."]
+                    "Hail-prone: covered parking if available.",
+                ]
             default:
-                return ["Severe storm: get inside a sturdy building if you can. A "
+                return [
+                    "Severe storm: get inside a sturdy building if you can. A "
                         + "hard-top vehicle beats open ground (NWS).",
-                        "In hail or blinding rain, pull off the road, away from "
-                        + "trees and power lines."]
+                    "In hail or blinding rain, pull off the road, away from "
+                        + "trees and power lines.",
+                ]
             }
         case "tornado":
             switch band {
             case .green:
                 return ["Thunderstorms possible — expect brief heavy rain."]
             case .yellow:
-                return ["When thunder roars, go indoors — a vehicle beats open "
+                return [
+                    "When thunder roars, go indoors — a vehicle beats open "
                         + "ground (NWS lightning).",
-                        "Hail-prone: covered parking if available."]
+                    "Hail-prone: covered parking if available.",
+                ]
             default:
-                return ["Seek sturdy shelter NOW — a vehicle is NOT safe in a "
+                return [
+                    "Seek sturdy shelter NOW — a vehicle is NOT safe in a "
                         + "tornado; a ditch beats staying inside it (NWS).",
-                        "Never shelter under an overpass."]
+                    "Never shelter under an overpass.",
+                ]
             }
         case "fire":
             switch band {
             case .green:
-                return ["Elevated fire weather — obey burn bans; don't park hot "
-                        + "exhausts over dry grass."]
+                return [
+                    "Elevated fire weather — obey burn bans; don't park hot "
+                        + "exhausts over dry grass."
+                ]
             case .yellow:
-                return ["Smoke can drop visibility fast — headlights on, windows "
-                        + "up, recirculated air."]
+                return [
+                    "Smoke can drop visibility fast — headlights on, windows "
+                        + "up, recirculated air."
+                ]
             default:
-                return ["Active fire area: follow evacuation orders immediately; "
+                return [
+                    "Active fire area: follow evacuation orders immediately; "
                         + "never drive through smoke you can't see through "
-                        + "(Ready.gov wildfire)."]
+                        + "(Ready.gov wildfire)."
+                ]
             }
         case "dust storm":
             // Both hazards at once: the road you cannot see and the air you
             // should not breathe (NWS "Pull Aside, Stay Alive"; EPA AQI).
             switch band {
             case .green:
-                return ["Blowing dust ahead: slow down, headlights on, windows up "
-                        + "and cabin air on recirculate."]
+                return [
+                    "Blowing dust ahead: slow down, headlights on, windows up "
+                        + "and cabin air on recirculate."
+                ]
             case .yellow:
-                return ["Visibility is dropping: pull fully off the road, stop, "
+                return [
+                    "Visibility is dropping: pull fully off the road, stop, "
                         + "lights OFF, foot off the brake so no one follows your "
-                        + "lights.", "Windows up, recirculate; N95 if you must step out."]
+                        + "lights.", "Windows up, recirculate; N95 if you must step out.",
+                ]
             default:
-                return ["Zero visibility: pull off the road NOW, stop, all lights "
+                return [
+                    "Zero visibility: pull off the road NOW, stop, all lights "
                         + "off, foot off the brake, seat belt on, wait it out.",
-                        "Keep the cabin sealed and recirculating."]
+                    "Keep the cabin sealed and recirculating.",
+                ]
             }
         case "air/smoke":
             switch band {
             case .green:
-                return ["Slightly degraded air — sensitive groups limit heavy "
-                        + "exertion (EPA AQI)."]
+                return [
+                    "Slightly degraded air — sensitive groups limit heavy "
+                        + "exertion (EPA AQI)."
+                ]
             case .yellow:
-                return ["Unhealthy air: windows up, recirculate cabin air, limit "
-                        + "time outside."]
+                return [
+                    "Unhealthy air: windows up, recirculate cabin air, limit "
+                        + "time outside."
+                ]
             default:
-                return ["Hazardous air: N95 if you must be outside; keep cabin "
-                        + "sealed and recirculating."]
+                return [
+                    "Hazardous air: N95 if you must be outside; keep cabin "
+                        + "sealed and recirculating."
+                ]
             }
         case "radiation/uv":
             switch band {
             case .green:
-                return ["Moderate UV — sunscreen for long exposure through "
-                        + "windows."]
+                return [
+                    "Moderate UV — sunscreen for long exposure through "
+                        + "windows."
+                ]
             case .yellow:
-                return ["High UV: SPF 30+, sunglasses, hat — burn time under "
-                        + "30 minutes (WHO)."]
+                return [
+                    "High UV: SPF 30+, sunglasses, hat — burn time under "
+                        + "30 minutes (WHO)."
+                ]
             default:
-                return ["Extreme UV: minimize midday exposure; skin damage in "
-                        + "minutes."]
+                return [
+                    "Extreme UV: minimize midday exposure; skin damage in "
+                        + "minutes."
+                ]
             }
         case "seismic":
-            return ["Recent earthquake activity: if shaking starts while "
+            return [
+                "Recent earthquake activity: if shaking starts while "
                     + "driving, pull over away from bridges/overpasses and stay "
                     + "in the vehicle (USGS).",
-                    "Expect aftershocks; check for road damage."]
+                "Expect aftershocks; check for road damage.",
+            ]
         case "tropical":
             switch band {
             case .green:
-                return ["Distant tropical system — expect building wind and "
-                        + "rain bands; top off fuel."]
+                return [
+                    "Distant tropical system — expect building wind and "
+                        + "rain bands; top off fuel."
+                ]
             case .yellow:
-                return ["Tropical storm conditions: expect flooding rain and "
+                return [
+                    "Tropical storm conditions: expect flooding rain and "
                         + "gusts that shove high-profile vehicles (NHC).",
-                        "Avoid coastal and low routes; do not drive through "
-                        + "storm surge or flooded roads."]
+                    "Avoid coastal and low routes; do not drive through "
+                        + "storm surge or flooded roads.",
+                ]
             default:
-                return ["Hurricane-force conditions: do NOT travel — follow "
+                return [
+                    "Hurricane-force conditions: do NOT travel — follow "
                         + "evacuation orders and shelter away from the coast "
                         + "(NHC / Ready.gov).",
-                        "Storm surge kills; never drive onto a flooded or "
-                        + "washed-out road."]
+                    "Storm surge kills; never drive onto a flooded or "
+                        + "washed-out road.",
+                ]
             }
         case "volcanic":
             switch band {
             case .green, .yellow:
-                return ["Elevated volcano nearby: ashfall can drop visibility "
+                return [
+                    "Elevated volcano nearby: ashfall can drop visibility "
                         + "and clog engines — headlights on, windows up, "
                         + "recirculate air, avoid hard braking on ash (USGS).",
-                        "Carry water and an N95; ash is abrasive and irritating."]
+                    "Carry water and an N95; ash is abrasive and irritating.",
+                ]
             default:
-                return ["Volcanic warning: avoid the area and downwind ashfall "
+                return [
+                    "Volcanic warning: avoid the area and downwind ashfall "
                         + "zones; heavy ash makes roads impassable and damages "
                         + "engines (USGS Volcano Hazards).",
-                        "Follow evacuation and lahar (mudflow) guidance near "
-                        + "valleys and river drainages."]
+                    "Follow evacuation and lahar (mudflow) guidance near "
+                        + "valleys and river drainages.",
+                ]
             }
         case "avalanche":
             switch band {
             case .green:
-                return ["Low avalanche danger — natural slides unlikely, but "
-                        + "watch steep road cuts after new snow."]
+                return [
+                    "Low avalanche danger — natural slides unlikely, but "
+                        + "watch steep road cuts after new snow."
+                ]
             case .yellow:
-                return ["Considerable avalanche danger on the mountain pass: "
+                return [
+                    "Considerable avalanche danger on the mountain pass: "
                         + "avoid stopping in slide paths; check the pass status "
-                        + "before committing (avalanche center)."]
+                        + "before committing (avalanche center)."
+                ]
             default:
-                return ["High/Extreme avalanche danger: delay mountain-pass "
+                return [
+                    "High/Extreme avalanche danger: delay mountain-pass "
                         + "travel — roads through slide terrain can be closed "
                         + "or buried (avalanche.org / Avalanche Canada).",
-                        "Never stop or park under a loaded slope."]
+                    "Never stop or park under a loaded slope.",
+                ]
             }
         case "tsunami":
             switch band {
             case .green, .yellow:
-                return ["Tsunami watch/advisory for the coast: stay off "
+                return [
+                    "Tsunami watch/advisory for the coast: stay off "
                         + "beaches and low coastal roads; be ready to move "
-                        + "inland and uphill (NWS Tsunami)."]
+                        + "inland and uphill (NWS Tsunami)."
+                ]
             default:
-                return ["TSUNAMI WARNING: leave the coast NOW — drive inland "
+                return [
+                    "TSUNAMI WARNING: leave the coast NOW — drive inland "
                         + "and to high ground, on foot if roads jam. Do not "
                         + "wait to see the wave (tsunami.gov).",
-                        "A receding shoreline means a wave is imminent."]
+                    "A receding shoreline means a wave is imminent.",
+                ]
             }
         default:
             switch band {
             case .yellow:
-                return ["Elevated conditions — drive to conditions and monitor "
-                        + "official alerts."]
+                return [
+                    "Elevated conditions — drive to conditions and monitor "
+                        + "official alerts."
+                ]
             case .red:
-                return ["Dangerous conditions in this area — check the official "
-                        + "warning before proceeding."]
+                return [
+                    "Dangerous conditions in this area — check the official "
+                        + "warning before proceeding."
+                ]
             default:
                 return ["Mildly elevated conditions for this area."]
             }
@@ -268,7 +354,10 @@ enum RiskAdvice {
         let margin = 0.25
         if isAcrossTheBorder(latitude: latitude, longitude: longitude)
             || isNorthOfTheBorder(latitude: latitude + margin, longitude: longitude)
-            || isAcrossTheBorder(latitude: latitude - margin, longitude: longitude) { return true }
+            || isAcrossTheBorder(latitude: latitude - margin, longitude: longitude)
+        {
+            return true
+        }
         if longitude >= -83.2, longitude <= -78.9, latitude >= 41.9, latitude <= 45.5 {
             return true
         }
@@ -280,7 +369,10 @@ enum RiskAdvice {
     static func isAcrossTheBorder(latitude: Double, longitude: Double) -> Bool {
         if isNorthOfTheBorder(latitude: latitude, longitude: longitude) { return true }
         if longitude >= -117.2, longitude <= -97.4, latitude > 14,
-           latitude < usSouthernBorderLat(longitude: longitude) { return true }
+            latitude < usSouthernBorderLat(longitude: longitude)
+        {
+            return true
+        }
         return longitude >= -98.0 && longitude <= -86.5 && latitude > 14 && latitude < 25.5
     }
 
@@ -290,9 +382,11 @@ enum RiskAdvice {
     /// agency only when it is unambiguously across the border.
     static func officialURL(latitude: Double, longitude: Double) -> URL? {
         if isNorthOfTheBorder(latitude: latitude, longitude: longitude)
-            || isCanadaBelowTheBands(latitude: latitude, longitude: longitude) {
-            return URL(string: "https://weather.gc.ca/en/location/index.html"
-                       + String(format: "?coords=%.3f,%.3f", latitude, longitude))
+            || isCanadaBelowTheBands(latitude: latitude, longitude: longitude)
+        {
+            return URL(
+                string: "https://weather.gc.ca/en/location/index.html"
+                    + String(format: "?coords=%.3f,%.3f", latitude, longitude))
         }
         // Mexico, in two segments because the border is diagonal and the Gulf
         // separates Mexico's east coast from Florida (a flat latitude box sent
@@ -300,7 +394,8 @@ enum RiskAdvice {
         //   WEST/border — Pacific coast through the Rio Grande, south of the
         //   piecewise border latitude for this longitude.
         if longitude >= -117.2, longitude <= -97.4, latitude > 14,
-           latitude < usSouthernBorderLat(longitude: longitude) {
+            latitude < usSouthernBorderLat(longitude: longitude)
+        {
             return URL(string: "https://smn.conagua.gob.mx/es/pronosticos/avisos")
         }
         //   GULF/Yucatán — Mexican east coast, west of the -86.5 line so the
@@ -308,9 +403,11 @@ enum RiskAdvice {
         if longitude >= -98.0, longitude <= -86.5, latitude > 14, latitude < 25.5 {
             return URL(string: "https://smn.conagua.gob.mx/es/pronosticos/avisos")
         }
-        return URL(string: String(format:
-            "https://forecast.weather.gov/MapClick.php?lat=%.4f&lon=%.4f",
-            latitude, longitude))
+        return URL(
+            string: String(
+                format:
+                    "https://forecast.weather.gov/MapClick.php?lat=%.4f&lon=%.4f",
+                latitude, longitude))
     }
 
     /// Maine's land (north of 44.8°N), drawn along the Quebec and New
@@ -393,38 +490,41 @@ enum RiskAdvice {
     /// first, ahead of its high latitude. Border towns within ~0.05° are
     /// inherently ambiguous at this resolution.
     static func isNorthOfTheBorder(latitude lat: Double, longitude lon: Double) -> Bool {
-        if lat > 51 && lon < -141 { return false }                 // Alaska, and the Aleutians
+        if lat > 51 && lon < -141 { return false }  // Alaska, and the Aleutians
         if lat > 54.66 && lat < 60.3 && lon > -141 && lon < -129.9,
-           HazardFeedScores.pointInPolygon(
-               CLLocationCoordinate2D(latitude: lat, longitude: lon), alaskaPanhandle) {
-            return false                                           // Southeast Alaska
+            HazardFeedScores.pointInPolygon(
+                CLLocationCoordinate2D(latitude: lat, longitude: lon), alaskaPanhandle)
+        {
+            return false  // Southeast Alaska
         }
-        if lon <= -95.15 { return lat > 49.0 }                     // the 49th parallel
+        if lon <= -95.15 { return lat > 49.0 }  // the 49th parallel
         // Minnesota's Northwest Angle, the one piece of the lower 48 above it
         if lat < 49.39 && lon < -95.0 { return false }
-        if lon <= -89.6 {                                          // Rainy River → Pigeon River
+        if lon <= -89.6 {  // Rainy River → Pigeon River
             let knots: [(lon: Double, lat: Double)] = [
-                (-95.15, 49.0), (-94.6, 48.8), (-93.4, 48.6), (-92.0, 48.3), (-89.6, 48.0)]
+                (-95.15, 49.0), (-94.6, 48.8), (-93.4, 48.6), (-92.0, 48.3), (-89.6, 48.0),
+            ]
             guard let i = knots.indices.dropLast().first(where: { lon <= knots[$0 + 1].lon })
             else { return lat > 48.0 }
-            let a = knots[i], b = knots[i + 1]
+            let a = knots[i]
+            let b = knots[i + 1]
             let t = (lon - a.lon) / (b.lon - a.lon)
             return lat > a.lat + t * (b.lat - a.lat) + 0.02
         }
-        if lon <= -83.6 { return lat > 47.8 }                      // Superior's Canadian shore
-        if lon <= -82.0 { return lat > 45.5 }                      // Michigan ends below 45.5
-        if lon <= -78.0 { return lat > 43.4 }                      // Ontario's south shore
-        if lon <= -76.35 { return lat > 43.75 }                    // Lake Ontario's east end
-        if lon <= -74.75 {                                         // the St. Lawrence
+        if lon <= -83.6 { return lat > 47.8 }  // Superior's Canadian shore
+        if lon <= -82.0 { return lat > 45.5 }  // Michigan ends below 45.5
+        if lon <= -78.0 { return lat > 43.4 }  // Ontario's south shore
+        if lon <= -76.35 { return lat > 43.75 }  // Lake Ontario's east end
+        if lon <= -74.75 {  // the St. Lawrence
             return lat > 44.12 + (lon + 76.35) / 1.6 * 0.88
         }
-        if lon <= -71.5 { return lat > 45.03 }                     // the 45th parallel
+        if lon <= -71.5 { return lat > 45.03 }  // the 45th parallel
         if lon <= -66.9 {
             return lat > 44.8
                 && !HazardFeedScores.pointInPolygon(
                     CLLocationCoordinate2D(latitude: lat, longitude: lon), maine)
         }
-        return lon < -52 && lat > 43.0                             // the Maritimes
+        return lon < -52 && lat > 43.0  // the Maritimes
     }
 
     /// The Rio Grande from El Paso to the Gulf as (longitude, latitude),
@@ -464,7 +564,8 @@ enum RiskAdvice {
         if lon <= rioGrande[0].lon { return rioGrande[0].lat }
         guard let i = rioGrande.indices.dropLast().first(where: { lon <= rioGrande[$0 + 1].lon })
         else { return rioGrande[rioGrande.count - 1].lat }
-        let a = rioGrande[i], b = rioGrande[i + 1]
+        let a = rioGrande[i]
+        let b = rioGrande[i + 1]
         return a.lat + (lon - a.lon) / (b.lon - a.lon) * (b.lat - a.lat)
     }
 }

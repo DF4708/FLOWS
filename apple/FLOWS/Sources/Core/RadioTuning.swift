@@ -42,10 +42,13 @@ enum RadioTuning {
     /// The closest transmitter to a position, with its distance. Exact
     /// listings beat state fallbacks at the same distance
     /// (rust/flows-core media_policy.rs).
-    static func nearest(to position: CLLocationCoordinate2D,
-                        in stations: [Station]) -> (station: Station, meters: Double)? {
+    static func nearest(
+        to position: CLLocationCoordinate2D,
+        in stations: [Station]
+    ) -> (station: Station, meters: Double)? {
         guard !stations.isEmpty else { return nil }
-        let lats = stations.map(\.coordinate.latitude), lons = stations.map(\.coordinate.longitude)
+        let lats = stations.map(\.coordinate.latitude)
+        let lons = stations.map(\.coordinate.longitude)
         let exact = stations.map { UInt8($0.isExact ? 1 : 0) }
         let hit = lats.lent { la in
             lons.lent { lo in
@@ -62,20 +65,24 @@ enum RadioTuning {
     /// Nothing playing means nothing to retune — the app never starts audio
     /// on its own. With something playing whose transmitter has no known
     /// position, any located station is an improvement.
-    static func retarget(playingID: String?,
-                         playingCoordinate: CLLocationCoordinate2D?,
-                         position: CLLocationCoordinate2D,
-                         stations: [Station]) -> String? {
+    static func retarget(
+        playingID: String?,
+        playingCoordinate: CLLocationCoordinate2D?,
+        position: CLLocationCoordinate2D,
+        stations: [Station]
+    ) -> String? {
         guard let playingID, !stations.isEmpty else { return nil }
-        let lats = stations.map(\.coordinate.latitude), lons = stations.map(\.coordinate.longitude)
+        let lats = stations.map(\.coordinate.latitude)
+        let lons = stations.map(\.coordinate.longitude)
         let exact = stations.map { UInt8($0.isExact ? 1 : 0) }
         let i = RustTextColumn(stations.map(\.id)).with { joined, lens, _ in
             lats.lent { la in
                 lons.lent { lo in
                     exact.lent { ex in
-                        flows_modes_retarget(playingID, playingCoordinate?.latitude ?? 0,
-                                             playingCoordinate?.longitude ?? 0, playingCoordinate != nil,
-                                             position.latitude, position.longitude, joined, lens, la, lo, ex)
+                        flows_modes_retarget(
+                            playingID, playingCoordinate?.latitude ?? 0,
+                            playingCoordinate?.longitude ?? 0, playingCoordinate != nil,
+                            position.latitude, position.longitude, joined, lens, la, lo, ex)
                     }
                 }
             }
@@ -88,8 +95,10 @@ enum RadioTuning {
     /// paused one waits for the driver, because moving it restarts the sound
     /// and the app never starts audio by itself. And a station the driver
     /// picked by hand stays until they change or stop it.
-    static func mayFollow(playingID: String?, isWeatherStation: Bool,
-                          isPaused: Bool, pinnedID: String?) -> Bool {
+    static func mayFollow(
+        playingID: String?, isWeatherStation: Bool,
+        isPaused: Bool, pinnedID: String?
+    ) -> Bool {
         guard let playingID, isWeatherStation, !isPaused else { return false }
         return playingID != pinnedID
     }

@@ -59,9 +59,11 @@ enum HybridWalk {
     /// The significance rule, on its own so the UI can re-check with real
     /// routed numbers after the estimate passes: affordable AND >= 40% faster
     /// AND >= 15 minutes saved.
-    static func meetsBar(walkAloneSeconds: TimeInterval,
-                         totalSeconds: TimeInterval,
-                         costUSD: Double) -> Bool {
+    static func meetsBar(
+        walkAloneSeconds: TimeInterval,
+        totalSeconds: TimeInterval,
+        costUSD: Double
+    ) -> Bool {
         flows_modes_meets_bar(walkAloneSeconds, totalSeconds, costUSD)
     }
 
@@ -71,13 +73,16 @@ enum HybridWalk {
     /// The partial walk remainder is prorated from the walk-alone time; the
     /// UI re-routes the real remainder and re-checks `meetsBar`. Returns nil
     /// whenever the bar isn't met — no offer is the default, not the fallback.
-    static func evaluate(walkAloneSeconds: TimeInterval,
-                         driveSeconds: TimeInterval,
-                         tripMiles: Double) -> Offer? {
+    static func evaluate(
+        walkAloneSeconds: TimeInterval,
+        driveSeconds: TimeInterval,
+        tripMiles: Double
+    ) -> Offer? {
         let o = flows_modes_evaluate_ride(walkAloneSeconds, driveSeconds, tripMiles)
         guard o.has else { return nil }
-        return Offer(rideMiles: o.ride_miles, rideSeconds: o.ride_seconds,
-                     walkSeconds: o.walk_seconds, costUSD: o.cost_usd)
+        return Offer(
+            rideMiles: o.ride_miles, rideSeconds: o.ride_seconds,
+            walkSeconds: o.walk_seconds, costUSD: o.cost_usd)
     }
 
     // -- Drop-off geometry ----------------------------------------------------
@@ -87,13 +92,17 @@ enum HybridWalk {
     /// interpolated between the straddling vertices). The full path comes
     /// back when `meters` runs past the end. The last element is the
     /// drop-off point.
-    static func prefixCoordinates(_ coords: [CLLocationCoordinate2D],
-                                  meters: Double) -> [CLLocationCoordinate2D] {
+    static func prefixCoordinates(
+        _ coords: [CLLocationCoordinate2D],
+        meters: Double
+    ) -> [CLLocationCoordinate2D] {
         guard !coords.isEmpty else { return [] }
-        let lats = coords.map(\.latitude), lons = coords.map(\.longitude)
-        let flat = Array(lats.lent { la in
-            lons.lent { lo in flows_modes_prefix_coordinates(la, lo, meters) }
-        })
+        let lats = coords.map(\.latitude)
+        let lons = coords.map(\.longitude)
+        let flat = Array(
+            lats.lent { la in
+                lons.lent { lo in flows_modes_prefix_coordinates(la, lo, meters) }
+            })
         return stride(from: 0, to: flat.count - 1, by: 2).map {
             CLLocationCoordinate2D(latitude: flat[$0], longitude: flat[$0 + 1])
         }
@@ -105,8 +114,10 @@ enum HybridWalk {
 
     /// Uber universal link (m.uber.com/ul/) — opens the app when installed,
     /// the mobile site otherwise. No API key involved.
-    static func uberURL(pickup: CLLocationCoordinate2D, pickupName: String,
-                        drop: CLLocationCoordinate2D, dropName: String) -> URL? {
+    static func uberURL(
+        pickup: CLLocationCoordinate2D, pickupName: String,
+        drop: CLLocationCoordinate2D, dropName: String
+    ) -> URL? {
         var parts = URLComponents(string: "https://m.uber.com/ul/")
         parts?.queryItems = [
             URLQueryItem(name: "action", value: "setPickup"),
@@ -121,8 +132,10 @@ enum HybridWalk {
     }
 
     /// Lyft web deep link — same keyless pattern.
-    static func lyftURL(pickup: CLLocationCoordinate2D,
-                        drop: CLLocationCoordinate2D) -> URL? {
+    static func lyftURL(
+        pickup: CLLocationCoordinate2D,
+        drop: CLLocationCoordinate2D
+    ) -> URL? {
         var parts = URLComponents(string: "https://lyft.com/ride")
         parts?.queryItems = [
             URLQueryItem(name: "id", value: "lyft"),

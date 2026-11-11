@@ -39,7 +39,7 @@ enum POIRanking {
     /// (`RustShared`).
     struct RoutePath: Sendable {
         let coords: [CLLocationCoordinate2D]
-        let cumulative: [CLLocationDistance]   // meters from origin to coords[i]
+        let cumulative: [CLLocationDistance]  // meters from origin to coords[i]
         private let shared: RustShared<FlowsRoutePath>
         var handle: FlowsRoutePath { shared.handle }
 
@@ -50,7 +50,8 @@ enum POIRanking {
                 cumulative = []
                 return
             }
-            let lats = coords.map(\.latitude), lons = coords.map(\.longitude)
+            let lats = coords.map(\.latitude)
+            let lons = coords.map(\.longitude)
             let made = lats.lent { la in
                 lons.lent { lo in flows_places_route_path(la, lo) }
             }
@@ -69,15 +70,19 @@ enum POIRanking {
         /// The stops to rank when the eight rows must cover the whole drive
         /// (tourist stops): one per stretch of road, nearest the road first —
         /// item indices, in road order (places.rs `spread_along`).
-        func spreadAlong(_ items: [CLLocationCoordinate2D], kind: UInt8, trucker: Bool,
-                         from position: CLLocationCoordinate2D?) -> [Int] {
+        func spreadAlong(
+            _ items: [CLLocationCoordinate2D], kind: UInt8, trucker: Bool,
+            from position: CLLocationCoordinate2D?
+        ) -> [Int] {
             // swift-bridge must never see an empty buffer.
             guard !items.isEmpty else { return [] }
-            let lats = items.map(\.latitude), lons = items.map(\.longitude)
+            let lats = items.map(\.latitude)
+            let lons = items.map(\.longitude)
             return lats.lent { la in
                 lons.lent { lo in
-                    handle.spread_along(kind, trucker, position != nil,
-                                        position?.latitude ?? 0, position?.longitude ?? 0, la, lo)
+                    handle.spread_along(
+                        kind, trucker, position != nil,
+                        position?.latitude ?? 0, position?.longitude ?? 0, la, lo)
                 }
             }.map { Int($0) }
         }
@@ -133,9 +138,11 @@ enum POIRanking {
 
     /// A Rust ranker over the candidate columns: ahead, detour, prices and
     /// their presence, ratings and their presence.
-    private typealias Ranker = (RustLoan<Double>, RustLoan<Double>,
-                                RustLoan<Double>, RustLoan<UInt8>,
-                                RustLoan<Double>, RustLoan<UInt8>) -> RustVec<Int64>
+    private typealias Ranker = (
+        RustLoan<Double>, RustLoan<Double>,
+        RustLoan<Double>, RustLoan<UInt8>,
+        RustLoan<Double>, RustLoan<UInt8>
+    ) -> RustVec<Int64>
 
     /// The candidates in a Rust ranker's order: it keeps the admissible ones
     /// and sorts them with Swift's own sort on the kind's comparator. The
@@ -144,7 +151,8 @@ enum POIRanking {
     /// must never see an empty buffer.
     private static func ordered<Item>(_ candidates: [Candidate<Item>], by ranker: Ranker) -> [Candidate<Item>] {
         guard !candidates.isEmpty else { return [] }
-        let ahead = candidates.map(\.aheadMeters), detour = candidates.map(\.detourMeters)
+        let ahead = candidates.map(\.aheadMeters)
+        let detour = candidates.map(\.detourMeters)
         let prices = candidates.map { $0.pricePerUnit ?? 0 }
         let hasPrice = candidates.map { UInt8($0.pricePerUnit == nil ? 0 : 1) }
         let ratings = candidates.map { $0.rating ?? 0 }
@@ -230,7 +238,8 @@ enum POIRanking {
     static func meters(_ a: CLLocationCoordinate2D, _ b: CLLocationCoordinate2D) -> CLLocationDistance {
         let metersPerDegree = 111_320.0
         let dLat = (b.latitude - a.latitude) * metersPerDegree
-        let dLon = (b.longitude - a.longitude) * metersPerDegree
+        let dLon =
+            (b.longitude - a.longitude) * metersPerDegree
             * cos((a.latitude + b.latitude) * .pi / 360)
         return (dLat * dLat + dLon * dLon).squareRoot()
     }
@@ -317,24 +326,34 @@ enum StoreCategory: String, CaseIterable, Identifiable {
     var searchQueries: [String] {
         switch self {
         case .grocery:
-            return ["grocery store", "supermarket", "Publix", "Kroger",
-                    "Safeway", "Aldi", "Trader Joe's", "Whole Foods"]
+            return [
+                "grocery store", "supermarket", "Publix", "Kroger",
+                "Safeway", "Aldi", "Trader Joe's", "Whole Foods",
+            ]
         case .general:
-            return ["Walmart", "Target", "Costco", "department store",
-                    "Sam's Club", "dollar store"]
+            return [
+                "Walmart", "Target", "Costco", "department store",
+                "Sam's Club", "dollar store",
+            ]
         case .hardware:
-            return ["hardware store", "Home Depot", "Lowe's", "Ace Hardware",
-                    "Menards", "Tractor Supply"]
+            return [
+                "hardware store", "Home Depot", "Lowe's", "Ace Hardware",
+                "Menards", "Tractor Supply",
+            ]
         case .electronics:
             return ["electronics store", "Best Buy", "Apple Store"]
         case .pets:
             return ["pet store", "PetSmart", "Petco", "pet supplies"]
         case .gun:
-            return ["gun shop", "firearms dealer", "sporting goods",
-                    "Bass Pro Shops", "Cabela's"]
+            return [
+                "gun shop", "firearms dealer", "sporting goods",
+                "Bass Pro Shops", "Cabela's",
+            ]
         case .auto:
-            return ["auto parts store", "AutoZone", "O'Reilly Auto Parts",
-                    "Advance Auto Parts", "NAPA Auto Parts"]
+            return [
+                "auto parts store", "AutoZone", "O'Reilly Auto Parts",
+                "Advance Auto Parts", "NAPA Auto Parts",
+            ]
         case .clothing:
             return ["clothing store", "TJ Maxx", "Ross", "Kohl's", "Old Navy"]
         }
@@ -389,10 +408,13 @@ extension POIRanking {
     /// Points by straight-line meters to `center`, nearest first, the first
     /// `limit`, as (index, meters): Swift's own sort, in places.rs
     /// (`rank_by_distance`). A negative limit answers nothing.
-    static func byDistance(_ points: [CLLocationCoordinate2D], from center: CLLocationCoordinate2D,
-                           limit: Int) -> [(index: Int, meters: CLLocationDistance)] {
+    static func byDistance(
+        _ points: [CLLocationCoordinate2D], from center: CLLocationCoordinate2D,
+        limit: Int
+    ) -> [(index: Int, meters: CLLocationDistance)] {
         guard !points.isEmpty else { return [] }
-        let lats = points.map(\.latitude), lons = points.map(\.longitude)
+        let lats = points.map(\.latitude)
+        let lons = points.map(\.longitude)
         let flat = lats.lent { la in
             lons.lent { lo in
                 flows_places_rank_by_distance(la, lo, center.latitude, center.longitude, Int64(limit))
@@ -405,7 +427,8 @@ extension POIRanking {
     /// (`min(by:)` on straight-line meters, in places.rs); nil for no points.
     static func firstNearest(_ points: [CLLocationCoordinate2D], to target: CLLocationCoordinate2D) -> Int? {
         guard !points.isEmpty else { return nil }
-        let lats = points.map(\.latitude), lons = points.map(\.longitude)
+        let lats = points.map(\.latitude)
+        let lons = points.map(\.longitude)
         let i = lats.lent { la in
             lons.lent { lo in
                 flows_places_first_nearest(la, lo, target.latitude, target.longitude)

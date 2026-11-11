@@ -11,19 +11,20 @@ import CoreLocation
 import MapKit
 import SwiftUI
 import UserNotifications
+
 #if os(macOS)
-import AppKit
+    import AppKit
 #else
-import UIKit
+    import UIKit
 #endif
 
 /// App-wide mode: plan on a continent-scale map, then flip to a time-sensitive
 /// zoomed turn-by-turn view once a route is chosen (see NavigationEngine for
 /// the zoom policy).
 enum AppMode: Equatable {
-    case planning            // browse map, search, enter route endpoints
-    case choosing            // alternates returned, user picks one
-    case navigating          // turn-by-turn against GPS + speed
+    case planning  // browse map, search, enter route endpoints
+    case choosing  // alternates returned, user picks one
+    case navigating  // turn-by-turn against GPS + speed
 }
 
 @MainActor
@@ -64,7 +65,8 @@ final class AppModel: ObservableObject {
             // the newly-highlighted route so the map pins ITS stops. (Each
             // card's count comes from its own sweep: touristCounts.)
             if routeFilters.contains(.tourist), mode == .choosing,
-               oldValue != highlightedRouteID {
+                oldValue != highlightedRouteID
+            {
                 refreshTouristSpots()
             }
         }
@@ -84,8 +86,10 @@ final class AppModel: ObservableObject {
 
     /// (Re)pin attractions along the highlighted route (tourist filter).
     func refreshTouristSpots() {
-        guard let route = routeChoices.first(where: { $0.id == highlightedRouteID })
-            ?? routeChoices.first else { return }
+        guard
+            let route = routeChoices.first(where: { $0.id == highlightedRouteID })
+                ?? routeChoices.first
+        else { return }
         poi.beginCorridorSearch(along: route)
         let origin = lastPlanEndpoints?.from
         touristListTask = Task { await poi.request(.tourist, aheadOf: origin) }
@@ -136,7 +140,8 @@ final class AppModel: ObservableObject {
             guard missed, attempt < 3 else { return }
             try? await Task.sleep(for: .seconds(30))
             guard !Task.isCancelled, self.mode == .choosing,
-                  self.routeFilters.contains(.tourist) else { return }
+                self.routeFilters.contains(.tourist)
+            else { return }
             self.refreshTouristCounts(attempt: attempt + 1)
         }
     }
@@ -176,7 +181,9 @@ final class AppModel: ObservableObject {
     let openDispatch = OpenDispatchService()
     /// The call kinds the radio card's scanner chips put on the map.
     enum ScannerGroup: String, CaseIterable, Identifiable {
-        case police = "Police", fire = "Fire", medical = "Medical"
+        case police = "Police"
+        case fire = "Fire"
+        case medical = "Medical"
         var id: String { rawValue }
         var symbol: String {
             switch self {
@@ -196,10 +203,12 @@ final class AppModel: ObservableObject {
     }
     @Published var scannerGroups: Set<ScannerGroup> = Set(
         (UserDefaults.standard.string(forKey: "flows.scannerGroups") ?? "Police,Fire,Medical")
-            .split(separator: ",").compactMap { ScannerGroup(rawValue: String($0)) }) {
+            .split(separator: ",").compactMap { ScannerGroup(rawValue: String($0)) })
+    {
         didSet {
-            UserDefaults.standard.set(scannerGroups.map(\.rawValue).sorted().joined(separator: ","),
-                                      forKey: "flows.scannerGroups")
+            UserDefaults.standard.set(
+                scannerGroups.map(\.rawValue).sorted().joined(separator: ","),
+                forKey: "flows.scannerGroups")
         }
     }
     let crash = CrashDetectionService()
@@ -213,14 +222,16 @@ final class AppModel: ObservableObject {
     /// Cost-tier country (US/CA/MX), switched automatically by GPS.
     var costCountry: RatingsAndCost.Country {
         guard let c = location.coordinate else { return .us }
-        return RatingsAndCost.Country.forCoordinate(latitude: c.latitude,
-                                                    longitude: c.longitude)
+        return RatingsAndCost.Country.forCoordinate(
+            latitude: c.latitude,
+            longitude: c.longitude)
     }
 
     /// Trucker radio follows the vehicle: auto-retune to the nearest
     /// station as you cross states (toggleable).
     @Published var radioAutoSwitch: Bool =
-        UserDefaults.standard.object(forKey: "flows.radioAutoSwitch") as? Bool ?? true {
+        UserDefaults.standard.object(forKey: "flows.radioAutoSwitch") as? Bool ?? true
+    {
         didSet { UserDefaults.standard.set(radioAutoSwitch, forKey: "flows.radioAutoSwitch") }
     }
     private var lastRadioState: String?
@@ -240,7 +251,8 @@ final class AppModel: ObservableObject {
     /// air that isn't paused or picked by hand — TruckerRadio.followsTheDrive).
     func retuneRadioIfNeeded(stateCode: String?) {
         guard radioAutoSwitch, radio.followsTheDrive,
-              let stateCode, stateCode != lastRadioState else { return }
+            let stateCode, stateCode != lastRadioState
+        else { return }
         lastRadioState = stateCode
         // GPS-precise retune when a position exists; state match is the fallback.
         if let pos = effectivePosition {
@@ -248,7 +260,8 @@ final class AppModel: ObservableObject {
             return
         }
         if let nearest = radio.nearestChannel(stateCode: stateCode),
-           nearest.id != radio.playingChannelID {
+            nearest.id != radio.playingChannelID
+        {
             radio.play(nearest)
         }
     }
@@ -262,19 +275,17 @@ final class AppModel: ObservableObject {
     @Published private(set) var isNight = false
     /// Honor an explicit choice over the sun. nil = follow the daylight.
     @Published var appearanceOverride: Bool? =
-        UserDefaults.standard.object(forKey: "flows.darkOverride") as? Bool {
+        UserDefaults.standard.object(forKey: "flows.darkOverride") as? Bool
+    {
         didSet {
             UserDefaults.standard.set(appearanceOverride, forKey: "flows.darkOverride")
             refreshDaylight()
         }
     }
-    private var daylightTimer: Timer?
-
-    deinit {
-        // The daylight timer reschedules itself; without this it sits in the
-        // run loop until its next fire even though nothing is left to tell.
-        daylightTimer?.invalidate()
-    }
+    /// The daylight timer reschedules itself. Its slot stops it when this
+    /// object goes (`TimerSlot`, in the islands); otherwise it would sit in
+    /// the run loop until its next fire with nothing left to tell.
+    private let daylightTimer = TimerSlot()
 
     /// The appearance the window should use, or nil to follow the system
     /// when there is no position to compute dusk from yet.
@@ -293,22 +304,27 @@ final class AppModel: ObservableObject {
             // No fix yet. Don't give up — look again shortly, or the app sits
             // in daylight colors for the first seconds of a night launch and
             // then snaps dark once a fix lands.
-            daylightTimer?.invalidate()
-            daylightTimer = Timer.scheduledTimer(withTimeInterval: 3,
-                                                 repeats: false) { [weak self] _ in
-                Task { @MainActor in self?.refreshDaylight() }
-            }
+            daylightTimer.set(
+                Timer.scheduledTimer(
+                    withTimeInterval: 3,
+                    repeats: false
+                ) { [weak self] _ in
+                    Task { @MainActor in self?.refreshDaylight() }
+                })
             return
         }
         let night = DaylightClock.isNight(at: pos)
         if night != isNight { isNight = night }
-        daylightTimer?.invalidate()
+        daylightTimer.set(nil)
         let next = DaylightClock.nextChange(at: pos)
         let delay = min(max(next.timeIntervalSinceNow, 1), 3_600)
-        daylightTimer = Timer.scheduledTimer(withTimeInterval: delay,
-                                             repeats: false) { [weak self] _ in
-            Task { @MainActor in self?.refreshDaylight() }
-        }
+        daylightTimer.set(
+            Timer.scheduledTimer(
+                withTimeInterval: delay,
+                repeats: false
+            ) { [weak self] _ in
+                Task { @MainActor in self?.refreshDaylight() }
+            })
     }
 
     /// The transmitter closest to where the vehicle is NOW, whether or not
@@ -330,9 +346,12 @@ final class AppModel: ObservableObject {
         // Looked at again after 250 m of travel (a few seconds at highway
         // pace), or at once when the radio has gone on or off the air.
         let onAir = radio.playingChannelID != nil
-        let stations = radio.channels.count   // a refreshed list is worked again at once
+        let stations = radio.channels.count  // a refreshed list is worked again at once
         if let last = lastRetuneCheck, last.onAir == onAir, last.stations == stations,
-           POIRanking.meters(last.at, position) < 250 { return }
+            POIRanking.meters(last.at, position) < 250
+        {
+            return
+        }
         lastRetuneCheck = (position, onAir, stations)
         // Track the nearest station even when nothing is playing — the card
         // reads this to keep its default honest. The app still never starts
@@ -349,7 +368,8 @@ final class AppModel: ObservableObject {
     /// credential, so it lives in the Keychain like the Spotify token —
     /// moved out of the plaintext preferences on first launch.
     @Published var tomtomAPIKey: String =
-        SecureStore.migrateFromDefaults(key: "tomtom.key", defaultsKey: "flows.tomtomKey") {
+        SecureStore.migrateFromDefaults(key: "tomtom.key", defaultsKey: "flows.tomtomKey")
+    {
         didSet {
             SecureStore.set(tomtomAPIKey, for: "tomtom.key")
             let key = tomtomAPIKey
@@ -416,7 +436,8 @@ final class AppModel: ObservableObject {
     /// monthly quota; Yelp Fusion went paid). Either key lights up stars/$.
     /// Both are credentials: Keychain, migrated like the TomTom key.
     @Published var googlePlacesAPIKey: String =
-        SecureStore.migrateFromDefaults(key: "googlePlaces.key", defaultsKey: "flows.googlePlacesKey") {
+        SecureStore.migrateFromDefaults(key: "googlePlaces.key", defaultsKey: "flows.googlePlacesKey")
+    {
         didSet {
             SecureStore.set(googlePlacesAPIKey, for: "googlePlaces.key")
             let key = googlePlacesAPIKey
@@ -425,7 +446,8 @@ final class AppModel: ObservableObject {
     }
 
     @Published var yelpAPIKey: String =
-        SecureStore.migrateFromDefaults(key: "yelp.key", defaultsKey: "flows.yelpKey") {
+        SecureStore.migrateFromDefaults(key: "yelp.key", defaultsKey: "flows.yelpKey")
+    {
         didSet {
             SecureStore.set(yelpAPIKey, for: "yelp.key")
             let key = yelpAPIKey
@@ -439,7 +461,8 @@ final class AppModel: ObservableObject {
     /// bridge weight, high winds) and switches fuel prediction to the
     /// towing pattern.
     @Published var towingActive: Bool =
-        UserDefaults.standard.bool(forKey: "flows.towingActive") {
+        UserDefaults.standard.bool(forKey: "flows.towingActive")
+    {
         didSet {
             UserDefaults.standard.set(towingActive, forKey: "flows.towingActive")
             vehicle.towingActive = towingActive
@@ -453,8 +476,8 @@ final class AppModel: ObservableObject {
                     towingFilterHold.towingOff(&routeFilters)
                 }
             }
-            applyVehicleMaxGradeDefault()   // towing lowers the grade default
-            rebuildTripNeeds()   // fuel stops follow the towing range mid-trip
+            applyVehicleMaxGradeDefault()  // towing lowers the grade default
+            rebuildTripNeeds()  // fuel stops follow the towing range mid-trip
         }
     }
     /// The towing filters towing itself turned on (see TowingFilterHold).
@@ -467,16 +490,18 @@ final class AppModel: ObservableObject {
     @Published private(set) var workZonesAhead = 0
     @Published private(set) var workZoneRoad: String?
     @Published var towVehicleWeightLbs: Double =
-        UserDefaults.standard.object(forKey: "flows.towVehicleLbs") as? Double ?? 0 {
+        UserDefaults.standard.object(forKey: "flows.towVehicleLbs") as? Double ?? 0
+    {
         didSet { UserDefaults.standard.set(towVehicleWeightLbs, forKey: "flows.towVehicleLbs") }
     }
     @Published var towTrailerWeightLbs: Double =
-        UserDefaults.standard.object(forKey: "flows.towTrailerLbs") as? Double ?? 0 {
+        UserDefaults.standard.object(forKey: "flows.towTrailerLbs") as? Double ?? 0
+    {
         didSet {
             UserDefaults.standard.set(towTrailerWeightLbs, forKey: "flows.towTrailerLbs")
             // Entering a trailer weight IS declaring you're towing.
             if towTrailerWeightLbs > 0, !towingActive { towingActive = true }
-            applyVehicleMaxGradeDefault()   // a heavier trailer lowers it further
+            applyVehicleMaxGradeDefault()  // a heavier trailer lowers it further
         }
     }
     /// The vehicle's manufacturer ratings (from the spec table entry).
@@ -487,27 +512,31 @@ final class AppModel: ObservableObject {
         // Profile-carried ratings first (works for EPA-path vehicles too);
         // curated-table lookup as the fallback for older saved profiles.
         if v.gvwrLbs != nil || v.towCapacityLbs != nil {
-            return TowingLimits.Ratings(gvwrLbs: v.gvwrLbs,
-                                        towCapacityLbs: v.towCapacityLbs,
-                                        gcwrLbs: v.gcwrLbs)
+            return TowingLimits.Ratings(
+                gvwrLbs: v.gvwrLbs,
+                towCapacityLbs: v.towCapacityLbs,
+                gcwrLbs: v.gcwrLbs)
         }
         // Curated table, else CLASS-TYPICAL estimates from the vehicle's shape
         // (EPA-path vehicles have economy but no published weights) — the card
         // labels estimates as such; "No published rating" never blanks the
         // submenu numbers again.
         return VehicleSpecs.spec(make: v.make, model: v.model)?.towingRatings
-            ?? TowingLimits.estimatedRatings(heightFeet: vehicleHeightFeet,
-                                             fuelType: v.fuelType)
+            ?? TowingLimits.estimatedRatings(
+                heightFeet: vehicleHeightFeet,
+                fuelType: v.fuelType)
     }
     var towingViolations: [TowingLimits.Violation] {
-        TowingLimits.check(vehicleWeightLbs: towVehicleWeightLbs,
-                           towedWeightLbs: towTrailerWeightLbs,
-                           ratings: towingRatings)
+        TowingLimits.check(
+            vehicleWeightLbs: towVehicleWeightLbs,
+            towedWeightLbs: towTrailerWeightLbs,
+            ratings: towingRatings)
     }
 
     /// Whether the refuel gauge should ask (learning under its 80% floor).
     @Published var refuelCheckInsEnabled: Bool =
-        UserDefaults.standard.object(forKey: "flows.refuelCheckIns") as? Bool ?? true {
+        UserDefaults.standard.object(forKey: "flows.refuelCheckIns") as? Bool ?? true
+    {
         didSet { UserDefaults.standard.set(refuelCheckInsEnabled, forKey: "flows.refuelCheckIns") }
     }
 
@@ -515,9 +544,11 @@ final class AppModel: ObservableObject {
     /// entities and a reach circle) so the card and map symbol can be seen
     /// without a live emergency. Auto-clears with the X press, like a real one.
     func demoRedAlert(near coordinate: CLLocationCoordinate2D) {
-        let headline = "AMBER Alert: suspect vehicle is a red Toyota pickup truck, "
+        let headline =
+            "AMBER Alert: suspect vehicle is a red Toyota pickup truck, "
             + "last seen 25 minutes ago near the marked location"
-        let detail = "The child is a 7-year-old girl wearing a blue jacket. "
+        let detail =
+            "The child is a 7-year-old girl wearing a blue jacket. "
             + "Vehicle traveling northbound. If seen, call 911 — do not approach."
         let demoEvent = "Child Abduction Emergency (DEMO)"
         let describesEntity = AlertEntityParser.describesAnEntity(event: demoEvent)
@@ -575,7 +606,8 @@ final class AppModel: ObservableObject {
     /// hands-free loop: FLOWS announces, then listens for the plain yes/no
     /// (and "go ahead in FLOWS" works via Siri). Off = screen-only.
     @Published var voiceAlerts =
-        UserDefaults.standard.object(forKey: "flows.voiceAlerts") as? Bool ?? true {
+        UserDefaults.standard.object(forKey: "flows.voiceAlerts") as? Bool ?? true
+    {
         didSet { UserDefaults.standard.set(voiceAlerts, forKey: "flows.voiceAlerts") }
     }
 
@@ -583,7 +615,8 @@ final class AppModel: ObservableObject {
     /// alert voice: plenty of drivers want turns spoken but a quiet map,
     /// or the reverse.
     @Published var speakTurns =
-        UserDefaults.standard.object(forKey: "flows.speakTurns") as? Bool ?? true {
+        UserDefaults.standard.object(forKey: "flows.speakTurns") as? Bool ?? true
+    {
         didSet { UserDefaults.standard.set(speakTurns, forKey: "flows.speakTurns") }
     }
 
@@ -620,7 +653,8 @@ final class AppModel: ObservableObject {
     /// it to the offered choices. Default ON — it only rescues replies
     /// that would otherwise dead-end, and nothing leaves the phone.
     @Published var wordFindingHelp =
-        UserDefaults.standard.object(forKey: "flows.wordFindingHelp") as? Bool ?? true {
+        UserDefaults.standard.object(forKey: "flows.wordFindingHelp") as? Bool ?? true
+    {
         didSet { UserDefaults.standard.set(wordFindingHelp, forKey: "flows.wordFindingHelp") }
     }
 
@@ -628,7 +662,8 @@ final class AppModel: ObservableObject {
     /// (Settings → Accessibility → Personal Voice). Default OFF — using
     /// someone's voice is their call, and the system asks permission once.
     @Published var personalVoiceAnnouncements =
-        UserDefaults.standard.bool(forKey: "flows.personalVoice") {
+        UserDefaults.standard.bool(forKey: "flows.personalVoice")
+    {
         didSet {
             UserDefaults.standard.set(personalVoiceAnnouncements, forKey: "flows.personalVoice")
             VoiceAnnouncer.shared.setPersonalVoiceEnabled(personalVoiceAnnouncements)
@@ -641,7 +676,8 @@ final class AppModel: ObservableObject {
     /// microphone opens on the question's timing, and a voice that loads
     /// slowly would let it hear its own "say yes".
     @Published var voiceID =
-        UserDefaults.standard.string(forKey: "flows.voiceID") ?? SpeechVoiceRules.automaticID {
+        UserDefaults.standard.string(forKey: "flows.voiceID") ?? SpeechVoiceRules.automaticID
+    {
         didSet {
             UserDefaults.standard.set(voiceID, forKey: "flows.voiceID")
             applyVoice()
@@ -651,7 +687,8 @@ final class AppModel: ObservableObject {
     /// How fast it speaks: a step on SpeechVoiceRules.speeds.
     @Published var voiceSpeedStep =
         UserDefaults.standard.object(forKey: "flows.voiceSpeed") as? Int
-            ?? SpeechVoiceRules.normalSpeedStep {
+        ?? SpeechVoiceRules.normalSpeedStep
+    {
         didSet {
             UserDefaults.standard.set(voiceSpeedStep, forKey: "flows.voiceSpeed")
             VoiceAnnouncer.shared.setSpeed(step: voiceSpeedStep)
@@ -694,7 +731,8 @@ final class AppModel: ObservableObject {
     /// Default ON; a deaf driver relies on it, everyone else barely
     /// notices it under road vibration.
     @Published var hapticAlerts =
-        UserDefaults.standard.object(forKey: "flows.hapticAlerts") as? Bool ?? true {
+        UserDefaults.standard.object(forKey: "flows.hapticAlerts") as? Bool ?? true
+    {
         didSet { UserDefaults.standard.set(hapticAlerts, forKey: "flows.hapticAlerts") }
     }
 
@@ -702,7 +740,8 @@ final class AppModel: ObservableObject {
     /// otherwise an index into TextScale.steps. Both paths are clamped to
     /// what the current screen holds (textSizeMaxIndex).
     @Published var textSizeIndex: Int =
-        UserDefaults.standard.object(forKey: "flows.textSizeIndex") as? Int ?? -1 {
+        UserDefaults.standard.object(forKey: "flows.textSizeIndex") as? Int ?? -1
+    {
         didSet { UserDefaults.standard.set(textSizeIndex, forKey: "flows.textSizeIndex") }
     }
     /// Highest slider step the current window width can hold — measured at
@@ -723,7 +762,8 @@ final class AppModel: ObservableObject {
     /// alone). Guidance updates at 1 Hz; everything else is deduped away.
     private func speakTurn(_ guidance: NavigationEngine.Guidance) {
         guard speakTurns, mode == .navigating, !guidance.isOffRoute,
-              !guidance.instruction.isEmpty else { return }
+            !guidance.instruction.isEmpty
+        else { return }
         if guidance.stepIndex != lastSpokenTurnStep {
             lastSpokenTurnStep = guidance.stepIndex
             turnNearSpoken = guidance.distanceToManeuver < 150
@@ -741,7 +781,8 @@ final class AppModel: ObservableObject {
     @Published var notifyFuel = UserDefaults.standard.object(forKey: "flows.notifyFuel") as? Bool ?? true {
         didSet { UserDefaults.standard.set(notifyFuel, forKey: "flows.notifyFuel") }
     }
-    @Published var crashDetectionEnabled = UserDefaults.standard.object(forKey: "flows.crashDetection") as? Bool ?? true {
+    @Published var crashDetectionEnabled = UserDefaults.standard.object(forKey: "flows.crashDetection") as? Bool ?? true
+    {
         didSet {
             UserDefaults.standard.set(crashDetectionEnabled, forKey: "flows.crashDetection")
             guard CrashDetectionService.isAvailable else { return }
@@ -768,16 +809,19 @@ final class AppModel: ObservableObject {
     /// preferences plist that backups carry. Earlier builds' copy moves over
     /// on first launch and the plaintext one is removed.
     @Published var emergencyContactName =
-        SecureStore.migrateFromDefaults(key: "emergencyContactName", defaultsKey: "flows.iceName") {
+        SecureStore.migrateFromDefaults(key: "emergencyContactName", defaultsKey: "flows.iceName")
+    {
         didSet { SecureStore.set(emergencyContactName, for: "emergencyContactName") }
     }
     @Published var emergencyContactPhone =
-        SecureStore.migrateFromDefaults(key: "emergencyContactPhone", defaultsKey: "flows.icePhone") {
+        SecureStore.migrateFromDefaults(key: "emergencyContactPhone", defaultsKey: "flows.icePhone")
+    {
         didSet { SecureStore.set(emergencyContactPhone, for: "emergencyContactPhone") }
     }
     // Health data -> Keychain, not plaintext UserDefaults (backed up, readable).
     @Published var medicalNotes =
-        SecureStore.migrateFromDefaults(key: "medicalNotes", defaultsKey: "flows.medicalNotes") {
+        SecureStore.migrateFromDefaults(key: "medicalNotes", defaultsKey: "flows.medicalNotes")
+    {
         didSet { SecureStore.set(medicalNotes, for: "medicalNotes") }
     }
     private var serviceSubscriptions: Set<AnyCancellable> = []
@@ -788,10 +832,11 @@ final class AppModel: ObservableObject {
 
     /// Driver-tunable filter limits (right-hand sliders; persisted).
     @Published var vehicleHeightFeet: Double =
-        UserDefaults.standard.object(forKey: "flows.vehicleHeightFeet") as? Double ?? 13.5 {
+        UserDefaults.standard.object(forKey: "flows.vehicleHeightFeet") as? Double ?? 13.5
+    {
         didSet {
             UserDefaults.standard.set(vehicleHeightFeet, forKey: "flows.vehicleHeightFeet")
-            applyVehicleMaxGradeDefault()   // height feeds the size-class fallback
+            applyVehicleMaxGradeDefault()  // height feeds the size-class fallback
         }
     }
     /// Grade limit in DEGREES — the unit a driver towing heavy thinks in
@@ -800,7 +845,8 @@ final class AppModel: ObservableObject {
     /// value TRACKS the vehicle (`vehicleDefaultMaxGradeDegrees`); a manual
     /// move persists the choice and stops the tracking.
     @Published var maxGradeDegrees: Double =
-        UserDefaults.standard.object(forKey: "flows.maxGradeDegrees") as? Double ?? 8.0 {
+        UserDefaults.standard.object(forKey: "flows.maxGradeDegrees") as? Double ?? 8.0
+    {
         didSet {
             guard !applyingDerivedMaxGrade else { return }
             maxGradeIsCustom = true
@@ -853,13 +899,16 @@ final class AppModel: ObservableObject {
         // A trailer entered without the vehicle counts the vehicle at its
         // max rating: the trailer alone passed a 10,000 lb bridge for a
         // 13,000 lb rig.
-        let rig = FilterLimits.rigVehicleLbs(entered: towVehicleWeightLbs,
-                                             towedLbs: towTrailerWeightLbs,
-                                             ratedMaxLbs: towingRatings.gvwrLbs)
+        let rig =
+            FilterLimits.rigVehicleLbs(
+                entered: towVehicleWeightLbs,
+                towedLbs: towTrailerWeightLbs,
+                ratedMaxLbs: towingRatings.gvwrLbs)
             + towTrailerWeightLbs
-        return FilterLimits(vehicleHeightMeters: vehicleHeightFeet * 0.3048,
-                            maxGradePercent: FilterLimits.degreesToPercent(maxGradeDegrees),
-                            rigWeightLbs: rig > 0 ? rig : nil)
+        return FilterLimits(
+            vehicleHeightMeters: vehicleHeightFeet * 0.3048,
+            maxGradePercent: FilterLimits.degreesToPercent(maxGradeDegrees),
+            rigWeightLbs: rig > 0 ? rig : nil)
     }
     /// Independent weather layer: snow/rain/storm blotches by type.
     @Published var showWeatherLayer = true
@@ -892,12 +941,14 @@ final class AppModel: ObservableObject {
     /// list order, so the column never reflected what the driver had
     /// actually just put away.
     @Published var collapsedPanels = PanelStack(
-        UserDefaults.standard.stringArray(forKey: "flows.collapsedPanels") ?? []) {
+        UserDefaults.standard.stringArray(forKey: "flows.collapsedPanels") ?? [])
+    {
         didSet {
             // A driver who tucked something away meant it — remember across
             // sessions rather than springing it back on the next launch.
-            UserDefaults.standard.set(collapsedPanels.order,
-                                      forKey: "flows.collapsedPanels")
+            UserDefaults.standard.set(
+                collapsedPanels.order,
+                forKey: "flows.collapsedPanels")
         }
     }
 
@@ -910,9 +961,11 @@ final class AppModel: ObservableObject {
     /// Defaults to the radio already in the dash: it needs no account and no
     /// subscription, so a driver who has told us nothing still gets audio.
     /// The first play press asks which service they'd rather use.
-    @Published var musicProvider: MusicProvider = MusicProvider(
-        rawValue: UserDefaults.standard.string(forKey: "flows.musicProvider") ?? ""
-    ) ?? .radio {
+    @Published var musicProvider: MusicProvider =
+        MusicProvider(
+            rawValue: UserDefaults.standard.string(forKey: "flows.musicProvider") ?? ""
+        ) ?? .radio
+    {
         didSet {
             // The offline handoff and its restore assign this too. Those are
             // the app moving playback, not the driver picking a service —
@@ -941,7 +994,8 @@ final class AppModel: ObservableObject {
     /// credential, so it lives in the Keychain (SecureStore), never
     /// UserDefaults.
     @Published var spotifyWebToken: String =
-        SecureStore.get(SpotifyRemote.keychainKey) ?? "" {
+        SecureStore.get(SpotifyRemote.keychainKey) ?? ""
+    {
         didSet { SpotifyRemote.shared.setToken(spotifyWebToken) }
     }
 
@@ -968,8 +1022,10 @@ final class AppModel: ObservableObject {
     /// (nil when nothing matched); `announce: false` leaves the speaking to
     /// the caller — Siri's reply, which would otherwise talk over FLOWS.
     @discardableResult
-    func playGenreRadio(_ genre: String, spokenPrefix: String? = nil,
-                        announce: Bool = true) async -> String? {
+    func playGenreRadio(
+        _ genre: String, spokenPrefix: String? = nil,
+        announce: Bool = true
+    ) async -> String? {
         // A named kind gets the filed search (tag hits re-checked against
         // BroadcastRadio's match order, nearest first); anything else the
         // driver says falls back to free text.
@@ -993,10 +1049,10 @@ final class AppModel: ObservableObject {
         if announce {
             VoiceAnnouncer.shared.announce(
                 (spokenPrefix.map { $0 + " " } ?? "") + "Playing \(genre) — \(name). "
-                // The words that really work: Siri's "skip" in FLOWS moves
-                // to the next station. "Say next" named a command that
-                // does not exist.
-                + "For another \(genre) station, say: Hey Siri, skip in FLOWS.")
+                    // The words that really work: Siri's "skip" in FLOWS moves
+                    // to the next station. "Say next" named a command that
+                    // does not exist.
+                    + "For another \(genre) station, say: Hey Siri, skip in FLOWS.")
         }
         return name
     }
@@ -1005,7 +1061,7 @@ final class AppModel: ObservableObject {
     /// station queue as the in-app ask, quiet, so Siri's reply is the one
     /// spoken line. Returns the station now on, nil when nothing matched.
     func playRadioMusicAsk(_ term: String) async -> String? {
-        cancelOfflineHandoff()   // a driver's ask outranks a pending switch-back
+        cancelOfflineHandoff()  // a driver's ask outranks a pending switch-back
         lastMusicAsk = term
         return await playGenreRadio(term, announce: false)
     }
@@ -1050,7 +1106,8 @@ final class AppModel: ObservableObject {
     /// anything else searches the AM/FM directory and plays the top hit.
     func playRadioAsk(_ term: String) {
         if VoiceCommands.wantsWeatherRadio(term) {
-            let channel = effectivePosition
+            let channel =
+                effectivePosition
                 .flatMap { radio.nearestChannel(to: $0)?.channel }
                 ?? radio.nearestChannel(stateCode: currentStateCode)
             if let channel {
@@ -1113,9 +1170,10 @@ final class AppModel: ObservableObject {
         // must NOT be force-opened mid-drive — throwing the driver into
         // another app's UI at 70 mph is worse than a moment of quiet, so
         // say it's available and let them choose.
-        FlowsDiag.log(.info, "audio",
-                      "signal held — returning to \(previous.rawValue) "
-                      + "(controllable=\(musicControllable))")
+        FlowsDiag.log(
+            .info, "audio",
+            "signal held — returning to \(previous.rawValue) "
+                + "(controllable=\(musicControllable))")
         // Unasked-for lines, so the voice switch decides: off = screen-only.
         guard musicControllable else {
             if voiceAlerts {
@@ -1129,7 +1187,7 @@ final class AppModel: ObservableObject {
                 PlaybackFallback.restoreLine(service: previous.displayName))
         }
         if let ask = lastMusicAsk {
-            playMusicAsk(ask, announce: voiceAlerts)   // unasked-for, like the line above
+            playMusicAsk(ask, announce: voiceAlerts)  // unasked-for, like the line above
         } else {
             MusicController.shared.resumeRecent()
         }
@@ -1161,18 +1219,21 @@ final class AppModel: ObservableObject {
         guard let lostAt = connectionLostAt, let service = graceService else { return }
         let delay = Date().timeIntervalSince(lostAt)
         let tech = graceRadioTechnology
-        BufferMemory.shared.record(seconds: delay, service: service,
-                                   radioTechnology: tech)
+        BufferMemory.shared.record(
+            seconds: delay, service: service,
+            radioTechnology: tech)
         // The whole point of a trip log: this is the sample that teaches
         // FLOWS the real buffer depth, and the line that lets a human
         // check the learning afterwards.
-        FlowsDiag.log(.info, "audio",
-                      String(format: "buffer sample %.1fs service=%@ radio=%@ "
-                             + "samples=%d usable=%@",
-                             delay, service, tech ?? "unknown",
-                             BufferMemory.shared.sampleCount(
-                                service: service, radioTechnology: tech),
-                             BufferLearning.isUsable(sample: delay) ? "yes" : "no"))
+        FlowsDiag.log(
+            .info, "audio",
+            String(
+                format: "buffer sample %.1fs service=%@ radio=%@ "
+                    + "samples=%d usable=%@",
+                delay, service, tech ?? "unknown",
+                BufferMemory.shared.sampleCount(
+                    service: service, radioTechnology: tech),
+                BufferLearning.isUsable(sample: delay) ? "yes" : "no"))
         connectionLostAt = nil
     }
 
@@ -1191,15 +1252,17 @@ final class AppModel: ObservableObject {
         // search before it ever finished, and the fallback would never be
         // staged at all.
         guard preStageTask == nil,
-              !MusicController.shared.hasLocalMusic,
-              let genre = lastMusicAsk
-                ?? (radio.queueLabel.isEmpty ? nil : radio.queueLabel) else { return }
+            !MusicController.shared.hasLocalMusic,
+            let genre = lastMusicAsk
+                ?? (radio.queueLabel.isEmpty ? nil : radio.queueLabel)
+        else { return }
         // Stations staged for a weak patch that passed were kept for the
         // rest of the session: hours later a handoff played the old list,
         // for music asked for since replaced. Staged for another ask, or
         // long ago, they are fetched again.
         if !preStagedStations.isEmpty {
-            guard genre != preStagedLabel
+            guard
+                genre != preStagedLabel
                     || Date().timeIntervalSince(preStagedAt) > Self.preStageKeepsSeconds
             else { return }
         }
@@ -1214,7 +1277,7 @@ final class AppModel: ObservableObject {
                 self.preStagedLabel = genre
                 self.preStagedAt = Date()
             }
-            self.preStageTask = nil   // the next fix may try again
+            self.preStageTask = nil  // the next fix may try again
         }
     }
 
@@ -1233,8 +1296,9 @@ final class AppModel: ObservableObject {
         // its own app) counts as music that's about to be in trouble.
         let otherAppAudio = !radioPlaying && AudioActivity.isOtherAudioPlaying
         guard radioPlaying || music.isPlaying || otherAppAudio,
-              radioPlaying || otherAppAudio
-                || music.currentPlaybackNeedsNetwork else { return }
+            radioPlaying || otherAppAudio
+                || music.currentPlaybackNeedsNetwork
+        else { return }
         bufferedAudioWasPlaying = true
         let source: PlaybackGrace.Source
         if radioPlaying {
@@ -1256,17 +1320,21 @@ final class AppModel: ObservableObject {
         graceService = musicProvider.rawValue
         graceRadioTechnology = CellularRadio.currentTechnology
         // The radio's own measurement is ground truth; never override it.
-        let grace = radioPlaying
+        let grace =
+            radioPlaying
             ? prior
-            : BufferMemory.shared.waitSeconds(prior: prior,
-                                              service: musicProvider.rawValue,
-                                              radioTechnology: graceRadioTechnology)
-        FlowsDiag.log(.warn, "audio",
-                      String(format: "signal lost while playing — source=%@ "
-                             + "wait=%.1fs (prior %.1fs%@) radio=%@",
-                             "\(source)", grace, prior,
-                             grace == prior ? "" : ", LEARNED",
-                             graceRadioTechnology ?? "unknown"))
+            : BufferMemory.shared.waitSeconds(
+                prior: prior,
+                service: musicProvider.rawValue,
+                radioTechnology: graceRadioTechnology)
+        FlowsDiag.log(
+            .warn, "audio",
+            String(
+                format: "signal lost while playing — source=%@ "
+                    + "wait=%.1fs (prior %.1fs%@) radio=%@",
+                "\(source)", grace, prior,
+                grace == prior ? "" : ", LEARNED",
+                graceRadioTechnology ?? "unknown"))
         radio.onStall = { [weak self] in self?.applyOfflineHandoff() }
         music.onPlaybackStopped = { [weak self] in self?.applyOfflineHandoff() }
         handoffGraceTask = Task { [weak self] in
@@ -1317,7 +1385,7 @@ final class AppModel: ObservableObject {
             return
         }
         endHandoffGrace()
-        recordBufferSample()   // the audio just died: that delay is the lesson
+        recordBufferSample()  // the audio just died: that delay is the lesson
         handleOfflineNow()
     }
 
@@ -1338,10 +1406,12 @@ final class AppModel: ObservableObject {
                 try? await Task.sleep(
                     for: .seconds(PlaybackFallback.restoreHoldSeconds))
                 guard !Task.isCancelled, let self else { return }
-                guard PlaybackFallback.shouldRestore(
-                    handedOff: self.handedOffOffline,
-                    connectionHeld: !self.breadcrumbs.isOffline,
-                    driverChoseSince: self.preHandoffProvider == nil) else { return }
+                guard
+                    PlaybackFallback.shouldRestore(
+                        handedOff: self.handedOffOffline,
+                        connectionHeld: !self.breadcrumbs.isOffline,
+                        driverChoseSince: self.preHandoffProvider == nil)
+                else { return }
                 // Land the switch BETWEEN songs when local music is
                 // playing — cutting one off mid-chorus isn't seamless.
                 MusicController.shared.atNextTrackBoundary { [weak self] in
@@ -1354,7 +1424,7 @@ final class AppModel: ObservableObject {
         // the buffer wait begins — nothing changes until it's spent.
         restoreTask?.cancel()
         restoreTask = nil
-        MusicController.shared.cancelTrackBoundaryAction()   // the armed switch-back is void
+        MusicController.shared.cancelTrackBoundaryAction()  // the armed switch-back is void
         connectionLostAt = Date()
         beginHandoffGrace()
     }
@@ -1363,25 +1433,28 @@ final class AppModel: ObservableObject {
     /// health and stage the fallback BEFORE the audio dies.
     func checkPlaybackSignalHealth() {
         guard !breadcrumbs.isOffline, handoffGraceTask == nil,
-              MusicController.shared.isPlaying
+            MusicController.shared.isPlaying
                 || (radio.playingChannelID != nil && !radio.isPaused)
         else { return }
         let buffer = radio.bufferedSecondsAhead
-        let draining = SignalQuality.isDraining(previous: lastBufferReading,
-                                                current: buffer)
+        let draining = SignalQuality.isDraining(
+            previous: lastBufferReading,
+            current: buffer)
         lastBufferReading = buffer
         let tier = SignalQuality.tier(
             radioTechnology: CellularRadio.currentTechnology,
             onWiFi: false, offline: false)
-        if SignalQuality.shouldPreStage(tier: tier, bufferDraining: draining,
-                                        recentStalls: 0) {
+        if SignalQuality.shouldPreStage(
+            tier: tier, bufferDraining: draining,
+            recentStalls: 0)
+        {
             let hadStaged = !preStagedStations.isEmpty
             preStageFallback()
             if !hadStaged {
                 FlowsDiag.logThrottled(
                     key: "audio.prestage", interval: 120, .info, "audio",
                     "pre-staging fallback: tier=\(tier.rawValue) "
-                    + "draining=\(draining) radio=\(CellularRadio.currentTechnology ?? "n/a")")
+                        + "draining=\(draining) radio=\(CellularRadio.currentTechnology ?? "n/a")")
             }
         }
     }
@@ -1389,7 +1462,8 @@ final class AppModel: ObservableObject {
     /// The handoff itself, run only once the buffered audio is gone.
     private func handleOfflineNow() {
         let music = MusicController.shared
-        let genre = lastMusicAsk
+        let genre =
+            lastMusicAsk
             ?? (radio.queueLabel.isEmpty ? nil : radio.queueLabel)
         // Both facts were established when the wait began (a station is a
         // stream too, so radio always counts as network-fed) — the player
@@ -1399,10 +1473,11 @@ final class AppModel: ObservableObject {
             needsNetwork: bufferedAudioWasPlaying,
             hasLocalMusic: music.hasLocalMusic,
             lastGenre: genre)
-        FlowsDiag.log(.warn, "audio",
-                      "offline handoff: \(source.logName) (was \(musicProvider.rawValue), "
-                      + "localMusic=\(music.hasLocalMusic), "
-                      + "preStaged=\(preStagedStations.count) stations)")
+        FlowsDiag.log(
+            .warn, "audio",
+            "offline handoff: \(source.logName) (was \(musicProvider.rawValue), "
+                + "localMusic=\(music.hasLocalMusic), "
+                + "preStaged=\(preStagedStations.count) stations)")
         // Nobody asked for this line: the voice switch decides.
         if voiceAlerts, let line = PlaybackFallback.spokenLine(for: source) {
             VoiceAnnouncer.shared.announce(line)
@@ -1411,7 +1486,7 @@ final class AppModel: ObservableObject {
         case .localLibrary:
             handedOffOffline = true
             preHandoffProvider = musicProvider
-            radio.stop()                      // a stalling stream helps nobody
+            radio.stop()  // a stalling stream helps nobody
             // The provider must MATCH what's now making the sound, or the
             // transport buttons would keep routing to the service that
             // just went dark.
@@ -1429,8 +1504,9 @@ final class AppModel: ObservableObject {
             // searching into the silence (the search would fail anyway —
             // the directory needs the very link that just died).
             if !preStagedStations.isEmpty {
-                radio.playQueue(preStagedStations,
-                                label: preStagedLabel.isEmpty ? genre : preStagedLabel)
+                radio.playQueue(
+                    preStagedStations,
+                    label: preStagedLabel.isEmpty ? genre : preStagedLabel)
                 preStagedStations = []
             } else {
                 // Unasked-for: the voice setting decides whether it's said.
@@ -1489,7 +1565,7 @@ final class AppModel: ObservableObject {
         // a "what do you play music with?" card instead — every time.
         if musicProvider == .radio {
             if radio.playingChannelID == nil, radio.lastPlayed == nil {
-                playLocalStationsRadio()   // nothing tuned yet
+                playLocalStationsRadio()  // nothing tuned yet
             } else {
                 MusicController.shared.playPause()
             }
@@ -1521,7 +1597,7 @@ final class AppModel: ObservableObject {
 
     /// First-play choice: remember it, then do what play was about to do.
     func chooseMusicProvider(_ provider: MusicProvider) {
-        cancelOfflineHandoff()   // their pick outranks a pending switch-back
+        cancelOfflineHandoff()  // their pick outranks a pending switch-back
         musicProvider = provider
         showMusicProviderPrompt = false
         if musicControllable {
@@ -1591,7 +1667,8 @@ final class AppModel: ObservableObject {
     /// buttons and the radio card. (The Trucker route is designated for
     /// everyone — `truckerRouteID` — so it is not part of this mode.)
     @Published var truckerUI: Bool =
-        UserDefaults.standard.bool(forKey: "flows.truckerUI") {
+        UserDefaults.standard.bool(forKey: "flows.truckerUI")
+    {
         didSet {
             UserDefaults.standard.set(truckerUI, forKey: "flows.truckerUI")
             poi.truckerMode = truckerUI
@@ -1613,17 +1690,26 @@ final class AppModel: ObservableObject {
         var id: String { rawValue }
     }
 
-    @Published var cameraZoomMode: CameraZoomMode = CameraZoomMode(
-        rawValue: UserDefaults.standard.string(forKey: "flows.cameraZoomMode") ?? ""
-    ) ?? .auto {
-        didSet { UserDefaults.standard.set(cameraZoomMode.rawValue,
-                                           forKey: "flows.cameraZoomMode") }
+    @Published var cameraZoomMode: CameraZoomMode =
+        CameraZoomMode(
+            rawValue: UserDefaults.standard.string(forKey: "flows.cameraZoomMode") ?? ""
+        ) ?? .auto
+    {
+        didSet {
+            UserDefaults.standard.set(
+                cameraZoomMode.rawValue,
+                forKey: "flows.cameraZoomMode")
+        }
     }
     /// Hand-set camera height in meters (the Set-by-hand slider).
     @Published var manualZoomMeters: Double =
-        UserDefaults.standard.object(forKey: "flows.manualZoomMeters") as? Double ?? 900 {
-        didSet { UserDefaults.standard.set(manualZoomMeters,
-                                           forKey: "flows.manualZoomMeters") }
+        UserDefaults.standard.object(forKey: "flows.manualZoomMeters") as? Double ?? 900
+    {
+        didSet {
+            UserDefaults.standard.set(
+                manualZoomMeters,
+                forKey: "flows.manualZoomMeters")
+        }
     }
 
     /// The height the camera should actually use, given what the engine
@@ -1640,7 +1726,8 @@ final class AppModel: ObservableObject {
     /// 3D terrain: MapKit's realistic elevation rendering (its own DEM tiles;
     /// our EPQS/gradient data stays a risk input) + a deeper nav-camera pitch.
     @Published var show3DMap: Bool =
-        UserDefaults.standard.bool(forKey: "flows.show3DMap") {
+        UserDefaults.standard.bool(forKey: "flows.show3DMap")
+    {
         didSet { UserDefaults.standard.set(show3DMap, forKey: "flows.show3DMap") }
     }
 
@@ -1649,8 +1736,9 @@ final class AppModel: ObservableObject {
     /// 13'6", gentle grades, low wind exposure), ETA breaking ties. Never a
     /// walk.
     var truckerRouteID: UUID? {
-        let semi = FilterLimits(vehicleHeightMeters: 13.5 * 0.3048,
-                                maxGradePercent: FilterLimits.degreesToPercent(6))
+        let semi = FilterLimits(
+            vehicleHeightMeters: 13.5 * 0.3048,
+            maxGradePercent: FilterLimits.degreesToPercent(6))
         // A KNOWN low bridge DISQUALIFIES a route from the trucker badge — it
         // is not a 3-point penalty to be outweighed by highways and gentle
         // grades. Review finding: a route failing a 13'6" clearance check
@@ -1929,7 +2017,8 @@ final class AppModel: ObservableObject {
                 _ = collapsedPanels.remove(Self.warningPanelID)
             }
             guard let warning = imminentWarning,
-                  warning.alertID != oldValue?.alertID else { return }
+                warning.alertID != oldValue?.alertID
+            else { return }
             // Once per alert per trip: a yellow banner clears when its alert
             // leaves the look-ahead window, which shrinks with speed — slowing
             // in traffic and speeding up again said the same advisory twice.
@@ -1962,9 +2051,9 @@ final class AppModel: ObservableObject {
     /// Nothing is posted while FLOWS is in front: the banner is there.
     private static func noticeIfAway(id: String, title: String, body: String) {
         #if os(macOS)
-        guard !NSApplication.shared.isActive else { return }
+            guard !NSApplication.shared.isActive else { return }
         #else
-        guard UIApplication.shared.applicationState != .active else { return }
+            guard UIApplication.shared.applicationState != .active else { return }
         #endif
         let content = UNMutableNotificationContent()
         content.title = title
@@ -1972,8 +2061,9 @@ final class AppModel: ObservableObject {
         content.sound = .default
         content.threadIdentifier = "flows.warnings"
         // One notice per warning: the same id replaces, never piles up.
-        UNUserNotificationCenter.current().add(UNNotificationRequest(
-            identifier: "flows." + id, content: content, trigger: nil))
+        UNUserNotificationCenter.current().add(
+            UNNotificationRequest(
+                identifier: "flows." + id, content: content, trigger: nil))
     }
 
     /// A finished trip's warnings describe a road no longer driven: they
@@ -1999,7 +2089,8 @@ final class AppModel: ObservableObject {
         Task {
             let center = UNUserNotificationCenter.current()
             if notices,
-               await center.notificationSettings().authorizationStatus == .notDetermined {
+                await center.notificationSettings().authorizationStatus == .notDetermined
+            {
                 _ = try? await center.requestAuthorization(options: [.alert, .sound])
             }
             if crashReply { await CrashDetectionService.askReplyPermissionsIfNeeded() }
@@ -2009,8 +2100,8 @@ final class AppModel: ObservableObject {
     /// What FLOWS last offered OUT LOUD and is waiting on a spoken yes
     /// for — "go ahead in FLOWS" (GoAheadIntent) consumes it.
     enum VoiceOffer {
-        case trip(route: PlannedRoute, name: String)   // voice trip-start staged
-        case fasterRoute                                // traffic reroute offer
+        case trip(route: PlannedRoute, name: String)  // voice trip-start staged
+        case fasterRoute  // traffic reroute offer
     }
     var pendingVoiceOffer: VoiceOffer?
     /// Warnings the driver dismissed — never re-raised for the same alert.
@@ -2050,9 +2141,10 @@ final class AppModel: ObservableObject {
         let last = UserDefaults.standard.object(forKey: Self.lastUseKey) as? Date
         UserDefaults.standard.set(now, forKey: Self.lastUseKey)
         guard vehicle.profile != nil,
-              vehicle.telemetry().fuelFraction == nil,
-              refuelCheckInsEnabled, notifyFuel,
-              StaleGauge.wentStale(lastUsed: last, now: now) else { return }
+            vehicle.telemetry().fuelFraction == nil,
+            refuelCheckInsEnabled, notifyFuel,
+            StaleGauge.wentStale(lastUsed: last, now: now)
+        else { return }
         refuelPrompt = true
     }
 
@@ -2085,8 +2177,10 @@ final class AppModel: ObservableObject {
         // The city lists' calls arrive minutes late and keep their own
         // hour-long lives, so they are kept apart from the scanner's.
         let groups = scannerGroups
-        return (ScannerIncidents.visible(scanner.incidents, near: effectivePosition,
-                                         corridor: corridor)
+        return
+            (ScannerIncidents.visible(
+                scanner.incidents, near: effectivePosition,
+                corridor: corridor)
             + openDispatch.visible(near: effectivePosition, corridor: corridor))
             .filter { incident in groups.contains { $0.covers(incident.kind) } }
     }
@@ -2097,31 +2191,38 @@ final class AppModel: ObservableObject {
     /// an 18 wheeler shouldn't be drawn as a hatchback — and is overridable
     /// in Settings.
     @Published var vehicleShapeOverride: VehicleShape? = UserDefaults.standard
-        .string(forKey: "flows.vehicleShape").flatMap(VehicleShape.init(rawValue:)) {
+        .string(forKey: "flows.vehicleShape").flatMap(VehicleShape.init(rawValue:))
+    {
         didSet {
-            UserDefaults.standard.set(vehicleShapeOverride?.rawValue,
-                                      forKey: "flows.vehicleShape")
+            UserDefaults.standard.set(
+                vehicleShapeOverride?.rawValue,
+                forKey: "flows.vehicleShape")
         }
     }
 
     /// Marker colour, as an SF-friendly name so the choice survives as a
     /// word rather than a packed number.
-    @Published var vehicleColorName: String = UserDefaults.standard
-        .string(forKey: "flows.vehicleColor") ?? "blue" {
+    @Published var vehicleColorName: String =
+        UserDefaults.standard
+        .string(forKey: "flows.vehicleColor") ?? "blue"
+    {
         didSet { UserDefaults.standard.set(vehicleColorName, forKey: "flows.vehicleColor") }
     }
 
-    static let vehicleColorChoices = ["blue", "red", "green", "orange",
-                                      "purple", "yellow", "gray", "black"]
+    static let vehicleColorChoices = [
+        "blue", "red", "green", "orange",
+        "purple", "yellow", "gray", "black",
+    ]
 
     /// The shape actually drawn: the override when set, otherwise whatever
     /// matches the vehicle on file.
     var vehicleShape: VehicleShape {
         vehicleShapeOverride
-            ?? VehicleShape.matching(make: vehicle.profile?.make,
-                                     model: vehicle.profile?.model,
-                                     gvwrLbs: vehicle.profile?.gvwrLbs,
-                                     isTrucker: truckerUI)
+            ?? VehicleShape.matching(
+                make: vehicle.profile?.make,
+                model: vehicle.profile?.model,
+                gvwrLbs: vehicle.profile?.gvwrLbs,
+                isTrucker: truckerUI)
     }
 
     // MARK: sheltering in place
@@ -2156,15 +2257,16 @@ final class AppModel: ObservableObject {
         // Replace any previous session rather than stacking onto it.
         if let old = shelterSession {
             stopDelaySeconds -= old.addedSeconds
-            shelteredSecondsBanked += old.addedSeconds - old.remaining   // the part already sat out
+            shelteredSecondsBanked += old.addedSeconds - old.remaining  // the part already sat out
         }
         stopDelaySeconds += wait
         shelterSession = ShelterSession(
             event: warning.event,
             until: Date().addingTimeInterval(wait),
             sourceURL: warning.sourceURL,
-            kind: ShelterPolicy.kind(forEvent: warning.event,
-                                     severityScore: warning.severityScore),
+            kind: ShelterPolicy.kind(
+                forEvent: warning.event,
+                severityScore: warning.severityScore),
             addedSeconds: wait)
         dismissImminentWarning()
     }
@@ -2194,9 +2296,11 @@ final class AppModel: ObservableObject {
         // this hour in this weather (TrafficLearning) — the model returns
         // 1.0 until it has seen enough trips to be worth listening to, so a
         // fresh install shows the router's own number unchanged.
-        let learned = baseline * trafficModel.factor(
-            area: location.coordinate.map(TrafficArea.init) ?? .pooled,
-            roadClass: currentRoadClass, weather: currentTrafficWeather)
+        let learned =
+            baseline
+            * trafficModel.factor(
+                area: location.coordinate.map(TrafficArea.init) ?? .pooled,
+                roadClass: currentRoadClass, weather: currentTrafficWeather)
         return TripNeeds.adjustedRemainingSeconds(
             baseline: learned, stopDelaySeconds: stopDelayAheadSeconds)
     }
@@ -2217,12 +2321,14 @@ final class AppModel: ObservableObject {
         // Judge the route by the roads it's actually made of: a highway run
         // reads the pooled highway learning, a cross-town errand reads this
         // neighbourhood's own.
-        let avgMph = route.eta > 0
+        let avgMph =
+            route.eta > 0
             ? (route.distanceMeters / 1609.344) / (route.eta / 3600) : 30
-        return route.eta * trafficModel.factor(
-            area: location.coordinate.map(TrafficArea.init) ?? .pooled,
-            roadClass: RoadClass.from(averageMph: avgMph),
-            weather: TrafficWeather.from(family: worst))
+        return route.eta
+            * trafficModel.factor(
+                area: location.coordinate.map(TrafficArea.init) ?? .pooled,
+                roadClass: RoadClass.from(averageMph: avgMph),
+                weather: TrafficWeather.from(family: worst))
     }
 
     // MARK: trip needs (recurring fuel/food/rest cadences)
@@ -2236,21 +2342,24 @@ final class AppModel: ObservableObject {
     ///   * food: FMCSA hours-of-service requires a 30-min break by hour 8 —
     ///     a meal cadence of ~3.5 h keeps drivers ahead of it.
     @Published var tripNeedsEnabled: Bool =
-        UserDefaults.standard.object(forKey: "flows.tripNeedsEnabled") as? Bool ?? true {
+        UserDefaults.standard.object(forKey: "flows.tripNeedsEnabled") as? Bool ?? true
+    {
         didSet {
             UserDefaults.standard.set(tripNeedsEnabled, forKey: "flows.tripNeedsEnabled")
             rebuildTripNeeds()
         }
     }
     @Published var tripRestMinutes: Double =
-        UserDefaults.standard.object(forKey: "flows.tripRestMinutes") as? Double ?? 120 {
+        UserDefaults.standard.object(forKey: "flows.tripRestMinutes") as? Double ?? 120
+    {
         didSet {
             UserDefaults.standard.set(tripRestMinutes, forKey: "flows.tripRestMinutes")
             rebuildTripNeeds()
         }
     }
     @Published var tripFoodMinutes: Double =
-        UserDefaults.standard.object(forKey: "flows.tripFoodMinutes") as? Double ?? 210 {
+        UserDefaults.standard.object(forKey: "flows.tripFoodMinutes") as? Double ?? 210
+    {
         didSet {
             UserDefaults.standard.set(tripFoodMinutes, forKey: "flows.tripFoodMinutes")
             rebuildTripNeeds()
@@ -2259,7 +2368,8 @@ final class AppModel: ObservableObject {
     /// Manual fuel-interval override (miles); nil = derive from the vehicle.
     /// Persisted like rest and food ("all sliders, all persisted").
     @Published var tripFuelMilesOverride: Double? =
-        UserDefaults.standard.object(forKey: "flows.tripFuelMilesOverride") as? Double {
+        UserDefaults.standard.object(forKey: "flows.tripFuelMilesOverride") as? Double
+    {
         didSet {
             if let miles = tripFuelMilesOverride {
                 UserDefaults.standard.set(miles, forKey: "flows.tripFuelMilesOverride")
@@ -2334,7 +2444,7 @@ final class AppModel: ObservableObject {
 
     /// Trip-needs chip tapped: run the POI search that need calls for.
     func requestTripNeed(_ event: TripNeeds.Event) async {
-        collapsedPanels.remove("stops")   // a fresh search reopens the list
+        collapsedPanels.remove("stops")  // a fresh search reopens the list
         switch event.need {
         case .food(let category):
             poi.activeKind = .food
@@ -2402,7 +2512,7 @@ final class AppModel: ObservableObject {
     /// (tollPreference = .avoid) — merely discarding tolled candidates
     /// collapsed the list to the local-roads route, which was wrong.
     func toggleFilter(_ filter: RouteFilter) {
-        towingFilterHold.driverChose(filter)   // towing-off no longer takes it back
+        towingFilterHold.driverChose(filter)  // towing-off no longer takes it back
         if routeFilters.contains(filter) {
             routeFilters.remove(filter)
             if filter == .tourist {
@@ -2428,8 +2538,9 @@ final class AppModel: ObservableObject {
                 refreshTouristCounts()
             }
             if filter == .noTolls, mode == .choosing,
-               !routeChoices.contains(where: { !$0.hasTolls && $0.planKind != .avoidHighways }),
-               let ep = lastPlanEndpoints {
+                !routeChoices.contains(where: { !$0.hasTolls && $0.planKind != .avoidHighways }),
+                let ep = lastPlanEndpoints
+            {
                 Task { await supplementTollFree(ep) }
             }
             // If the active combination just emptied the list, try to
@@ -2509,7 +2620,8 @@ final class AppModel: ObservableObject {
     /// the erase button clears it.
     private(set) var limitsHabit: [UInt8] =
         (UserDefaults.standard.array(forKey: "flows.limitsHabit") as? [Int])?
-            .map { UInt8(clamping: $0) } ?? [] {
+        .map { UInt8(clamping: $0) } ?? []
+    {
         didSet { UserDefaults.standard.set(limitsHabit.map(Int.init), forKey: "flows.limitsHabit") }
     }
 
@@ -2519,15 +2631,20 @@ final class AppModel: ObservableObject {
     /// its ends and No tolls, and when.
     private var lastRouterAsk: (key: String, at: Date)?
 
-    private static func routerAskKey(_ from: CLLocationCoordinate2D, _ to: CLLocationCoordinate2D,
-                                     tollFree: Bool) -> String {
-        String(format: "%.5f,%.5f>%.5f,%.5f|%d", from.latitude, from.longitude,
-               to.latitude, to.longitude, tollFree ? 1 : 0)
+    private static func routerAskKey(
+        _ from: CLLocationCoordinate2D, _ to: CLLocationCoordinate2D,
+        tollFree: Bool
+    ) -> String {
+        String(
+            format: "%.5f,%.5f>%.5f,%.5f|%d", from.latitude, from.longitude,
+            to.latitude, to.longitude, tollFree ? 1 : 0)
     }
 
     private func formulateConstrainedRoute(
-        _ ep: (from: CLLocationCoordinate2D, fromName: String,
-               to: CLLocationCoordinate2D, toName: String)
+        _ ep: (
+            from: CLLocationCoordinate2D, fromName: String,
+            to: CLLocationCoordinate2D, toName: String
+        )
     ) async {
         // The same question the router answered minutes ago gets the same
         // roads back: they deduped to nothing, cost two or three directions
@@ -2543,9 +2660,11 @@ final class AppModel: ObservableObject {
         routeSearchesInFlight += 1
         defer { routeSearchesInFlight -= 1 }
         let walking = walkingMode
-        guard let raw = try? await router.planRoutes(
-            from: ep.from, fromName: ep.fromName, to: ep.to, toName: ep.toName,
-            includeTollFree: routeFilters.contains(.noTolls)) else { return }
+        guard
+            let raw = try? await router.planRoutes(
+                from: ep.from, fromName: ep.fromName, to: ep.to, toName: ep.toName,
+                includeTollFree: routeFilters.contains(.noTolls))
+        else { return }
         lastRouterAsk = (key, Date())
         // Scale the fresh plan the SAME way present() scaled the cards
         // already on screen. Without this the dedupe compared a raw router
@@ -2567,19 +2686,23 @@ final class AppModel: ObservableObject {
         // untracked Task here stacked a second retry ladder that present()
         // could not cancel, re-scoring every route against NWS again.
         restartRiskHydration()
-        if routeFilters.contains(.tourist) { refreshTouristCounts() }   // new cards need theirs
+        if routeFilters.contains(.tourist) { refreshTouristCounts() }  // new cards need theirs
     }
 
     private func supplementTollFree(
-        _ ep: (from: CLLocationCoordinate2D, fromName: String,
-               to: CLLocationCoordinate2D, toName: String)
+        _ ep: (
+            from: CLLocationCoordinate2D, fromName: String,
+            to: CLLocationCoordinate2D, toName: String
+        )
     ) async {
         routeSearchesInFlight += 1
         defer { routeSearchesInFlight -= 1 }
         let walking = walkingMode
-        guard let raw = try? await router.planRoutes(
-            from: ep.from, fromName: ep.fromName, to: ep.to, toName: ep.toName,
-            includeTollFree: true) else { return }
+        guard
+            let raw = try? await router.planRoutes(
+                from: ep.from, fromName: ep.fromName, to: ep.to, toName: ep.toName,
+                includeTollFree: true)
+        else { return }
         // Scale the fresh plan the SAME way present() scaled the cards
         // already on screen. Without this the dedupe compared a raw router
         // ETA against a pace-corrected one: for a driver whose learned
@@ -2589,9 +2712,10 @@ final class AppModel: ObservableObject {
         let planned = RouteService.applyPersonalPace(
             raw, multiplier: DrivingProfileStore.shared.etaMultiplier)
         let fresh = planned.filter { candidate in
-            !candidate.hasTolls && !routeChoices.contains {
-                abs($0.eta - candidate.eta) < 45 && abs($0.distanceMeters - candidate.distanceMeters) < 400
-            }
+            !candidate.hasTolls
+                && !routeChoices.contains {
+                    abs($0.eta - candidate.eta) < 45 && abs($0.distanceMeters - candidate.distanceMeters) < 400
+                }
         }
         guard !fresh.isEmpty, mode == .choosing, stillThePlan(ep, walking: walking) else { return }
         routeChoices.append(contentsOf: fresh)
@@ -2599,7 +2723,7 @@ final class AppModel: ObservableObject {
         // untracked Task here stacked a second retry ladder that present()
         // could not cancel, re-scoring every route against NWS again.
         restartRiskHydration()
-        if routeFilters.contains(.tourist) { refreshTouristCounts() }   // new cards need theirs
+        if routeFilters.contains(.tourist) { refreshTouristCounts() }  // new cards need theirs
     }
 
     /// Whether car routes asked for `ep` still belong on the list: the plan
@@ -2607,8 +2731,10 @@ final class AppModel: ObservableObject {
     /// destination while the router answered used to get the old trip's car
     /// routes added to its list.
     private func stillThePlan(
-        _ ep: (from: CLLocationCoordinate2D, fromName: String,
-               to: CLLocationCoordinate2D, toName: String), walking: Bool
+        _ ep: (
+            from: CLLocationCoordinate2D, fromName: String,
+            to: CLLocationCoordinate2D, toName: String
+        ), walking: Bool
     ) -> Bool {
         guard walkingMode == walking, let now = lastPlanEndpoints else { return false }
         return now.from.latitude == ep.from.latitude && now.from.longitude == ep.from.longitude
@@ -2616,10 +2742,17 @@ final class AppModel: ObservableObject {
     }
 
     /// Endpoints of the last plan — lets filter toggles replan variants.
-    private var lastPlanEndpoints: (from: CLLocationCoordinate2D, fromName: String,
-                                    to: CLLocationCoordinate2D, toName: String)?
-    var lastPlanEndpointsPublic: (from: CLLocationCoordinate2D, fromName: String,
-                                  to: CLLocationCoordinate2D, toName: String)? {
+    private var lastPlanEndpoints:
+        (
+            from: CLLocationCoordinate2D, fromName: String,
+            to: CLLocationCoordinate2D, toName: String
+        )?
+    var lastPlanEndpointsPublic:
+        (
+            from: CLLocationCoordinate2D, fromName: String,
+            to: CLLocationCoordinate2D, toName: String
+        )?
+    {
         lastPlanEndpoints
     }
 
@@ -2628,8 +2761,10 @@ final class AppModel: ObservableObject {
     /// Journals its phases: a planning freeze on a Mac was reported and the
     /// window exposes nothing to drive by script, so the journal has to say
     /// which step never returned.
-    func plan(from: CLLocationCoordinate2D, fromName: String,
-              to: CLLocationCoordinate2D, toName: String) async throws -> [PlannedRoute] {
+    func plan(
+        from: CLLocationCoordinate2D, fromName: String,
+        to: CLLocationCoordinate2D, toName: String
+    ) async throws -> [PlannedRoute] {
         // Cache warmer at the ONE choke point every planning path passes
         // through — planner submit, favorite tap, the walk↔drive replan, and
         // any future entry point — fired before the MKDirections await, so
@@ -2674,9 +2809,12 @@ final class AppModel: ObservableObject {
             // avoid-highways one (least freeway) and the notice warns to verify.
             let noHighway = roadRoutes.filter { !$0.hasHighways }
             let avoidHwy = roadRoutes.filter { $0.planKind == .avoidHighways }
-            let base = !noHighway.isEmpty ? noHighway
-                     : !avoidHwy.isEmpty ? avoidHwy
-                     : roadRoutes
+            let base =
+                !noHighway.isEmpty
+                ? noHighway
+                : !avoidHwy.isEmpty
+                    ? avoidHwy
+                    : roadRoutes
             let anyHighway = base.contains { $0.hasHighways }
             let estimates = base.map { r -> PlannedRoute in
                 var w = r
@@ -2689,7 +2827,8 @@ final class AppModel: ObservableObject {
             if estimates.isEmpty {
                 plannerNotice = "No walking route found here."
             } else {
-                plannerNotice = anyHighway
+                plannerNotice =
+                    anyHighway
                     ? "Too far for walking directions — this is a walking guess at "
                         + "3.1 mph. No route here stays off highways the whole way; part "
                         + "may follow one. Make sure there is a safe, legal path before you go."
@@ -2745,8 +2884,9 @@ final class AppModel: ObservableObject {
         // nothing ever landed, and a refusal was retried forever at 1 Hz.
         // An unanswered stretch is asked again after 30 s.
         if let anchor = walkRefineAnchor,
-           POIRanking.meters(anchor, here) < Self.walkRefineStepMeters,
-           !walkingRefinedPath.isEmpty || Date().timeIntervalSince(walkRefineAskedAt) < 30 {
+            POIRanking.meters(anchor, here) < Self.walkRefineStepMeters,
+            !walkingRefinedPath.isEmpty || Date().timeIntervalSince(walkRefineAskedAt) < 30
+        {
             return
         }
         walkRefineAnchor = here
@@ -2767,18 +2907,21 @@ final class AppModel: ObservableObject {
             req.source = MKMapItem(placemark: MKPlacemark(coordinate: here))
             req.destination = MKMapItem(placemark: MKPlacemark(coordinate: target))
             req.transportType = .walking
-            guard let route = (try? await MKDirections(request: req).calculate())?
-                .routes.first, !Task.isCancelled else { return }
+            guard
+                let route = (try? await MKDirections(request: req).calculate())?
+                    .routes.first, !Task.isCancelled
+            else { return }
             let poly = route.polyline
             let n = poly.pointCount
             guard n > 1 else { return }
             var coords = [CLLocationCoordinate2D](
                 repeating: kCLLocationCoordinate2DInvalid, count: n)
             poly.getCoordinates(&coords, range: NSRange(location: 0, length: n))
-            let refined = coords   // a value crosses the actor hop, not the captured var
+            let refined = coords  // a value crosses the actor hop, not the captured var
             await MainActor.run { [weak self] in
                 guard let self, !Task.isCancelled, self.navigation.route?.id == routeID,
-                      self.navigation.route?.isWalkingEstimate == true else { return }
+                    self.navigation.route?.isWalkingEstimate == true
+                else { return }
                 self.walkingRefinedPath = refined
             }
         }
@@ -2803,17 +2946,21 @@ final class AppModel: ObservableObject {
         poi.shelterQueries = { [weak self] in
             guard let self else { return ShelterPolicy.Kind.anyBuilding.searchQueries }
             if let w = self.imminentWarning {
-                return ShelterPolicy.kind(forEvent: w.event,
-                                          severityScore: w.severityScore).searchQueries
+                return ShelterPolicy.kind(
+                    forEvent: w.event,
+                    severityScore: w.severityScore
+                ).searchQueries
             }
             // No imminent card up: fall back to whatever is active near the
             // corridor, scored from the risk band the route carries.
-            let events = self.alerts.activeHeadlines
+            let events =
+                self.alerts.activeHeadlines
                 + (self.navigation.route?.alertEvents ?? [])
             if let worst = events.first {
                 return ShelterPolicy.kind(
                     forEvent: worst,
-                    severityScore: self.navigation.route?.weatherRisk ?? 0.6).searchQueries
+                    severityScore: self.navigation.route?.weatherRisk ?? 0.6
+                ).searchQueries
             }
             return ShelterPolicy.Kind.anyBuilding.searchQueries
         }
@@ -2875,8 +3022,8 @@ final class AppModel: ObservableObject {
         navigation.$metersFromCorridor.dropFirst()
             .sink { _ in DriveTick.shared.objectWillChange.send() }
             .store(in: &serviceSubscriptions)
-        poi.truckerMode = truckerUI   // didSet doesn't fire for the initial value
-        scanner.listen(near: location.coordinate)   // don't wait for the first fix
+        poi.truckerMode = truckerUI  // didSet doesn't fire for the initial value
+        scanner.listen(near: location.coordinate)  // don't wait for the first fix
         // City 911 lists ride the scanner's switch ("Show calls heard
         // nearby"); a threat close by is said out loud, once.
         openDispatch.enabled = scanner.enabled
@@ -2887,7 +3034,8 @@ final class AppModel: ObservableObject {
             // Calls of a kind the driver hid with the Police / Fire /
             // Medical chips are not read out either.
             guard let self, self.voiceAlerts,
-                  self.scannerGroups.contains(where: { $0.covers(incident.kind) }) else { return }
+                self.scannerGroups.contains(where: { $0.covers(incident.kind) })
+            else { return }
             VoiceAnnouncer.shared.announce(
                 "\(incident.kind.title) call nearby: \(incident.placeText).")
         }
@@ -2898,11 +3046,12 @@ final class AppModel: ObservableObject {
         // before the stop read as moving for as long as it sat there.
         vehicleLink.isMoving = { [weak self] in
             guard let fix = self?.location.latest,
-                  -fix.timestamp.timeIntervalSinceNow < 30 else { return false }
+                -fix.timestamp.timeIntervalSinceNow < 30
+            else { return false }
             return fix.speed > 5
         }
-        MusicController.shared.provider = musicProvider   // same didSet gap
-        if personalVoiceAnnouncements {                   // same didSet gap
+        MusicController.shared.provider = musicProvider  // same didSet gap
+        if personalVoiceAnnouncements {  // same didSet gap
             VoiceAnnouncer.shared.setPersonalVoiceEnabled(true)
         }
         VoiceAnnouncer.shared.setSpeed(step: voiceSpeedStep)
@@ -2924,7 +3073,7 @@ final class AppModel: ObservableObject {
             towingFilterHold.towingOn(&routeFilters)
             applyVehicleMaxGradeDefault()
         }
-        checkTowingSignal()   // and at app start
+        checkTowingSignal()  // and at app start
         // Grade slider default follows the vehicle until the driver moves the
         // slider — seed it now and re-derive whenever the vehicle changes.
         // (receive(on:) defers past @Published's willSet so the new profile
@@ -2989,7 +3138,8 @@ final class AppModel: ObservableObject {
             // keyless) → TomTom → nil (state estimate rides as a caption).
             if RatingsAndCost.Country.forCoordinate(
                 latitude: coord.latitude, longitude: coord.longitude) == .mexico,
-               let mx = await MexicoFuelPrices.shared.price(near: coord, fuel: fuel) {
+                let mx = await MexicoFuelPrices.shared.price(near: coord, fuel: fuel)
+            {
                 // CRE is MXN/L — convert to the model's USD/gal so ranking
                 // and the price column compare like with like.
                 return FuelPrices.usdPerGallon(mxnPerLiter: mx)
@@ -3001,8 +3151,9 @@ final class AppModel: ObservableObject {
         // Resume the learned driving shape (speed/idle) from the encrypted
         // profile — these feed range and refuel prediction.
         let learned = DrivingProfileStore.shared.profile
-        vehicle.restoreDriving(averageSpeedMph: learned.averageSpeedMph,
-                               idleFraction: learned.idleFraction)
+        vehicle.restoreDriving(
+            averageSpeedMph: learned.averageSpeedMph,
+            idleFraction: learned.idleFraction)
         // Driving-habit + tank-odometer tracking: every navigation GPS fix
         // feeds the vehicle range model (speed/idling shape efficiency),
         // the FMCSA hours-of-service clock, the refuel-dwell detector, and
@@ -3040,8 +3191,9 @@ final class AppModel: ObservableObject {
                 // and its pace dragged the speed and idle shape (and so the
                 // next drive's range and fuel stops) toward walking.
                 if self.navigation.route?.isWalk != true {
-                    self.vehicle.recordFix(speedMps: max(fix.speed, 0),
-                                           deltaMeters: min(delta, 500))   // GPS jump guard
+                    self.vehicle.recordFix(
+                        speedMps: max(fix.speed, 0),
+                        deltaMeters: min(delta, 500))  // GPS jump guard
                     // Persist the speed/idle shape (coalesced to ~1/min inside
                     // the store): these EWMAs drive range and refuel prediction
                     // and used to reset to a 55 mph stranger on every launch.
@@ -3051,12 +3203,12 @@ final class AppModel: ObservableObject {
                     self.recordRoadEfficiency(deltaMeters: min(delta, 500), fix: fix)
                     self.recordDailyDriving(deltaMeters: min(delta, 500))
                 }
-                self.maybeOfferTripShare()   // a long DAY can cross 200 mi mid-leg
+                self.maybeOfferTripShare()  // a long DAY can cross 200 mi mid-leg
                 self.refreshCloudFuelIfDue()
                 self.updateFuelRecommendation()
-                self.updateFuelWarning()   // last-chance matching-fuel stops
-                self.updatePostedSpeedLimit(fix)   // the HUD speed sign
-                self.updateUpcomingLanes()         // lane row at the maneuver
+                self.updateFuelWarning()  // last-chance matching-fuel stops
+                self.updatePostedSpeedLimit(fix)  // the HUD speed sign
+                self.updateUpcomingLanes()  // lane row at the maneuver
                 self.updateCorridorWind(near: fix.coordinate)
                 // Saved corridors age out as they stop being useful:
                 // arrived, left far behind, or simply stale. Every 500 m —
@@ -3086,7 +3238,8 @@ final class AppModel: ObservableObject {
                 // the last turn and "0 ft" two seconds later.
                 if let g = self.navigation.guidance, self.arrivedAt == nil {
                     let miles = g.distanceToManeuver / 1609.344
-                    let text = miles < 0.19
+                    let text =
+                        miles < 0.19
                         ? "\(Int((g.distanceToManeuver / 0.3048 / 50).rounded() * 50)) ft"
                         : String(format: miles < 10 ? "%.1f mi" : "%.0f mi", miles)
                     // The fix this sink was handed, not location.coordinate:
@@ -3103,9 +3256,11 @@ final class AppModel: ObservableObject {
             }
             .store(in: &serviceSubscriptions)
         crash.context = { [weak self] in
-            (self?.location.coordinate,
-             self?.vehicle.profile,
-             self?.medicalNotes.isEmpty == false ? self?.medicalNotes : nil)
+            (
+                self?.location.coordinate,
+                self?.vehicle.profile,
+                self?.medicalNotes.isEmpty == false ? self?.medicalNotes : nil
+            )
         }
         // The motion half of the crash decision: a rollercoaster pulls the
         // g's of a collision, so the check-in also needs a road-speed
@@ -3115,9 +3270,10 @@ final class AppModel: ObservableObject {
             // A fix with no speed (-1: Wi-Fi or cell, GPS reacquiring) is
             // unknown, not stopped — `location.speed` clamps it to 0, which
             // read as a dead stop at full speed.
-            let after = self.location.latest.map {
-                $0.speed >= 0 && $0.speedAccuracy >= 0 ? $0.speed : .nan
-            } ?? .nan
+            let after =
+                self.location.latest.map {
+                    $0.speed >= 0 && $0.speedAccuracy >= 0 ? $0.speed : .nan
+                } ?? .nan
             // The distance is from the PLANNED line, not from any road: while
             // a leg is being driven, being off it is a detour (or a reroute
             // that failed offline), and counting it as "not on a road" left
@@ -3179,7 +3335,7 @@ final class AppModel: ObservableObject {
         Task { await YelpLink.shared.setKey(key) }
         let gKey = googlePlacesAPIKey
         Task { await GooglePlacesLink.shared.setKey(gKey) }
-        Task { await self.smartcar.refreshData() }   // reconnects silently if tokens exist
+        Task { await self.smartcar.refreshData() }  // reconnects silently if tokens exist
         Self.shared = self
     }
 
@@ -3254,7 +3410,8 @@ final class AppModel: ObservableObject {
     @Published private(set) var drivingInWindowSeconds: Double = {
         let defaults = UserDefaults.standard
         guard let at = defaults.object(forKey: "flows.hos.windowAt") as? Date,
-              Date().timeIntervalSince(at) < AppModel.offDutyResetSeconds else { return 0 }
+            Date().timeIntervalSince(at) < AppModel.offDutyResetSeconds
+        else { return 0 }
         return defaults.double(forKey: "flows.hos.window")
     }()
     /// Ten hours off duty start a new driving window (FMCSA).
@@ -3302,10 +3459,10 @@ final class AppModel: ObservableObject {
             if let stopStart = stoppedSince {
                 let stopped = now.timeIntervalSince(stopStart)
                 if stopped >= HOSRules.breakResetSeconds {
-                    drivingSeconds = 0   // 30-min stop resets the 8 h break clock
+                    drivingSeconds = 0  // 30-min stop resets the 8 h break clock
                 }
                 if stopped >= Self.offDutyResetSeconds {
-                    drivingInWindowSeconds = 0   // 10 h off resets the 11 h clock
+                    drivingInWindowSeconds = 0  // 10 h off resets the 11 h clock
                 }
             }
             stoppedSince = nil
@@ -3316,8 +3473,11 @@ final class AppModel: ObservableObject {
                 UserDefaults.standard.set(drivingInWindowSeconds, forKey: "flows.hos.window")
                 UserDefaults.standard.set(now, forKey: "flows.hos.windowAt")
             }
-        } else if fix.speed <= 1 {   // includes -1 = invalid/stationary fixes
-            if stoppedSince == nil { stoppedSince = now; stoppedAt = fix }
+        } else if fix.speed <= 1 {  // includes -1 = invalid/stationary fixes
+            if stoppedSince == nil {
+                stoppedSince = now
+                stoppedAt = fix
+            }
             // GPS-based refuel detection: a 4+ minute dwell mid-trip looks
             // like a fuel stop → ask ONCE per dwell. (CarPlay does not
             // expose the vehicle's real fuel level to third-party nav apps.)
@@ -3325,15 +3485,16 @@ final class AppModel: ObservableObject {
             // reader) is never asked: its reading sets the gauge.
             // Not on a walk: a walker stopping by a station filled no tank.
             if let stopStart = stoppedSince, let profile = vehicle.profile,
-               navigation.route?.isWalk != true,
-               vehicle.telemetry().fuelFraction == nil,   // real data = no need to ask
-               now.timeIntervalSince(stopStart) >= 240,
-               refuelPromptShownAt.map({ $0 < stopStart }) ?? true,
-               refuelAskedAt.map({ $0.distance(from: fix) > 200 }) ?? true,
-               // Asked at every stop at a station (owner, 2026-11-11): a
-               // fill nobody recorded lets the miles run on across
-               // fill-ups, and a full tank reads empty ("find fuel now").
-               refuelCheckInsEnabled, notifyFuel {
+                navigation.route?.isWalk != true,
+                vehicle.telemetry().fuelFraction == nil,  // real data = no need to ask
+                now.timeIntervalSince(stopStart) >= 240,
+                refuelPromptShownAt.map({ $0 < stopStart }) ?? true,
+                refuelAskedAt.map({ $0.distance(from: fix) > 200 }) ?? true,
+                // Asked at every stop at a station (owner, 2026-11-11): a
+                // fill nobody recorded lets the miles run on across
+                // fill-ups, and a full tank reads empty ("find fuel now").
+                refuelCheckInsEnabled, notifyFuel
+            {
                 // Only ask where fuel actually IS. A four-minute dwell is
                 // lunch as often as it is a fill-up, and a question that is
                 // usually wrong gets dismissed unread. The prompt waits for
@@ -3348,8 +3509,9 @@ final class AppModel: ObservableObject {
                     // Still this trip: End pressed during the lookup put the
                     // question on the planning screen.
                     guard let self, atPump, self.stoppedSince == stopStart,
-                          self.mode == .navigating,
-                          self.vehicle.telemetry().fuelFraction == nil else { return }
+                        self.mode == .navigating,
+                        self.vehicle.telemetry().fuelFraction == nil
+                    else { return }
                     self.refuelPrompt = true
                     self.refuelAskedAt = fix
                 }
@@ -3391,7 +3553,8 @@ final class AppModel: ObservableObject {
     /// mid-day keeps the total. Feeds the 200-mile daily trigger.
     private var dailyDrive: DailyDriveLog = {
         if let data = UserDefaults.standard.data(forKey: "flows.dailyDrive"),
-           let saved = try? JSONDecoder().decode(DailyDriveLog.self, from: data) {
+            let saved = try? JSONDecoder().decode(DailyDriveLog.self, from: data)
+        {
             return saved
         }
         return DailyDriveLog.empty()
@@ -3424,7 +3587,7 @@ final class AppModel: ObservableObject {
         EverydayPlaces.shared.erase()
         recents.erase()
         ChoiceLogStore.shared.erase()
-        vehicle.resetDrivingHabits()   // before the profile they were loaded from
+        vehicle.resetDrivingHabits()  // before the profile they were loaded from
         DrivingProfileStore.shared.erase()
         // Where the driver has actually BEEN: the breadcrumb trail, the
         // saved offline corridors and the two learned road models.
@@ -3435,14 +3598,14 @@ final class AppModel: ObservableObject {
         shareHistory.erase()
         ShowerAvailability.eraseReports()
         radio.eraseLastPlayed()
-        LogoCache.shared.erase()   // which chains were seen and picked
+        LogoCache.shared.erase()  // which chains were seen and picked
         // Missed until now: the refuel answers, the signal-buffer learning,
         // the hours-of-service clock, and the network cache — its request
         // URLs carry the positions and route points weather.gov, Open-Meteo
         // and the elevation service were asked about, a plain-text trail.
         vehicle.eraseRefuelLearning()
         BufferMemory.shared.erase()
-        AlertLengthMemory.shared.erase()   // which alerts were seen, and how long they ran
+        AlertLengthMemory.shared.erase()  // which alerts were seen, and how long they ran
         drivingInWindowSeconds = 0
         drivingSeconds = 0
         UserDefaults.standard.removeObject(forKey: "flows.hos.window")
@@ -3479,13 +3642,16 @@ final class AppModel: ObservableObject {
     /// dismissing the banner must not re-arm it.
     private func maybeOfferTripShare() {
         guard mode == .navigating, !tripShareOffered,
-              let route = navigation.route else { return }
+            let route = navigation.route
+        else { return }
         // The trip's full plotted length: the leg being driven plus the
         // continuation leg behind an added stop (both are on the map).
         let routeMeters = route.distanceMeters + (upcomingLeg?.distanceMeters ?? 0)
         // TODAY's miles: at GO no fix has rolled the log over yet.
-        guard TripShareLogic.shouldOffer(routeMeters: routeMeters,
-                                         drivenTodayMeters: dailyDrive.metersDriven(on: Date()))
+        guard
+            TripShareLogic.shouldOffer(
+                routeMeters: routeMeters,
+                drivenTodayMeters: dailyDrive.metersDriven(on: Date()))
         else { return }
         tripShareOffered = true
         tripSharePrompt = true
@@ -3501,9 +3667,11 @@ final class AppModel: ObservableObject {
         let legMeters = navigation.guidance?.remainingDistance ?? navigation.route?.distanceMeters
         guard let legSeconds, let legMeters else { return nil }
         let onward = upcomingLeg
-        return (adjustedRemainingTime(legSeconds + (onward?.eta ?? 0)),
-                legMeters + (onward?.distanceMeters ?? 0),
-                onward == nil && pendingStopName != nil)
+        return (
+            adjustedRemainingTime(legSeconds + (onward?.eta ?? 0)),
+            legMeters + (onward?.distanceMeters ?? 0),
+            onward == nil && pendingStopName != nil
+        )
     }
 
     /// The prefilled text for the CURRENT trip: true endpoint (not an added
@@ -3537,9 +3705,13 @@ final class AppModel: ObservableObject {
         var out: [(name: String, phone: String)] = []
         var seen: Set<String> = []
         if !emergencyContactPhone.isEmpty {
-            out.append((emergencyContactName.isEmpty ? "Emergency contact"
-                            : emergencyContactName,
-                        emergencyContactPhone))
+            out.append(
+                (
+                    emergencyContactName.isEmpty
+                        ? "Emergency contact"
+                        : emergencyContactName,
+                    emergencyContactPhone
+                ))
             seen.insert(ShareHistoryStore.normalized(emergencyContactPhone))
         }
         for r in shareHistory.suggestions() {
@@ -3563,17 +3735,19 @@ final class AppModel: ObservableObject {
         }
         let mile = (navigation.guidance?.alongMeters ?? 0) / 1609.344
         let next = GradeProfile.nextSteep(after: mile, in: route.gradeProfile)
-        if upcomingSteepGrade != next { upcomingSteepGrade = next }   // once per fix otherwise
+        if upcomingSteepGrade != next { upcomingSteepGrade = next }  // once per fix otherwise
     }
 
     // MARK: vehicle range + fuel recommendations
 
     /// First-launch prompt: no vehicle on file and not dismissed.
     @Published var vehicleOnboardingDismissed: Bool =
-        UserDefaults.standard.bool(forKey: "flows.vehiclePromptDismissed") {
+        UserDefaults.standard.bool(forKey: "flows.vehiclePromptDismissed")
+    {
         didSet {
-            UserDefaults.standard.set(vehicleOnboardingDismissed,
-                                      forKey: "flows.vehiclePromptDismissed")
+            UserDefaults.standard.set(
+                vehicleOnboardingDismissed,
+                forKey: "flows.vehiclePromptDismissed")
         }
     }
     @Published var showVehicleEditor = false
@@ -3635,10 +3809,13 @@ final class AppModel: ObservableObject {
     /// only while driving, only every ~15 s, and only once the vehicle has
     /// actually covered ground since the last lookup.
     private func updatePostedSpeedLimit(_ fix: CLLocation) {
-        guard SpeedSign.shouldShow(isNavigating: mode == .navigating,
-                                   isWalking: walkingMode
-                                       || navigation.route?.isWalkingEstimate == true,
-                                   isPassengerTransit: isPassengerTransit) else {
+        guard
+            SpeedSign.shouldShow(
+                isNavigating: mode == .navigating,
+                isWalking: walkingMode
+                    || navigation.route?.isWalkingEstimate == true,
+                isPassengerTransit: isPassengerTransit)
+        else {
             if postedSpeedLimitMph != nil { postedSpeedLimitMph = nil }
             return
         }
@@ -3653,9 +3830,10 @@ final class AppModel: ObservableObject {
         // which on a highway sent ~450 queries an hour to public mirrors
         // to be told the same number.
         let settled = postedSpeedLimitMph != nil
-        let moved = lastLimitPoint.map {
-            POIRanking.meters($0, fix.coordinate) > (settled ? 400 : 60)
-        } ?? true
+        let moved =
+            lastLimitPoint.map {
+                POIRanking.meters($0, fix.coordinate) > (settled ? 400 : 60)
+            } ?? true
         let stale = Date().timeIntervalSince(lastLimitLookup) > (settled ? 30 : 8)
         // A brand-new maneuver means a new road is imminent — look again
         // even if the vehicle has barely moved since the last check.
@@ -3679,8 +3857,10 @@ final class AppModel: ObservableObject {
             // block so the sign does not flicker — but not past a maneuver
             // onto a new road, and not past 90 s: by then it is a different
             // road's number.
-            let carriedTooLong = self.postedLimitSetAt.map {
-                Date().timeIntervalSince($0) > 90 } ?? true
+            let carriedTooLong =
+                self.postedLimitSetAt.map {
+                    Date().timeIntervalSince($0) > 90
+                } ?? true
             if stepChanged || carriedTooLong {
                 self.postedSpeedLimitMph = nil
                 self.postedLimitSetAt = nil
@@ -3713,9 +3893,10 @@ final class AppModel: ObservableObject {
             return
         }
         // A 4 km fetch re-run every 2 km always has ground ahead of it.
-        let moved = lastCameraLookup.map {
-            POIRanking.meters($0, fix.coordinate) > 2_000
-        } ?? true
+        let moved =
+            lastCameraLookup.map {
+                POIRanking.meters($0, fix.coordinate) > 2_000
+            } ?? true
         if moved {
             lastCameraLookup = fix.coordinate
             let point = fix.coordinate
@@ -3724,14 +3905,18 @@ final class AppModel: ObservableObject {
                 let found = await LiveHazardFeedFetcher.shared
                     .enforcementCameras(near: point)
                 guard let self, !Task.isCancelled, self.mode == .navigating,
-                      let found else { return }
+                    let found
+                else { return }
                 if self.enforcementCameras != found { self.enforcementCameras = found }
             }
         }
         let heading = fix.course >= 0 ? fix.course : nil
-        guard let next = EnforcementCameras.imminent(among: enforcementCameras,
-                                                     at: fix.coordinate,
-                                                     headingDegrees: heading) else {
+        guard
+            let next = EnforcementCameras.imminent(
+                among: enforcementCameras,
+                at: fix.coordinate,
+                headingDegrees: heading)
+        else {
             if cameraWarning != nil { cameraWarning = nil }
             return
         }
@@ -3739,13 +3924,14 @@ final class AppModel: ObservableObject {
         let text = EnforcementCameras.warning(
             for: next.camera, meters: next.meters,
             speedMph: mph, postedLimitMph: postedSpeedLimitMph)
-        if text != cameraWarning { cameraWarning = text }   // not a 1 Hz publish
+        if text != cameraWarning { cameraWarning = text }  // not a 1 Hz publish
         // Say it once per camera, and only when the driver is actually over
         // the limit it enforces — a camera you are already legal for is a
         // map icon, not an interruption.
         let limit = next.camera.limitMph ?? postedSpeedLimitMph
         if let limit, mph > limit + SpeedLaw.stateToleranceMph,
-           !announcedCameras.contains(next.camera.id) {
+            !announcedCameras.contains(next.camera.id)
+        {
             announcedCameras.append(next.camera.id)
             if announcedCameras.count > Self.announcedCameraMemory {
                 announcedCameras.removeFirst(
@@ -3779,7 +3965,8 @@ final class AppModel: ObservableObject {
     /// per-approach anyway.
     private func updateUpcomingLanes() {
         guard mode == .navigating, !walkingMode, !isPassengerTransit,
-              let g = navigation.guidance else {
+            let g = navigation.guidance
+        else {
             if !upcomingLanes.isEmpty { upcomingLanes = [] }
             laneLookupStep = -1
             laneLookupStepInFlight = -1
@@ -3796,15 +3983,16 @@ final class AppModel: ObservableObject {
         // so the lookup was killed and restarted the whole way in, and lane
         // guidance never appeared at all.
         guard upcomingLanes.isEmpty, g.stepIndex != laneLookupStepInFlight,
-              g.distanceToManeuver < 1_600,
-              let point = navigation.coordinateAhead(meters: g.distanceToManeuver)
+            g.distanceToManeuver < 1_600,
+            let point = navigation.coordinateAhead(meters: g.distanceToManeuver)
         else { return }
         let step = g.stepIndex
         laneLookupStepInFlight = step
         laneLookupTask = Task { [weak self] in
             let lanes = await LiveHazardFeedFetcher.shared.turnLanes(at: point)
             guard let self, !Task.isCancelled, self.mode == .navigating,
-                  self.navigation.guidance?.stepIndex == step else { return }
+                self.navigation.guidance?.stepIndex == step
+            else { return }
             if self.upcomingLanes != lanes { self.upcomingLanes = lanes }
         }
     }
@@ -3839,7 +4027,8 @@ final class AppModel: ObservableObject {
 
     private func updateFuelRecommendation() {
         guard mode == .navigating, vehicle.profile != nil, notifyFuel,
-              let range = vehicle.expectedRangeMiles else {
+            let range = vehicle.expectedRangeMiles
+        else {
             if fuelRecommendation != nil { fuelRecommendation = nil }
             return
         }
@@ -3849,7 +4038,7 @@ final class AppModel: ObservableObject {
             rangeRemainingMiles: range, milesToNextStation: 25)
         if recommend, range < fuelRecommendationDismissedAtRange - 20 || fuelRecommendationDismissedAtRange == 0 {
             let text = String(format: "≈%.0f mi of range left — plan a fuel stop", range)
-            if fuelRecommendation != text { fuelRecommendation = text }   // every fix
+            if fuelRecommendation != text { fuelRecommendation = text }  // every fix
         } else if !recommend {
             if fuelRecommendation != nil { fuelRecommendation = nil }
             fuelRecommendationDismissedAtRange = 0
@@ -3907,8 +4096,9 @@ final class AppModel: ObservableObject {
     /// tank never needs this search.
     private func updateFuelWarning() {
         guard mode == .navigating, notifyFuel,
-              let profile = vehicle.profile,
-              let range = vehicle.expectedRangeMiles else {
+            let profile = vehicle.profile,
+            let range = vehicle.expectedRangeMiles
+        else {
             if fuelWarningLevel != .none { clearFuelWarning() }
             return
         }
@@ -3925,11 +4115,13 @@ final class AppModel: ObservableObject {
         fuelScanTask?.cancel()
         fuelScanTask = Task { [weak self] in
             guard let self,
-                  let found = await self.scanFuelStationsAhead(fuel: fuel, rangeMiles: range),
-                  !Task.isCancelled, self.mode == .navigating else { return }
+                let found = await self.scanFuelStationsAhead(fuel: fuel, rangeMiles: range),
+                !Task.isCancelled, self.mode == .navigating
+            else { return }
             let level = FuelWarning.level(stationsAhead: found.stations, rangeMiles: range)
-            let cheapest = FuelWarning.cheapest(stationsAhead: found.stations,
-                                                rangeMiles: range)
+            let cheapest = FuelWarning.cheapest(
+                stationsAhead: found.stations,
+                rangeMiles: range)
             if self.fuelWarningLevel != level { self.fuelWarningLevel = level }
             if self.fuelWarningStation != cheapest { self.fuelWarningStation = cheapest }
             self.fuelWarningItem = cheapest.flatMap { found.items[Self.fuelStationKey($0)] }
@@ -3946,8 +4138,9 @@ final class AppModel: ObservableObject {
             // Say it once per level change — a driver shouldn't be told the
             // same thing every mile, but a worsening situation speaks again.
             if level != .none, level != self.dismissedFuelWarningLevel,
-               let spoken = FuelWarning.spokenAdvice(
-                   fuel: fuel, level: level, station: cheapest, rangeMiles: range) {
+                let spoken = FuelWarning.spokenAdvice(
+                    fuel: fuel, level: level, station: cheapest, rangeMiles: range)
+            {
                 // The tap lands voice or not; the voice follows its switch
                 // (off = the red banner alone).
                 if self.hapticAlerts { Haptics.warning() }
@@ -3975,15 +4168,17 @@ final class AppModel: ObservableObject {
     /// where a source has one. Keyed by name so the warning can hand back
     /// the exact MKMapItem for "Add to route".
     private func scanFuelStationsAhead(fuel: FuelType, rangeMiles: Double)
-        async -> (stations: [FuelWarning.Station], items: [String: MKMapItem])? {
+        async -> (stations: [FuelWarning.Station], items: [String: MKMapItem])?
+    {
         guard let here = effectivePosition else { return nil }
         let request = MKLocalSearch.Request()
         request.naturalLanguageQuery = fuel.searchQuery
         // Search the span the remaining fuel can actually cover.
         let meters = max(rangeMiles, 10) * 1609.344
-        request.region = MKCoordinateRegion(center: here,
-                                            latitudinalMeters: meters * 2,
-                                            longitudinalMeters: meters * 2)
+        request.region = MKCoordinateRegion(
+            center: here,
+            latitudinalMeters: meters * 2,
+            longitudinalMeters: meters * 2)
         // "Nothing found" comes back as an error, not an empty list: read as
         // a failed search, a stretch with no station at all kept the
         // last-chance warning silent, the one case it exists for.
@@ -4008,21 +4203,23 @@ final class AppModel: ObservableObject {
         // the first point past 4 km from the last, so counting them as k ×
         // 4 km fell behind on a long route and dropped the ones just ahead.
         let along = navigation.guidance?.alongMeters ?? 0
-        let routeAhead: [CLLocationCoordinate2D] = navigation.route.map { planned in
-            let parts = RouteService.corridorPartition(of: planned.route.polyline,
-                                                       everyMeters: 4_000)
-            var sampleAlong = 0.0
-            var ahead: [CLLocationCoordinate2D] = []
-            for (i, sample) in parts.samples.enumerated() {
-                if sampleAlong >= along - 4_000 { ahead.append(sample) }
-                guard i < parts.segments.count else { continue }
-                let hops = parts.segments[i]
-                for k in hops.indices.dropFirst() {
-                    sampleAlong += POIRanking.meters(hops[k - 1], hops[k])
+        let routeAhead: [CLLocationCoordinate2D] =
+            navigation.route.map { planned in
+                let parts = RouteService.corridorPartition(
+                    of: planned.route.polyline,
+                    everyMeters: 4_000)
+                var sampleAlong = 0.0
+                var ahead: [CLLocationCoordinate2D] = []
+                for (i, sample) in parts.samples.enumerated() {
+                    if sampleAlong >= along - 4_000 { ahead.append(sample) }
+                    guard i < parts.segments.count else { continue }
+                    let hops = parts.segments[i]
+                    for k in hops.indices.dropFirst() {
+                        sampleAlong += POIRanking.meters(hops[k - 1], hops[k])
+                    }
                 }
-            }
-            return ahead
-        } ?? []
+                return ahead
+            } ?? []
         let course = location.course
         // Filter first, price second. This priced EVERY search hit in
         // series — a feed round-trip each — before checking whether the
@@ -4033,9 +4230,11 @@ final class AppModel: ObservableObject {
             let coord = item.placemark.coordinate
             let ahead = POIRanking.meters(here, coord) / 1609.344
             guard ahead <= rangeMiles,
-                  FuelWarning.isReachable(station: coord, from: here,
-                                          courseDegrees: course,
-                                          routeAhead: routeAhead) else { return nil }
+                FuelWarning.isReachable(
+                    station: coord, from: here,
+                    courseDegrees: course,
+                    routeAhead: routeAhead)
+            else { return nil }
             return (item, ahead)
         }
         .sorted { $0.ahead < $1.ahead }
@@ -4045,10 +4244,12 @@ final class AppModel: ObservableObject {
             let name = item.name ?? fuel.rawValue
             // Live station price when a feed has one, else the state
             // estimate — the same ladder the stop list uses.
-            let price = await poi.livePriceProvider(item.placemark.coordinate, fuel)
+            let price =
+                await poi.livePriceProvider(item.placemark.coordinate, fuel)
                 ?? poi.priceProvider(item, fuel)
-            let station = FuelWarning.Station(name: name, milesAhead: ahead,
-                                              pricePerUnit: price)
+            let station = FuelWarning.Station(
+                name: name, milesAhead: ahead,
+                pricePerUnit: price)
             stations.append(station)
             // By name and distance: two of one chain shared a key, and the
             // button drove to the farther one than the banner named.
@@ -4087,15 +4288,20 @@ final class AppModel: ObservableObject {
     /// and still refused every favorite chip.
     @discardableResult
     func planToFavorite(_ fav: FavoriteAddress) async -> [PlannedRoute]? {
-        guard let start = effectivePosition.map({ (coordinate: $0, label: "Current location") })
-                ?? bestKnownPosition else { return nil }
+        guard
+            let start = effectivePosition.map({ (coordinate: $0, label: "Current location") })
+                ?? bestKnownPosition
+        else { return nil }
         plannerDestination = fav.name
         // Edit and plan again goes back to the saved point, not a lookup.
-        plannerDestinationPick = PlannerPick(text: fav.name, coordinate: fav.coordinate,
-                                             name: fav.name)
-        guard let planned = try? await plan(
-            from: start.coordinate, fromName: start.label,
-            to: fav.coordinate, toName: fav.name), !planned.isEmpty else { return nil }
+        plannerDestinationPick = PlannerPick(
+            text: fav.name, coordinate: fav.coordinate,
+            name: fav.name)
+        guard
+            let planned = try? await plan(
+                from: start.coordinate, fromName: start.label,
+                to: fav.coordinate, toName: fav.name), !planned.isEmpty
+        else { return nil }
         present(routes: planned)
         return planned
     }
@@ -4149,9 +4355,9 @@ final class AppModel: ObservableObject {
             return
         }
         resetTransitTrip()
-        touristCountTask?.cancel()   // counts belong to the routes they swept
+        touristCountTask?.cancel()  // counts belong to the routes they swept
         touristCounts = [:]
-        restoreTransientPanels()   // fresh choices bring the trip menus back
+        restoreTransientPanels()  // fresh choices bring the trip menus back
         // The vehicle-limits card opens on its own only for a driver who
         // uses it (trucker mode, towing, or the limits on 3 of the last 10
         // plans — the owner, 2026-10-01); for anyone else it waits under its
@@ -4161,7 +4367,8 @@ final class AppModel: ObservableObject {
             plan: (truckerUI ? LimitsCardHabit.trucker : 0)
                 | (towingActive ? LimitsCardHabit.towing : 0))
         if !LimitsCardHabit.opensByDefault(limitsHabit),
-           !routeFilters.isDisjoint(with: Self.limitFilters) {
+            !routeFilters.isDisjoint(with: Self.limitFilters)
+        {
             _ = collapsedPanels.insert("sliders")
         }
         // mode BEFORE the highlight: highlightedRouteID's didSet re-searches
@@ -4175,10 +4382,11 @@ final class AppModel: ObservableObject {
         // first pick until scoring settles the list.
         // With nothing passing (No highways where every road touches one),
         // the list's closest match — never the fastest road by default.
-        highlightedRouteID = filteredChoices.first?.id ?? closestChoice?.id
+        highlightedRouteID =
+            filteredChoices.first?.id ?? closestChoice?.id
             ?? routeChoices.first?.id
         if routeFilters.contains(.tourist) { refreshTouristCounts() }
-        filterCardsHidden = false   // fresh choices bring the slider card back
+        filterCardsHidden = false  // fresh choices bring the slider card back
         // A fresh plan invalidates any staged spoken yes. Without this, a
         // driver who asks Siri for one destination, dislikes it and plans
         // another on screen still has the FIRST offer staged — and "go
@@ -4200,7 +4408,8 @@ final class AppModel: ObservableObject {
     /// fetches could land after that pass's verdict and lock GO again.
     private func landScore(_ done: PlannedRoute) {
         guard !Task.isCancelled,
-              let i = routeChoices.firstIndex(where: { $0.id == done.id }) else { return }
+            let i = routeChoices.firstIndex(where: { $0.id == done.id })
+        else { return }
         routeChoices[i] = done.landing(on: routeChoices[i])
     }
 
@@ -4327,7 +4536,8 @@ final class AppModel: ObservableObject {
             return .stillChecking
         }
         if let pick = tripOfferPick, pick.id != live.id,
-           !filteredChoices.contains(where: { $0.id == live.id }) {
+            !filteredChoices.contains(where: { $0.id == live.id })
+        {
             pendingVoiceOffer = .trip(route: pick, name: name)
             return .changed(to: pick)
         }
@@ -4396,7 +4606,8 @@ final class AppModel: ObservableObject {
         // pass, over only the held choices, never fetched the live leg.
         // (hydrateAttributes skips a route already done.)
         let live = [navigation.route].compactMap { $0 }
-        let pending = routeChoices.isEmpty
+        let pending =
+            routeChoices.isEmpty
             ? live
             : passableChoices + live.filter { leg in !routeChoices.contains { $0.id == leg.id } }
         await withTaskGroup(of: Void.self) { group in
@@ -4415,7 +4626,8 @@ final class AppModel: ObservableObject {
         // the whole phase-1 pass rides the planning-burst lane (elevated
         // in-flight ceiling, same bounded request set).
         await RequestGate.shared.withPlanningBurst {
-            let targets = onlyUnscored
+            let targets =
+                onlyUnscored
                 ? self.routeChoices.filter { !$0.weatherScored } : self.routeChoices
             // FASTEST ROUTE FIRST: routeChoices arrive ETA-sorted, so the top
             // card — the one most drivers take — gets the entire burst lane to
@@ -4542,14 +4754,20 @@ final class AppModel: ObservableObject {
     func ensureHighlightValid() {
         let visible = filteredChoices
         if highlightIsDriverChoice, let hl = highlightedRouteID,
-           visible.contains(where: { $0.id == hl }) { return }
+            visible.contains(where: { $0.id == hl })
+        {
+            return
+        }
         // No route fits every filter: the map shows the list's closest match
         // (the road the card under "No route fits" offers), never nothing —
         // and, with No highways on, the local-roads road rather than the
         // interstate (RouteFilter.closestMatch).
         let pick = visible.first ?? (routeChoices.isEmpty ? nil : closestChoice)
         if highlightIsDriverChoice, let hl = highlightedRouteID, visible.isEmpty,
-           hl == pick?.id { return }
+            hl == pick?.id
+        {
+            return
+        }
         highlightIsDriverChoice = false
         if highlightedRouteID != pick?.id { highlightedRouteID = pick?.id }
     }
@@ -4589,10 +4807,11 @@ final class AppModel: ObservableObject {
             return row[fi]
         }
         // The assembly itself is RiskEquations.bandInput — Core, tested.
-        return RiskEquations.realizedRisk(RiskEquations.bandInput(
-            field: field, onDevice: onDevice,
-            alertEvent: alertEvent, alertSeverity: alertSeverity,
-            floodMultiplier: floodMultiplier, closureScore: closureScore, live: live))
+        return RiskEquations.realizedRisk(
+            RiskEquations.bandInput(
+                field: field, onDevice: onDevice,
+                alertEvent: alertEvent, alertSeverity: alertSeverity,
+                floodMultiplier: floodMultiplier, closureScore: closureScore, live: live))
     }
 
     /// ON-DEVICE R equations, CONUS-wide: NWS gridpoint forecasts at every
@@ -4638,8 +4857,10 @@ final class AppModel: ObservableObject {
     /// a stop). Background scorings (the continuation leg planned while the
     /// driver is still en route to a stop) call `scored` directly and stay at
     /// the background ceiling. No progress sink: these routes have no card.
-    private func scoredBurst(_ input: PlannedRoute,
-                             adoptTripFeeds: Bool = true) async -> PlannedRoute {
+    private func scoredBurst(
+        _ input: PlannedRoute,
+        adoptTripFeeds: Bool = true
+    ) async -> PlannedRoute {
         await RequestGate.shared.withPlanningBurst {
             await self.scored(input, adoptTripFeeds: adoptTripFeeds)
         }
@@ -4705,8 +4926,10 @@ final class AppModel: ObservableObject {
         // Corridor bbox for the flood-evidence fetches.
         let sampleLats = part.samples.map(\.latitude)
         let sampleLons = part.samples.map(\.longitude)
-        let bbox = (minLat: (sampleLats.min() ?? 0) - 0.05, minLon: (sampleLons.min() ?? 0) - 0.05,
-                    maxLat: (sampleLats.max() ?? 0) + 0.05, maxLon: (sampleLons.max() ?? 0) + 0.05)
+        let bbox = (
+            minLat: (sampleLats.min() ?? 0) - 0.05, minLon: (sampleLons.min() ?? 0) - 0.05,
+            maxLat: (sampleLats.max() ?? 0) + 0.05, maxLon: (sampleLons.max() ?? 0) + 0.05
+        )
 
         // The alert-cell pass, the forecast/elevation pairs, and the
         // closure/gauge feeds are independent — they need only the sample
@@ -4769,8 +4992,9 @@ final class AppModel: ObservableObject {
             guard let j = candidates.first, let (c, elev) = onDevice[j] else { return [:] }
             if let done = predictorsAt[j] { return done }
             let coord = score.samples[j].coordinate
-            let made = c.predictorFamilies(latitude: coord.latitude, longitude: coord.longitude,
-                                           elevationMeters: elev)
+            let made = c.predictorFamilies(
+                latitude: coord.latitude, longitude: coord.longitude,
+                elevationMeters: elev)
             predictorsAt[j] = made
             return made
         }
@@ -4779,10 +5003,13 @@ final class AppModel: ObservableObject {
         // has forecast rain (the multiplier ignores evidence at qpf 0) — a dry
         // day skips the NHD queries entirely.
         let anyRain = onDevice.values.contains { ($0.0.qpfInches ?? 0) > 0 }
-        let waterProbe = anyRain
-            ? stride(from: 0, to: score.samples.count,
-                     by: max(score.samples.count / 12, 1))
-                .map { score.samples[$0].coordinate }
+        let waterProbe =
+            anyRain
+            ? stride(
+                from: 0, to: score.samples.count,
+                by: max(score.samples.count / 12, 1)
+            )
+            .map { score.samples[$0].coordinate }
             : []
         async let waterF = LiveHazardFeedFetcher.shared.waterProximity(near: waterProbe)
         let closureAnswer = await closuresF
@@ -4869,12 +5096,15 @@ final class AppModel: ObservableObject {
                     closureScore: HazardFeedScores.closureScore(
                         prepared: preparedClosures, at: c),
                     live: live,
-                    fieldRow: row),   // resolved above; not a second ZIP scan
+                    fieldRow: row),  // resolved above; not a second ZIP scan
                 worstEvent: s.worstEvent, alertID: s.alertID)
         }
-        FlowsDiag.log(.info, "plan", String(format: "scored %d samples in %.0f ms",
-                                            score.samples.count,
-                                            Date().timeIntervalSince(blendStart) * 1000))
+        FlowsDiag.log(
+            .info, "plan",
+            String(
+                format: "scored %d samples in %.0f ms",
+                score.samples.count,
+                Date().timeIntervalSince(blendStart) * 1000))
         r.familyPeaks = peaks
         r.alertCoverage = score.coverage
         r.alertHeadlines = score.headlines
@@ -4897,8 +5127,9 @@ final class AppModel: ObservableObject {
             return [(first, a, j), (second, b, j + 1)].map { piece, risk, sample in
                 let meters = Self.pathLength(piece)
                 milesPerBand[FlowsCore.riskBand(score: risk), default: 0] += meters / 1609.344
-                return RiskSegment(coordinates: piece, risk: risk,
-                                   lengthMeters: meters, sampleIndex: sample)
+                return RiskSegment(
+                    coordinates: piece, risk: risk,
+                    lengthMeters: meters, sampleIndex: sample)
             }
         }
 
@@ -4919,7 +5150,8 @@ final class AppModel: ObservableObject {
         // worst SECTION is real information, but it lives in peakRisk (risk
         // strip + key points + escalation), not in the whole-route label.
         let totalLen = r.riskSegments.reduce(0.0) { $0 + $1.lengthMeters }
-        let weighted = totalLen > 0
+        let weighted =
+            totalLen > 0
             ? r.riskSegments.reduce(0.0) { $0 + $1.risk * $1.lengthMeters } / totalLen
             : avg
         // …except that a RED peak is a floor, not something to average away.
@@ -4975,14 +5207,15 @@ final class AppModel: ObservableObject {
         // them instead of re-walking every polyline vertex (~30k on a long
         // route). Unscored input (rare: direct attribute hydration) still
         // partitions.
-        let corridorSamples = input.riskSamples.isEmpty
+        let corridorSamples =
+            input.riskSamples.isEmpty
             ? RouteService.corridorPartition(of: r.route.polyline, everyMeters: 40_000).samples
             : input.riskSamples.map(\.coordinate)
         let routeLength = r.distanceMeters
         let gradeSpacing = max(10_000.0, routeLength / 60)
         let gradeSamples = RouteService.samplePoints(of: r.route.polyline, everyMeters: gradeSpacing)
         let femaSamples = corridorSamples.enumerated()
-            .filter { $0.offset % 2 == 0 }.map(\.element)   // every ~80 km
+            .filter { $0.offset % 2 == 0 }.map(\.element)  // every ~80 km
             .prefix(25)
         let boxes = Self.corridorBoxes(corridorSamples)
 
@@ -5023,7 +5256,9 @@ final class AppModel: ObservableObject {
         // used to walk the full polyline per frame.
         r.steepMarkers = RouteService.steepMarkers(of: r.route.polyline, profile: table)
         let fema = (await femaHits).compactMap { $0 }
-        r.femaFloodFraction = fema.isEmpty ? nil
+        r.femaFloodFraction =
+            fema.isEmpty
+            ? nil
             : Double(fema.filter { $0 }.count) / Double(fema.count)
         if let found = await restrictionList {
             // ON-ROUTE only: a posted limit restricts the route when it sits
@@ -5032,21 +5267,26 @@ final class AppModel: ObservableObject {
             // (within 60 m of a point every 250 m) read a 6 ft garage bar as
             // I-65's clearance and failed every route into downtown Milwaukee.
             let line = FasterRoutePolicy.coordinates(of: r.route.polyline)
-            r.clearancesMeters = zip(found.clearances,
-                                     RouteAttributes.onRoute(found.clearances, route: line))
-                .filter(\.1).map(\.0.value)
-            r.weightLimitsLbs = zip(found.weights,
-                                    RouteAttributes.onRoute(found.weights, route: line))
-                .filter(\.1).map(\.0.value)
+            r.clearancesMeters = zip(
+                found.clearances,
+                RouteAttributes.onRoute(found.clearances, route: line)
+            )
+            .filter(\.1).map(\.0.value)
+            r.weightLimitsLbs = zip(
+                found.weights,
+                RouteAttributes.onRoute(found.weights, route: line)
+            )
+            .filter(\.1).map(\.0.value)
         } else {
-            r.clearanceDataUnavailable = true   // every endpoint failed
+            r.clearanceDataUnavailable = true  // every endpoint failed
         }
         // EV VIABILITY: before offering an electric driver this route as
         // drivable, verify chargers exist within range along it. Sample at
         // 60% of usable range; a sample with no charger within 25 km marks
         // a charging gap on the card.
         if vehicle.profile?.fuelType == .electric,
-           let range = vehicle.profile?.ratedRangeMiles, range > 0 {
+            let range = vehicle.profile?.ratedRangeMiles, range > 0
+        {
             let intervalMeters = max(range * 0.6 * 1609.344, 40_000)
             let checkpoints = RouteService.samplePoints(
                 of: r.route.polyline, everyMeters: intervalMeters)
@@ -5056,9 +5296,10 @@ final class AppModel: ObservableObject {
                 let request = MKLocalSearch.Request()
                 request.naturalLanguageQuery = "EV charging station"
                 request.pointOfInterestFilter = MKPointOfInterestFilter(including: [.evCharger])
-                request.region = MKCoordinateRegion(center: pt,
-                                                    latitudinalMeters: 50_000,
-                                                    longitudinalMeters: 50_000)
+                request.region = MKCoordinateRegion(
+                    center: pt,
+                    latitudinalMeters: 50_000,
+                    longitudinalMeters: 50_000)
                 // Only a search that answered "nothing here" is a gap (MapKit
                 // throws placemarkNotFound for that). Throttled, offline or
                 // cancelled is not knowing: it is asked once more, and if it
@@ -5128,8 +5369,10 @@ final class AppModel: ObservableObject {
             let segs = GradeProfile.segments(
                 elevations: elevs, spacingMeters: spacing / 8, startMile: startMile)
             fineSegments.append(contentsOf: segs)
-            if let g = RouteAttributes.maxGradePercent(elevations: elevs,
-                                                       spacingMeters: spacing / 8) {
+            if let g = RouteAttributes.maxGradePercent(
+                elevations: elevs,
+                spacingMeters: spacing / 8)
+            {
                 best = max(best, g)
             }
         }
@@ -5148,9 +5391,13 @@ final class AppModel: ObservableObject {
         var i = 0
         while i < samples.count {
             let chunk = samples[i..<min(i + chunkSize + 1, samples.count)]
-            let lats = chunk.map(\.latitude), lons = chunk.map(\.longitude)
-            boxes.append((s: lats.min()! - 0.03, w: lons.min()! - 0.03,
-                          n: lats.max()! + 0.03, e: lons.max()! + 0.03))
+            let lats = chunk.map(\.latitude)
+            let lons = chunk.map(\.longitude)
+            boxes.append(
+                (
+                    s: lats.min()! - 0.03, w: lons.min()! - 0.03,
+                    n: lats.max()! + 0.03, e: lons.max()! + 0.03
+                ))
             i += chunkSize
         }
         return boxes
@@ -5245,7 +5492,7 @@ final class AppModel: ObservableObject {
         // yellow corridor fired a spurious escalation. Sentinel −1 defers the
         // capture to the first corridor score instead.
         escalationState = .fresh(baseline: route.weatherScored ? route.weatherRisk : nil)
-        tripObservedPeak = route.weatherRisk   // seed with the plan-time estimate
+        tripObservedPeak = route.weatherRisk  // seed with the plan-time estimate
         escalation = nil
         arrivedAt = nil
         continuationFailure = nil
@@ -5256,13 +5503,13 @@ final class AppModel: ObservableObject {
         escalationRaisedIDs = []
         shelteredImminentIDs = []
         alertEventsSeen = [:]
-        reachSpeeds = [:]   // per-trip state like its two siblings above
+        reachSpeeds = [:]  // per-trip state like its two siblings above
         stopDelaySeconds = 0
         shelteredSecondsBanked = 0
-        shelterSession = nil   // a countdown must not outlive its trip
-        tripShareOffered = false   // new trip → the share banner may show once
+        shelterSession = nil  // a countdown must not outlive its trip
+        tripShareOffered = false  // new trip → the share banner may show once
         tripSharePrompt = false
-        restoreTransientPanels()   // the drive starts with its menus in reach
+        restoreTransientPanels()  // the drive starts with its menus in reach
         // Carry the road ahead offline for trips between towns: if signal
         // drops (or the app is reopened out in the country), the way onward
         // is already on disk. Short in-town hops aren't stored.
@@ -5278,7 +5525,8 @@ final class AppModel: ObservableObject {
         startLeg(route, resetsNeeds: !drivingOn)
         // A round trip heads back from the destination once it is reached
         // ("Head back" on the arrival banner), to where this leg begins.
-        roundTripHome = roundTrip
+        roundTripHome =
+            roundTrip
             ? Self.firstCoordinate(of: route).map { ($0, Self.homeName(route.sourceName)) }
             : nil
         // A stop chosen on the route screen: drive there first, then on —
@@ -5287,9 +5535,9 @@ final class AppModel: ObservableObject {
             plannedStop = nil
             Task { [weak self] in _ = await self?.addStop(stop) }
         }
-        askForTripPermissionsIfNeeded()   // lock-screen warnings + crash reply, at the first GO
-        maybeOfferTripShare()   // a 200+ mile route triggers right at GO
-        checkTowingSignal()   // trailer signal checked at trip start, not per tick
+        askForTripPermissionsIfNeeded()  // lock-screen warnings + crash reply, at the first GO
+        maybeOfferTripShare()  // a 200+ mile route triggers right at GO
+        checkTowingSignal()  // trailer signal checked at trip start, not per tick
         if crashDetectionEnabled, CrashDetectionService.isAvailable {
             // The report's address is looked up at the crash site, when an
             // impact is confirmed (CrashDetectionService.impactDetected).
@@ -5307,9 +5555,10 @@ final class AppModel: ObservableObject {
         var coords = [CLLocationCoordinate2D](
             repeating: kCLLocationCoordinate2DInvalid, count: n)
         poly.getCoordinates(&coords, range: NSRange(location: 0, length: n))
-        corridors.record(coordinates: coords,
-                         destinationName: route.destinationName,
-                         tripMeters: route.distanceMeters)
+        corridors.record(
+            coordinates: coords,
+            destinationName: route.destinationName,
+            tripMeters: route.distanceMeters)
     }
 
     func endNavigation() {
@@ -5320,9 +5569,9 @@ final class AppModel: ObservableObject {
         // was billed as an hour of driving). The model then learned that
         // this road takes 1.5x as long in CLEAR weather, and inflated every
         // future estimate for it.
-        learnTripDuration()   // teach the delay model what this drive cost
+        learnTripDuration()  // teach the delay model what this drive cost
         tripGeneration += 1
-        Self.clearNotices()   // the trip's lock-screen warnings go with it
+        Self.clearNotices()  // the trip's lock-screen warnings go with it
         tripClosures = []
         // The towing card belongs to the drive; left open, it came back over
         // the planner once the trip ended.
@@ -5354,7 +5603,7 @@ final class AppModel: ObservableObject {
         imminentWarning = nil
         stopDelaySeconds = 0
         shelteredSecondsBanked = 0
-        shelterSession = nil   // a countdown must not outlive its trip
+        shelterSession = nil  // a countdown must not outlive its trip
         tripNeedSchedule = []
         finalDestination = nil
         pendingStopName = nil
@@ -5410,9 +5659,9 @@ final class AppModel: ObservableObject {
         lastClockFix = nil
         tripSharePrompt = false
         tripShareOffered = false
-        restoreTransientPanels()   // back to planning with the trip menus out
-        corridors.prune(position: location.coordinate)   // arrived → let it go
-        roadEfficiency.flush()   // bank the last measured stretch
+        restoreTransientPanels()  // back to planning with the trip menus out
+        corridors.prune(position: location.coordinate)  // arrived → let it go
+        roadEfficiency.flush()  // bank the last measured stretch
         mode = .planning
         watch.sendEnded()
     }
@@ -5427,8 +5676,9 @@ final class AppModel: ObservableObject {
     /// own TTLs make this a network call only when a feed has actually aged.
     private func refreshTripLiveIfStale() {
         guard let box = tripLiveBox,
-              Date().timeIntervalSince(tripLiveFetched) > 900 else { return }
-        tripLiveFetched = Date()   // claim the slot; a failed fetch retries next time
+            Date().timeIntervalSince(tripLiveFetched) > 900
+        else { return }
+        tripLiveFetched = Date()  // claim the slot; a failed fetch retries next time
         let gen = tripGeneration
         Task { [weak self] in
             let snap = await LiveHazardFeedFetcher.shared.liveSnapshot(
@@ -5455,11 +5705,12 @@ final class AppModel: ObservableObject {
         let sampleRisks = score.samples.map { sample -> Double in
             let liveAnswer = HazardFeedScores.liveChecked(at: sample.coordinate, snapshot: tripLive)
             if liveAnswer == nil { liveUnchecked = true }
-            return sampleRealizedRisk(at: sample.coordinate, alertEvent: sample.worstEvent,
-                               alertSeverity: sample.risk,
-                               closureScore: HazardFeedScores.closureScore(
-                                   prepared: closures, at: sample.coordinate),
-                               live: liveAnswer?.bandInputContribution ?? [:])
+            return sampleRealizedRisk(
+                at: sample.coordinate, alertEvent: sample.worstEvent,
+                alertSeverity: sample.risk,
+                closureScore: HazardFeedScores.closureScore(
+                    prepared: closures, at: sample.coordinate),
+                live: liveAnswer?.bandInputContribution ?? [:])
         }
         let peakR = sampleRisks.max() ?? 0
         // The DRIVEN route's samples, segments and alert shapes used to be
@@ -5483,17 +5734,22 @@ final class AppModel: ObservableObject {
                 var repainted = false
                 for (w, r) in zip(score.samples, sampleRisks) {
                     var bi = -1
-                    var bd = 600.0   // a window sample belongs to the route sample within 600 m
+                    var bd = 600.0  // a window sample belongs to the route sample within 600 m
                     for (i, s) in samples.enumerated() {
                         let d = POIRanking.meters(s.coordinate, w.coordinate)
-                        if d < bd { bd = d; bi = i }
+                        if d < bd {
+                            bd = d
+                            bi = i
+                        }
                     }
                     guard bi >= 0 else { continue }
                     let old = samples[bi]
                     if abs(old.risk - r) > 0.02 || old.worstEvent != w.worstEvent
-                        || old.alertID != w.alertID {
-                        samples[bi] = RiskSample(coordinate: old.coordinate, risk: r,
-                                                 worstEvent: w.worstEvent, alertID: w.alertID)
+                        || old.alertID != w.alertID
+                    {
+                        samples[bi] = RiskSample(
+                            coordinate: old.coordinate, risk: r,
+                            worstEvent: w.worstEvent, alertID: w.alertID)
                         repainted = true
                     }
                 }
@@ -5502,10 +5758,11 @@ final class AppModel: ObservableObject {
                     let last = samples.count - 1
                     // Each piece keeps the check point that coloured it.
                     live.riskSegments = live.riskSegments.map { seg in
-                        RiskSegment(coordinates: seg.coordinates,
-                                    risk: samples[min(seg.sampleIndex, last)].risk,
-                                    lengthMeters: seg.lengthMeters,
-                                    sampleIndex: seg.sampleIndex)
+                        RiskSegment(
+                            coordinates: seg.coordinates,
+                            risk: samples[min(seg.sampleIndex, last)].risk,
+                            lengthMeters: seg.lengthMeters,
+                            sampleIndex: seg.sampleIndex)
                     }
                     changed = true
                 }
@@ -5538,7 +5795,7 @@ final class AppModel: ObservableObject {
             corridorContextTask = Task { [weak self] in
                 let state: String?
                 if let last = self?.lastGeocode, POIRanking.meters(last.position, pos) < 20_000 {
-                    state = last.state   // same state as 20 km ago; skip the geocode
+                    state = last.state  // same state as 20 km ago; skip the geocode
                 } else {
                     let placemarks = try? await CLGeocoder().reverseGeocodeLocation(
                         CLLocation(latitude: pos.latitude, longitude: pos.longitude))
@@ -5559,8 +5816,10 @@ final class AppModel: ObservableObject {
                 // Roadwork ahead, straight from the state DOT's WZDx feed:
                 // zones within 3 km of the scored corridor samples.
                 guard let raw = state?.trimmingCharacters(in: .whitespaces),
-                      !raw.isEmpty else { return }
-                let stateName = FuelPrices.stateNameToCode[raw.lowercased()] != nil
+                    !raw.isEmpty
+                else { return }
+                let stateName =
+                    FuelPrices.stateNameToCode[raw.lowercased()] != nil
                     ? raw.lowercased()
                     : FuelPrices.stateNameToCode.first { $0.value == raw.uppercased() }?.key
                 guard let stateName else { return }
@@ -5601,7 +5860,8 @@ final class AppModel: ObservableObject {
             // slides, and comparing with the last prompt alone buzzed and
             // spoke the prompt every pass (about every 2 min).
             let alreadyRaised = raised.alertID.map { escalationRaisedIDs.contains($0) } ?? false
-            let isNew = previous == nil
+            let isNew =
+                previous == nil
                 || (previous?.alertID != raised.alertID && !alreadyRaised)
                 || raised.newRisk > (previous?.newRisk ?? 0) + EscalationPolicy.dismissMargin
             if let id = raised.alertID { escalationRaisedIDs.insert(id) }
@@ -5672,10 +5932,11 @@ final class AppModel: ObservableObject {
         // out stayed in the tray for the rest of the trip and kept every
         // lower warning, and the faster-route offer, off the screen.
         if let held = imminentWarning,
-           ImminentAlerts.heldWarningIsOver(
-               isDemo: held.alertID == Self.demoAlertID, expires: held.expires, now: Date(),
-               scoreComplete: score.complete,
-               stillListed: score.alertsByID[held.alertID] != nil) {
+            ImminentAlerts.heldWarningIsOver(
+                isDemo: held.alertID == Self.demoAlertID, expires: held.expires, now: Date(),
+                scoreComplete: score.complete,
+                stillListed: score.alertsByID[held.alertID] != nil)
+        {
             imminentWarning = nil
         }
         guard let fix = effectivePosition else { return }
@@ -5699,20 +5960,26 @@ final class AppModel: ObservableObject {
         var standsOut: [String: Bool] = [:]
         func mustShow(_ id: String) -> Bool {
             if let known = standsOut[id] { return known }
-            let shows = score.alertsByID[id].map {
-                ImminentAlerts.isLifeSafetyEvent($0.event) || ImminentAlerts.isLookoutEvent($0.event)
-            } ?? false
+            let shows =
+                score.alertsByID[id].map {
+                    ImminentAlerts.isLifeSafetyEvent($0.event) || ImminentAlerts.isLookoutEvent($0.event)
+                } ?? false
             standsOut[id] = shows
             return shows
         }
         var nearest: [String: Double] = [:]
         var lastIndex: [String: Int] = [:]
-        var fixIndex = 0, fixDistance = Double.greatestFiniteMagnitude
+        var fixIndex = 0
+        var fixDistance = Double.greatestFiniteMagnitude
         for (i, s) in score.samples.enumerated() {
             let d = POIRanking.meters(fix, s.coordinate)
-            if d < fixDistance { fixDistance = d; fixIndex = i }
+            if d < fixDistance {
+                fixDistance = d
+                fixIndex = i
+            }
             guard let id = s.alertID,
-                  s.risk >= FlowsCore.riskGreenMin || mustShow(id) else { continue }
+                s.risk >= FlowsCore.riskGreenMin || mustShow(id)
+            else { continue }
             if d < nearest[id, default: .greatestFiniteMagnitude] { nearest[id] = d }
             lastIndex[id] = i
         }
@@ -5731,14 +5998,16 @@ final class AppModel: ObservableObject {
         }
         let candidates = nearest.compactMap { id, dist -> ImminentAlerts.Candidate? in
             guard !dismissedImminentIDs.contains(id),
-                  let alert = score.alertsByID[id] else { return nil }
+                let alert = score.alertsByID[id]
+            else { return nil }
             return ImminentAlerts.Candidate(
                 alertID: id, distanceMeters: dist, severityScore: alert.severityScore,
                 threatRank: ImminentAlerts.threatRank(
                     event: alert.event, severityScore: alert.severityScore))
         }
         guard let hit = ImminentAlerts.firstImminent(candidates, speedMps: speed),
-              let alert = score.alertsByID[hit.alertID] else {
+            let alert = score.alertsByID[hit.alertID]
+        else {
             // Nothing imminent anymore — clear a stale banner, EXCEPT red
             // alerts (shelter AND lookout: both stay until the driver
             // physically presses them) and EXCEPT incomplete scores: a
@@ -5750,8 +6019,11 @@ final class AppModel: ObservableObject {
             // with speed — so slowing into town silently erased a live child
             // abduction alert, and speeding up announced it again.
             if score.complete,
-               imminentWarning?.action != .shelter,
-               imminentWarning?.action != .lookout { imminentWarning = nil }
+                imminentWarning?.action != .shelter,
+                imminentWarning?.action != .lookout
+            {
+                imminentWarning = nil
+            }
             return
         }
         let action = ImminentAlerts.classify(
@@ -5759,11 +6031,12 @@ final class AppModel: ObservableObject {
         let fullText = [alert.headline, alert.detail ?? ""].joined(separator: " ")
         // Incident anchor: the alert polygon's weighted middle, else the
         // nearest risky sample carrying this alert.
-        let incident = alert.polygon.map { ring -> CLLocationCoordinate2D in
-            let lat = ring.map(\.latitude).reduce(0, +) / Double(max(ring.count, 1))
-            let lon = ring.map(\.longitude).reduce(0, +) / Double(max(ring.count, 1))
-            return CLLocationCoordinate2D(latitude: lat, longitude: lon)
-        } ?? score.samples.first { $0.alertID == alert.id }?.coordinate
+        let incident =
+            alert.polygon.map { ring -> CLLocationCoordinate2D in
+                let lat = ring.map(\.latitude).reduce(0, +) / Double(max(ring.count, 1))
+                let lon = ring.map(\.longitude).reduce(0, +) / Double(max(ring.count, 1))
+                return CLLocationCoordinate2D(latitude: lat, longitude: lon)
+            } ?? score.samples.first { $0.alertID == alert.id }?.coordinate
         // A suspect vehicle or person is only described by the AMBER family
         // and law-enforcement alerts — never by weather.
         let describesEntity = AlertEntityParser.describesAnEntity(event: alert.event)
@@ -5815,19 +6088,22 @@ final class AppModel: ObservableObject {
         // rank 2 took a red Flash Flood Warning's place as the look-ahead
         // shrank, and the red one, already shown, could not come back.
         if let current = imminentWarning, current.alertID != warning.alertID,
-           !dismissedImminentIDs.contains(current.alertID),
-           warning.threatRank < current.threatRank
-            || (warning.threatRank == current.threatRank
-                && (warning.event == current.event
-                    || shownImminentIDs.contains(warning.alertID)
-                    || ([.shelter, .lookout].contains(current.action)
-                        && warning.action != current.action))) { return }
+            !dismissedImminentIDs.contains(current.alertID),
+            warning.threatRank < current.threatRank
+                || (warning.threatRank == current.threatRank
+                    && (warning.event == current.event
+                        || shownImminentIDs.contains(warning.alertID)
+                        || ([.shelter, .lookout].contains(current.action)
+                            && warning.action != current.action)))
+        {
+            return
+        }
         shownImminentIDs.insert(warning.alertID)
         if imminentWarning != warning { imminentWarning = warning }
         // Red alert → the shelter list for THIS hazard opens itself, once.
         if action == .shelter, !shelteredImminentIDs.contains(alert.id) {
             shelteredImminentIDs.insert(alert.id)
-            collapsedPanels.remove("stops")   // a tucked stop list comes back out for it
+            collapsedPanels.remove("stops")  // a tucked stop list comes back out for it
             Task { await poi.request(.shelter, aheadOf: effectivePosition) }
         }
     }
@@ -5845,7 +6121,10 @@ final class AppModel: ObservableObject {
     func tuckImminentWarning() {
         guard let warning = imminentWarning else { return }
         // The demo is no alert in force: its X closes it.
-        if warning.alertID == Self.demoAlertID { dismissImminentWarning(); return }
+        if warning.alertID == Self.demoAlertID {
+            dismissImminentWarning()
+            return
+        }
         _ = collapsedPanels.insert(Self.warningPanelID)
     }
 
@@ -5864,7 +6143,8 @@ final class AppModel: ObservableObject {
     /// don't nag again unless it climbs further.
     func dismissEscalation() {
         if let e = escalation {
-            let trigger: EscalationPolicy.Trigger = e.alertID == nil
+            let trigger: EscalationPolicy.Trigger =
+                e.alertID == nil
                 ? .sustained(mean: e.newRisk)
                 : .acute(peak: e.newRisk, alertID: e.alertID)
             escalationState = EscalationPolicy.dismissed(trigger, state: escalationState)
@@ -5891,8 +6171,9 @@ final class AppModel: ObservableObject {
         // "rerouted" to a driver heading into the storm.
         guard let fix = effectivePosition else {
             if voiceAlerts {
-                VoiceAnnouncer.shared.announce("Can't reroute yet. Still finding where you are.",
-                                               topic: SpeechTopic.escalation)
+                VoiceAnnouncer.shared.announce(
+                    "Can't reroute yet. Still finding where you are.",
+                    topic: SpeechTopic.escalation)
             }
             return
         }
@@ -5908,17 +6189,19 @@ final class AppModel: ObservableObject {
             escalationReroutesInFlight -= 1
         }
         escalation = nil
-        let planned = await routes(like: leg, from: fix, fromName: "Current location",
-                                   to: dest.coordinate, toName: dest.name)
+        let planned = await routes(
+            like: leg, from: fix, fromName: "Current location",
+            to: dest.coordinate, toName: dest.name)
         guard !planned.isEmpty else {
             // Tapping Reroute used to make the banner vanish and nothing
             // else happen when the router failed — read as "done" by a
             // driver heading into the storm. Put the prompt back and say so.
-            guard gen == tripGeneration else { return }   // that trip is over
+            guard gen == tripGeneration else { return }  // that trip is over
             if mode == .navigating { escalation = previous }
             if voiceAlerts {
-                VoiceAnnouncer.shared.announce("Couldn't find another route yet. Still on this one.",
-                                               topic: SpeechTopic.escalation)
+                VoiceAnnouncer.shared.announce(
+                    "Couldn't find another route yet. Still on this one.",
+                    topic: SpeechTopic.escalation)
             }
             return
         }
@@ -5935,8 +6218,10 @@ final class AppModel: ObservableObject {
         // check that failed scores near zero, so the road nobody could
         // check used to win — a reroute out of a storm onto an unknown.
         let known = checked.filter(\.weatherScored)
-        guard var best = FasterRoutePolicy.swapPick(known, leg: leg, filters: routeFilters,
-                                                    limits: filterLimits, calmest: true)
+        guard
+            var best = FasterRoutePolicy.swapPick(
+                known, leg: leg, filters: routeFilters,
+                limits: filterLimits, calmest: true)
         else {
             if mode == .navigating, gen == tripGeneration, arrivedAt == nil {
                 if escalation == nil { escalation = previous }
@@ -5959,7 +6244,7 @@ final class AppModel: ObservableObject {
             if escalation == nil { escalation = previous }
             return
         }
-        best.planKind = leg.planKind   // later replans keep the driver's choice
+        best.planKind = leg.planKind  // later replans keep the driver's choice
         // Reroute goes DIRECT to the final destination — drop the pending stop
         // entirely (name AND kind), or a later final arrival would be mishandled
         // as a stop arrival: a phantom vehicle.filledUp() corrupting the range
@@ -5983,14 +6268,18 @@ final class AppModel: ObservableObject {
     /// avoids tolls or the leg has none, so a road keeping that choice can
     /// come back, and carries the driver's learned pace. Empty when nothing
     /// came back.
-    private func routes(like leg: PlannedRoute, from: CLLocationCoordinate2D, fromName: String,
-                        to: CLLocationCoordinate2D, toName: String) async -> [PlannedRoute] {
+    private func routes(
+        like leg: PlannedRoute, from: CLLocationCoordinate2D, fromName: String,
+        to: CLLocationCoordinate2D, toName: String
+    ) async -> [PlannedRoute] {
         if leg.route.transportType == .walking || leg.isWalkingEstimate {
-            let walks = (try? await router.planRoutes(
-                from: from, fromName: fromName, to: to, toName: toName, walking: true)) ?? []
+            let walks =
+                (try? await router.planRoutes(
+                    from: from, fromName: fromName, to: to, toName: toName, walking: true)) ?? []
             if !walks.isEmpty { return walks }
-            let roads = (try? await router.planRoutes(
-                from: from, fromName: fromName, to: to, toName: toName)) ?? []
+            let roads =
+                (try? await router.planRoutes(
+                    from: from, fromName: fromName, to: to, toName: toName)) ?? []
             let noHighway = roads.filter { !$0.hasHighways }
             let local = roads.filter { $0.planKind == .avoidHighways }
             let base = !noHighway.isEmpty ? noHighway : !local.isEmpty ? local : roads
@@ -6001,10 +6290,12 @@ final class AppModel: ObservableObject {
                 return w
             }
         }
-        guard let raw = try? await router.planRoutes(
-            from: from, fromName: fromName, to: to, toName: toName,
-            includeTollFree: leg.planKind == .tollFree || !leg.hasTolls
-                || routeFilters.contains(.noTolls)) else { return [] }
+        guard
+            let raw = try? await router.planRoutes(
+                from: from, fromName: fromName, to: to, toName: toName,
+                includeTollFree: leg.planKind == .tollFree || !leg.hasTolls
+                    || routeFilters.contains(.noTolls))
+        else { return [] }
         return RouteService.applyPersonalPace(
             raw, multiplier: DrivingProfileStore.shared.etaMultiplier)
     }
@@ -6058,7 +6349,8 @@ final class AppModel: ObservableObject {
             drivenOnLastLegMeters: navigation.guidance?.alongMeters ?? 0, stopped: stopped)
         if stopped {
             tripNeedsSeed = UInt64(leg.distanceMeters.rounded())
-            tripNeedsAvgMph = leg.eta > 0
+            tripNeedsAvgMph =
+                leg.eta > 0
                 ? (leg.distanceMeters / 1609.344) / (leg.eta / 3600) : 55
         }
         lastRouteRect = leg.route.polyline.boundingMapRect
@@ -6100,9 +6392,12 @@ final class AppModel: ObservableObject {
         // Warm what matters for the next few minutes of driving, nothing more:
         // POIs and weather alerts along the corridor ahead, not the continent.
         poi.beginCorridorSearch(along: leg)
-        alerts.beginCorridorWatch(along: leg, window: { [weak self] in
-            self?.watchWindow() ?? (0, .greatestFiniteMagnitude, 240)
-        }) { [weak self] score in
+        alerts.beginCorridorWatch(
+            along: leg,
+            window: { [weak self] in
+                self?.watchWindow() ?? (0, .greatestFiniteMagnitude, 240)
+            }
+        ) { [weak self] score in
             self?.handleCorridorUpdate(score)
         }
         beginTrafficWatch()
@@ -6113,7 +6408,7 @@ final class AppModel: ObservableObject {
     private func beginTrafficWatch() {
         trafficWatchTask?.cancel()
         trafficDelayMinutes = nil
-        clearTrafficOffer()   // the old leg's offer goes with its chip, pending yes and all
+        clearTrafficOffer()  // the old leg's offer goes with its chip, pending yes and all
         fasterRouteSavedMinutes = nil
         trafficWatchTask = Task(priority: .utility) { [weak self] in
             while !Task.isCancelled {
@@ -6121,8 +6416,9 @@ final class AppModel: ObservableObject {
                 // in the vehicle's LOCAL time (longitude-derived — crossing
                 // a time zone adjusts automatically).
                 let lon = await MainActor.run { self?.location.coordinate?.longitude }
-                try? await Task.sleep(for: .seconds(
-                    TrafficCadence.intervalSeconds(now: Date(), longitude: lon ?? -90)))
+                try? await Task.sleep(
+                    for: .seconds(
+                        TrafficCadence.intervalSeconds(now: Date(), longitude: lon ?? -90)))
                 // Task.sleep swallows the CancellationError under try? — a
                 // leg swap that cancelled this task mid-sleep must not run one
                 // more stale iteration (duplicate ETA probe, spurious chip).
@@ -6132,20 +6428,21 @@ final class AppModel: ObservableObject {
                 // with an added stop those differ by the whole second leg, so
                 // the "delay" chip fired spuriously. Both sides now measure
                 // the current leg.
-                guard let self else { return }   // model gone — stop, don't spin
+                guard let self else { return }  // model gone — stop, don't spin
                 guard self.mode == .navigating,
-                      let fix = self.location.coordinate,
-                      let leg = self.navigation.route,
-                      let baseline = self.navigation.guidance?.remainingTime,
-                      let remaining = self.navigation.guidance?.remainingDistance
+                    let fix = self.location.coordinate,
+                    let leg = self.navigation.route,
+                    let baseline = self.navigation.guidance?.remainingTime,
+                    let remaining = self.navigation.guidance?.remainingDistance
                 else { continue }
                 // Scope: only the next ≤100 miles of THIS route — no wasted
                 // computation on the far end of a cross-country trip.
                 let horizon = min(remaining, 160_934.0)
-                let target = TrafficCadence.pointAlong(
-                    polyline: leg.route.polyline,
-                    from: self.navigation.guidance?.alongMeters ?? 0,
-                    meters: horizon) ?? Self.lastCoordinate(of: leg) ?? fix
+                let target =
+                    TrafficCadence.pointAlong(
+                        polyline: leg.route.polyline,
+                        from: self.navigation.guidance?.alongMeters ?? 0,
+                        meters: horizon) ?? Self.lastCoordinate(of: leg) ?? fix
                 let scaledBaseline = remaining > 0 ? baseline * horizon / remaining : baseline
                 let request = MKDirections.Request()
                 request.source = MKMapItem(placemark: MKPlacemark(coordinate: fix))
@@ -6162,11 +6459,12 @@ final class AppModel: ObservableObject {
                 // model knows what this hour in this weather usually costs.
                 // Take the worse of the two, so a corridor that reliably
                 // backs up at 5pm warns before the queue has formed.
-                let learned = Double(self.trafficModel.predictedDelayMinutes(
-                    routerSeconds: scaledBaseline,
-                    area: TrafficArea(fix),
-                    roadClass: self.currentRoadClass,
-                    weather: self.currentTrafficWeather))
+                let learned = Double(
+                    self.trafficModel.predictedDelayMinutes(
+                        routerSeconds: scaledBaseline,
+                        area: TrafficArea(fix),
+                        roadClass: self.currentRoadClass,
+                        weather: self.currentTrafficWeather))
                 let delay = max(liveDelay, learned)
                 // Weighed whatever the traffic switch says: it hides the
                 // chip and its offer, not the faster road FLOWS takes on its
@@ -6179,15 +6477,17 @@ final class AppModel: ObservableObject {
                 // offer with nothing weighed behind it, or a weighed road gone
                 // stale is weighed again each check, quietly — unless the
                 // driver said no.
-                let staleStaged = self.stagedFasterRoute.map {
-                    Date().timeIntervalSince($0.stagedAt) >= Self.stagedFasterRouteMaxAge
-                } ?? false
-                let weighAgain = !self.trafficOfferDeclined
+                let staleStaged =
+                    self.stagedFasterRoute.map {
+                        Date().timeIntervalSince($0.stagedAt) >= Self.stagedFasterRouteMaxAge
+                    } ?? false
+                let weighAgain =
+                    !self.trafficOfferDeclined
                     && (self.trafficOfferBlocked || self.trafficOfferNeedsWeigh || staleStaged)
                 if let minutes = newDelay, self.trafficDelayMinutes == nil || weighAgain {
                     let outcome = await self.weighFasterRoute(
                         leg: leg, minutes: minutes, fresh: self.trafficDelayMinutes == nil)
-                    if outcome == .leftLeg { return }   // a new leg runs its own watch
+                    if outcome == .leftLeg { return }  // a new leg runs its own watch
                 }
                 if newDelay == nil { self.clearTrafficOffer() }
                 self.trafficDelayMinutes = newDelay
@@ -6208,10 +6508,11 @@ final class AppModel: ObservableObject {
         // this driver's habits) rather than re-deriving the curve.
         let instantMPU = profile.milesPerUnit(atSpeedMph: mph)
         guard instantMPU > 0 else { return }
-        roadEfficiency.record(deltaMiles: miles,
-                              unitsBurned: miles / instantMPU,
-                              area: TrafficArea(fix.coordinate),
-                              roadClass: RoadClass.from(averageMph: mph))
+        roadEfficiency.record(
+            deltaMiles: miles,
+            unitsBurned: miles / instantMPU,
+            area: TrafficArea(fix.coordinate),
+            roadClass: RoadClass.from(averageMph: mph))
     }
 
     /// The economy to PLAN with here: measured where this device has driven
@@ -6237,13 +6538,15 @@ final class AppModel: ObservableObject {
     /// weather-scale quantity, and it only feeds the efficiency icon.
     private func updateCorridorWind(near point: CLLocationCoordinate2D) {
         guard mode == .navigating,
-              Date().timeIntervalSince(lastWindLookup) > 300 else { return }
+            Date().timeIntervalSince(lastWindLookup) > 300
+        else { return }
         lastWindLookup = Date()
         windLookupTask?.cancel()
         windLookupTask = Task { [weak self] in
             guard let c = await NWSForecastFetcher.shared.conditions(at: point),
-                  let self, !Task.isCancelled else { return }
-            guard self.mode == .navigating else { return }   // landed after End
+                let self, !Task.isCancelled
+            else { return }
+            guard self.mode == .navigating else { return }  // landed after End
             let mph = c.windMph ?? 0
             if self.corridorWindMph != mph { self.corridorWindMph = mph }
             if self.corridorWindFromDegrees != c.windFromDegrees {
@@ -6282,8 +6585,10 @@ final class AppModel: ObservableObject {
     /// promised vs. what the clock actually showed.
     private func learnTripDuration() {
         defer {
-            tripPredictedSeconds = nil; tripStartedAt = nil
-            tripStartArea = nil; tripDistanceMeters = 0
+            tripPredictedSeconds = nil
+            tripStartedAt = nil
+            tripStartArea = nil
+            tripDistanceMeters = 0
         }
         guard let predicted = tripPredictedSeconds, let started = tripStartedAt else { return }
         // Only a trip that actually ARRIVED knows what the drive took. This
@@ -6297,7 +6602,8 @@ final class AppModel: ObservableObject {
         // fifteen minutes took the whole two hours off the drive.
         let end = arrivedDate ?? Date()
         let waitAhead = shelterSession.map { max(0, $0.until.timeIntervalSince(end)) } ?? 0
-        let actual = end.timeIntervalSince(started)
+        let actual =
+            end.timeIntervalSince(started)
             - max(0, stopDelaySeconds - waitAhead) - shelteredSecondsBanked
         // Only whole trips teach anything: a drive abandoned after two
         // minutes says nothing about how long the route takes.
@@ -6306,14 +6612,15 @@ final class AppModel: ObservableObject {
         // under the neighbourhood they were driven in.
         let miles = tripDistanceMeters / 1609.344
         let avgMph = actual > 0 ? miles / (actual / 3600) : 0
-        trafficModel.record(predictedSeconds: predicted, actualSeconds: actual,
-                            area: tripStartArea ?? .pooled,
-                            // Filed under when the trip LEFT: that is the
-                            // hour its time was predicted for. Filed under
-                            // the arrival, a 7:30 start taught the 8-to-noon
-                            // block and never the one it was read from.
-                            roadClass: RoadClass.from(averageMph: avgMph),
-                            weather: currentTrafficWeather, at: started)
+        trafficModel.record(
+            predictedSeconds: predicted, actualSeconds: actual,
+            area: tripStartArea ?? .pooled,
+            // Filed under when the trip LEFT: that is the
+            // hour its time was predicted for. Filed under
+            // the arrival, a 7:30 start taught the 8-to-noon
+            // block and never the one it was read from.
+            roadClass: RoadClass.from(averageMph: avgMph),
+            weather: currentTrafficWeather, at: started)
     }
 
     /// Whether FLOWS may weigh taking a faster road on its own right now: a
@@ -6355,8 +6662,10 @@ final class AppModel: ObservableObject {
 
     /// `scoredWithFeeds`'s road alone, for a road that is only compared
     /// with (its feeds are not kept); nil in, nil out.
-    private func scoredForComparison(_ route: PlannedRoute?,
-                                     everyMeters: CLLocationDistance) async -> PlannedRoute? {
+    private func scoredForComparison(
+        _ route: PlannedRoute?,
+        everyMeters: CLLocationDistance
+    ) async -> PlannedRoute? {
         guard let route else { return nil }
         return await scoredWithFeeds(route, everyMeters: everyMeters).route
     }
@@ -6370,11 +6679,12 @@ final class AppModel: ObservableObject {
     /// stretches where they differ. nil when no plan came back.
     private func evaluateFasterRoute(leg: PlannedRoute) async -> FasterRouteCheck? {
         guard let fix = location.coordinate, let end = Self.lastCoordinate(of: leg),
-              let raw = try? await router.planRoutes(
-                  from: fix, fromName: "Current location", to: end, toName: leg.destinationName,
-                  includeTollFree: leg.planKind == .tollFree || !leg.hasTolls
-                      || routeFilters.contains(.noTolls)),
-              !raw.isEmpty else { return nil }
+            let raw = try? await router.planRoutes(
+                from: fix, fromName: "Current location", to: end, toName: leg.destinationName,
+                includeTollFree: leg.planKind == .tollFree || !leg.hasTolls
+                    || routeFilters.contains(.noTolls)),
+            !raw.isEmpty
+        else { return nil }
         let planned = RouteService.applyPersonalPace(
             raw, multiplier: DrivingProfileStore.shared.etaMultiplier)
         // The current road is the plan that never leaves the leg's line; the
@@ -6383,17 +6693,22 @@ final class AppModel: ObservableObject {
         let lines = planned.map { FasterRoutePolicy.coordinates(of: $0.route.polyline) }
         let spans = lines.map { FasterRoutePolicy.offLineSpans(candidate: $0, road: legLine) }
         let sameRoad = planned.indices.first { spans[$0].isEmpty }.map { planned[$0] }
-        guard let c = planned.indices.first(where: {
-            !spans[$0].isEmpty && FasterRoutePolicy.keepsRoadChoice(planned[$0], leg: leg,
-                                                                    filters: routeFilters)
-        }) else { return FasterRouteCheck(verdict: .notFaster) }
+        guard
+            let c = planned.indices.first(where: {
+                !spans[$0].isEmpty
+                    && FasterRoutePolicy.keepsRoadChoice(
+                        planned[$0], leg: leg,
+                        filters: routeFilters)
+            })
+        else { return FasterRouteCheck(verdict: .notFaster) }
         let candidate = planned[c]
         // The saving is told only against the router's own time for the
         // current road. The traffic probe times MapKit's best path to a point
         // ahead, which may be the detour itself: set against it, a real
         // detour read as no faster.
         if let current = sameRoad,
-           !FasterRoutePolicy.savesEnough(currentSeconds: current.eta, candidateSeconds: candidate.eta) {
+            !FasterRoutePolicy.savesEnough(currentSeconds: current.eta, candidateSeconds: candidate.eta)
+        {
             return FasterRouteCheck(verdict: .notFaster)
         }
         // Check points every 40 km miss a 10 km detour: the roads would be
@@ -6434,14 +6749,17 @@ final class AppModel: ObservableObject {
         // What the driver filters on that the new road can't be checked for
         // before it starts: a rig's bridges, weights and grades, and flood
         // zones (FEMA loads with the leg). FLOWS asks instead.
-        let limitsUnchecked = towingActive || truckerUI
+        let limitsUnchecked =
+            towingActive || truckerUI
             || !routeFilters.isDisjoint(with: [.lowBridges, .bridgeWeight, .mountainGrades])
         var verdict = FasterRoutePolicy.riskVerdict(
             candidateRisk: candidateRisk, aheadRisk: ahead, limitsUnchecked: limitsUnchecked)
-        let bandsRiskier = FasterRoutePolicy.riskVerdict(
-            candidateRisk: candidateRisk, aheadRisk: ahead, limitsUnchecked: false) == .riskier
+        let bandsRiskier =
+            FasterRoutePolicy.riskVerdict(
+                candidateRisk: candidateRisk, aheadRisk: ahead, limitsUnchecked: false) == .riskier
         if !sameMoment, let candidateRisk,
-           [.yellow, .red].contains(FlowsCore.riskBand(score: candidateRisk)) {
+            [.yellow, .red].contains(FlowsCore.riskBand(score: candidateRisk))
+        {
             // The live leg isn't scored the way a fresh plan is: against it,
             // only a Clear or Green road is taken without asking, and a
             // higher band isn't called "more risk".
@@ -6458,12 +6776,15 @@ final class AppModel: ObservableObject {
         // high winds filter refuses is riskier for them only when it is
         // windier than the one they're on (the car's own cell counts on both).
         if verdict != .riskier, routeFilters.contains(.noHighWinds),
-           !RouteFilter.noHighWinds.passes(weighed) {
+            !RouteFilter.noHighWinds.passes(weighed)
+        {
             if sameMoment, let current = weighedCurrent {
                 if RouteFilter.noHighWinds.passes(current)
-                    || FasterRoutePolicy.riskVerdict(candidateRisk: weighed.familyPeaks["wind"],
-                                                     aheadRisk: current.familyPeaks["wind"],
-                                                     limitsUnchecked: false) == .riskier {
+                    || FasterRoutePolicy.riskVerdict(
+                        candidateRisk: weighed.familyPeaks["wind"],
+                        aheadRisk: current.familyPeaks["wind"],
+                        limitsUnchecked: false) == .riskier
+                {
                     verdict = .riskier
                 }
             } else if verdict == .switchNow {
@@ -6471,15 +6792,18 @@ final class AppModel: ObservableObject {
             }
         }
         var switched = scored
-        switched.planKind = leg.planKind   // later replans keep the driver's choice
+        switched.planKind = leg.planKind  // later replans keep the driver's choice
         let saved = sameRoad.map { max(Int((($0.eta - scored.eta) / 60).rounded()), 1) }
         // An unfinished score that already shows red is red, on either score.
-        let red = [candidateRisk ?? weighed.weatherRisk,
-                   FasterRoutePolicy.aheadRisk(of: scored, alongMeters: 1) ?? scored.weatherRisk]
-            .contains { FlowsCore.riskBand(score: $0) == .red }
-        FlowsDiag.log(.info, "traffic",
-                      "faster route: \(verdict) saves \(saved.map { "\($0)" } ?? "?") min "
-                      + "same-moment \(sameMoment) spacing \(Int(spacing)) m")
+        let red = [
+            candidateRisk ?? weighed.weatherRisk,
+            FasterRoutePolicy.aheadRisk(of: scored, alongMeters: 1) ?? scored.weatherRisk,
+        ]
+        .contains { FlowsCore.riskBand(score: $0) == .red }
+        FlowsDiag.log(
+            .info, "traffic",
+            "faster route: \(verdict) saves \(saved.map { "\($0)" } ?? "?") min "
+                + "same-moment \(sameMoment) spacing \(Int(spacing)) m")
         return FasterRouteCheck(
             verdict: verdict, route: switched, feeds: feeds, savedMinutes: saved,
             candidateRisk: candidateRisk, candidateRed: red,
@@ -6495,8 +6819,10 @@ final class AppModel: ObservableObject {
     /// it, offer it, or say there's none worth taking and look again next
     /// check. `fresh`: the jam is new; a jam weighed before with nothing to
     /// take, or offered with nothing weighed, is weighed again quietly.
-    private func weighFasterRoute(leg: PlannedRoute, minutes: Int,
-                                  fresh: Bool) async -> FasterRouteOutcome {
+    private func weighFasterRoute(
+        leg: PlannedRoute, minutes: Int,
+        fresh: Bool
+    ) async -> FasterRouteOutcome {
         // A watch cancelled while its probe was out must not act on the new
         // leg: it runs its own watch.
         guard !Task.isCancelled, navigation.route?.id == leg.id else { return .leftLeg }
@@ -6510,7 +6836,8 @@ final class AppModel: ObservableObject {
         let check = await evaluateFasterRoute(leg: leg)
         // A leg swap or a new trip restarted the watch.
         guard !Task.isCancelled, mode == .navigating, gen == tripGeneration,
-              navigation.route?.id == leg.id else { return .leftLeg }
+            navigation.route?.id == leg.id
+        else { return .leftLeg }
         guard let check else {
             // No plan came back: the plain offer, weighed again next check.
             if fresh { offerPlainFasterRoute(minutes: minutes) }
@@ -6531,17 +6858,19 @@ final class AppModel: ObservableObject {
         // The road was planned from where the car was before it was scored:
         // past its turn-off, it is no faster road at all.
         guard let here = location.coordinate,
-              FasterRoutePolicy.canStillTake(candidate: check.line,
-                                             divergeAlong: check.divergeAlong,
-                                             position: here, speedMps: location.speed)
+            FasterRoutePolicy.canStillTake(
+                candidate: check.line,
+                divergeAlong: check.divergeAlong,
+                position: here, speedMps: location.speed)
         else {
             blockFasterRoute(saying: saysWhy ? SiriSummaries.trafficNoFasterRoute(minutes: minutes) : nil)
             return .settled
         }
         if check.verdict == .switchNow, let saved = check.savedMinutes,
-           fasterRouteEligible(leg) {   // nothing came up meanwhile
+            fasterRouteEligible(leg)
+        {  // nothing came up meanwhile
             takeFasterRoute(route, feeds: check.feeds, automaticSaving: saved)
-            return .leftLeg   // startLeg started the new leg's watch
+            return .leftLeg  // startLeg started the new leg's watch
         }
         let wasBlocked = trafficOfferBlocked
         guard let candidateRisk = check.candidateRisk else {
@@ -6549,7 +6878,8 @@ final class AppModel: ObservableObject {
             // check; a yes meanwhile plans and scores afresh (refusing red).
             // A road the driver was just asked about again stays as asked.
             if let asked = stagedFasterRoute, asked.toldUnchecked, asked.legID == leg.id,
-               Date().timeIntervalSince(asked.stagedAt) < Self.stagedFasterRouteMaxAge {
+                Date().timeIntervalSince(asked.stagedAt) < Self.stagedFasterRouteMaxAge
+            {
                 trafficOfferNeedsWeigh = true
                 return .settled
             }
@@ -6570,7 +6900,7 @@ final class AppModel: ObservableObject {
             offerFasterRoute(minutes: minutes, riskier: check.moreRisk)
         } else {
             trafficOfferRiskier = check.moreRisk
-            trafficOfferUnchecked = false   // this one was checked
+            trafficOfferUnchecked = false  // this one was checked
         }
         return .settled
     }
@@ -6605,20 +6935,23 @@ final class AppModel: ObservableObject {
     /// offer lives on the traffic chip, so with the chips off FLOWS makes
     /// none of its own; `driverAsked`: a yes the driver gave that has to be
     /// asked again, answered either way.
-    private func offerFasterRoute(minutes: Int, riskier: Bool, driverAsked: Bool = false,
-                                  unchecked: Bool = false) {
+    private func offerFasterRoute(
+        minutes: Int, riskier: Bool, driverAsked: Bool = false,
+        unchecked: Bool = false
+    ) {
         trafficOfferBlocked = false
         trafficOfferRiskier = riskier
         trafficOfferUnchecked = unchecked
         guard notifyTraffic || driverAsked else { return }
-        if hapticAlerts { Haptics.offer() }   // chip just appeared
+        if hapticAlerts { Haptics.offer() }  // chip just appeared
         // A trip planned mid-drive is waiting for its spoken yes: "go ahead"
         // stays that trip's, and the faster road is offered on the chip only.
         if case .trip? = pendingVoiceOffer { return }
         pendingVoiceOffer = .fasterRoute
         guard voiceAlerts else { return }
         VoiceAnnouncer.shared.announce(
-            unchecked ? SiriSummaries.fasterRouteUnchecked
+            unchecked
+                ? SiriSummaries.fasterRouteUnchecked
                 : SiriSummaries.fasterRouteOffer(minutes: minutes, riskier: riskier),
             topic: SpeechTopic.trafficOffer)
         VoiceReply.shared.listenAfterSpeech { [weak self] answer in
@@ -6637,8 +6970,10 @@ final class AppModel: ObservableObject {
     /// manual traffic reroute, the leg starts afresh. `automaticSaving`: the
     /// minutes saved when FLOWS took it on its own (no more risk), said and
     /// shown; nil for a road the driver said yes to, which needs neither.
-    private func takeFasterRoute(_ route: PlannedRoute, feeds: CorridorFeeds?,
-                                 automaticSaving savedMinutes: Int?) {
+    private func takeFasterRoute(
+        _ route: PlannedRoute, feeds: CorridorFeeds?,
+        automaticSaving savedMinutes: Int?
+    ) {
         let toFinal = upcomingLeg == nil && pendingStopName == nil
         let accepted = escalationState
         startLeg(route)
@@ -6679,18 +7014,22 @@ final class AppModel: ObservableObject {
     /// or the car has passed its turn-off meanwhile, asked again when its
     /// level has risen since the offer, else taken. `minutes`: the delay the
     /// chip showed, put back when FLOWS stays.
-    private func takeStagedFasterRoute(_ staged: StagedFasterRoute,
-                                       minutes: Int) async -> TrafficRerouteOutcome {
+    private func takeStagedFasterRoute(
+        _ staged: StagedFasterRoute,
+        minutes: Int
+    ) async -> TrafficRerouteOutcome {
         let gen = tripGeneration
         let closer = staged.checkSpacing < FasterRoutePolicy.corridorCheckMeters
         let (driven, weighedAgain) = await RequestGate.shared.withPlanningBurst {
             async let drivenF = self.scoredWithFeeds(staged.route)
-            async let weighedF = self.scoredForComparison(closer ? staged.route : nil,
-                                                          everyMeters: staged.checkSpacing)
+            async let weighedF = self.scoredForComparison(
+                closer ? staged.route : nil,
+                everyMeters: staged.checkSpacing)
             return (await drivenF, await weighedF)
         }
         guard mode == .navigating, gen == tripGeneration,
-              navigation.route?.id == staged.legID else { return .nothing }
+            navigation.route?.id == staged.legID
+        else { return .nothing }
         let (scored, feeds) = driven
         let weighed = weighedAgain ?? scored
         let risk = FasterRoutePolicy.aheadRisk(of: weighed, alongMeters: 1) ?? weighed.weatherRisk
@@ -6699,15 +7038,17 @@ final class AppModel: ObservableObject {
         if [risk, drivenRisk].contains(where: { FlowsCore.riskBand(score: $0) == .red }) {
             stay = SiriSummaries.fasterRouteNowRed
         } else if let here = location.coordinate,
-                  FasterRoutePolicy.canStillTake(candidate: staged.line,
-                                                 divergeAlong: staged.divergeAlong,
-                                                 position: here, speedMps: location.speed) {
+            FasterRoutePolicy.canStillTake(
+                candidate: staged.line,
+                divergeAlong: staged.divergeAlong,
+                position: here, speedMps: location.speed)
+        {
             stay = nil
         } else {
             stay = SiriSummaries.fasterRoutePassed
         }
         if let stay {
-            trafficDelayMinutes = minutes   // the jam is still there
+            trafficDelayMinutes = minutes  // the jam is still there
             blockFasterRoute(saying: stay)
             return .stayed
         }
@@ -6716,7 +7057,8 @@ final class AppModel: ObservableObject {
         // The check run on the yes did not finish (a feed did not answer):
         // the yes was to a checked road. Say so and ask once more; a second
         // yes is the driver's own call on a road FLOWS could not check.
-        let checked = FasterRoutePolicy.aheadRisk(of: weighed, alongMeters: 1) != nil
+        let checked =
+            FasterRoutePolicy.aheadRisk(of: weighed, alongMeters: 1) != nil
             && FasterRoutePolicy.aheadRisk(of: scored, alongMeters: 1) != nil
         if !checked, !staged.toldUnchecked {
             trafficDelayMinutes = minutes
@@ -6728,8 +7070,10 @@ final class AppModel: ObservableObject {
             FlowsDiag.log(.info, "traffic", "faster route: yes on an unfinished check, asked again")
             return .askedUnchecked
         }
-        if FasterRoutePolicy.riskVerdict(candidateRisk: risk, aheadRisk: staged.offeredRisk,
-                                         limitsUnchecked: false) == .riskier {
+        if FasterRoutePolicy.riskVerdict(
+            candidateRisk: risk, aheadRisk: staged.offeredRisk,
+            limitsUnchecked: false) == .riskier
+        {
             // The yes was to less risk than this: ask again, saying so.
             trafficDelayMinutes = minutes
             stagedFasterRoute = StagedFasterRoute(
@@ -6754,15 +7098,17 @@ final class AppModel: ObservableObject {
         let staged = stagedFasterRoute
         let minutes = trafficDelayMinutes
         trafficDelayMinutes = nil
-        clearTrafficOffer()   // drops the traffic yes; a trip waiting for its yes keeps it
+        clearTrafficOffer()  // drops the traffic yes; a trip waiting for its yes keeps it
         // The yes is to the road FLOWS weighed and offered: that one (to the
         // end of this leg, a stop kept, the driver's road choices kept), while
         // it is fresh and the car can still reach its turn-off.
         if let staged, let minutes, staged.legID == navigation.route?.id, mode == .navigating,
-           Date().timeIntervalSince(staged.stagedAt) < Self.stagedFasterRouteMaxAge,
-           FasterRoutePolicy.canStillTake(candidate: staged.line,
-                                          divergeAlong: staged.divergeAlong,
-                                          position: fix, speedMps: location.speed) {
+            Date().timeIntervalSince(staged.stagedAt) < Self.stagedFasterRouteMaxAge,
+            FasterRoutePolicy.canStillTake(
+                candidate: staged.line,
+                divergeAlong: staged.divergeAlong,
+                position: fix, speedMps: location.speed)
+        {
             return await takeStagedFasterRoute(staged, minutes: minutes)
         }
         // Nothing weighed to take (the offer went up while a safety prompt
@@ -6787,7 +7133,8 @@ final class AppModel: ObservableObject {
         // A new trip, a leg swap or the stop reached meanwhile: the new leg
         // runs its own watch.
         guard mode == .navigating, gen == tripGeneration, arrivedAt == nil,
-              pendingStopName == stop, navigation.route?.id == leg.id else { return .nothing }
+            pendingStopName == stop, navigation.route?.id == leg.id
+        else { return .nothing }
         guard let check else {
             // No plan came back: the jam is still there, and the next check
             // weighs it again.
@@ -6802,15 +7149,17 @@ final class AppModel: ObservableObject {
             // The yes was to a saving, never to a red road.
             stay = SiriSummaries.fasterRouteNowRed
         } else if let here = location.coordinate,
-                  FasterRoutePolicy.canStillTake(candidate: check.line,
-                                                 divergeAlong: check.divergeAlong,
-                                                 position: here, speedMps: location.speed) {
+            FasterRoutePolicy.canStillTake(
+                candidate: check.line,
+                divergeAlong: check.divergeAlong,
+                position: here, speedMps: location.speed)
+        {
             stay = nil
         } else {
             stay = SiriSummaries.fasterRoutePassed
         }
         guard stay == nil, let route = check.route else {
-            trafficDelayMinutes = minutes   // the jam is still there
+            trafficDelayMinutes = minutes  // the jam is still there
             blockFasterRoute(saying: stay)
             return .stayed
         }
@@ -6832,8 +7181,10 @@ final class AppModel: ObservableObject {
         let offered = staged.flatMap { $0.legID == leg.id ? $0.offeredRisk : nil }
         let riskier: Bool
         if let offered, let candidateRisk = check.candidateRisk {
-            riskier = FasterRoutePolicy.riskVerdict(candidateRisk: candidateRisk, aheadRisk: offered,
-                                                    limitsUnchecked: false) == .riskier
+            riskier =
+                FasterRoutePolicy.riskVerdict(
+                    candidateRisk: candidateRisk, aheadRisk: offered,
+                    limitsUnchecked: false) == .riskier
         } else {
             riskier = check.moreRisk
         }
@@ -6878,7 +7229,8 @@ final class AppModel: ObservableObject {
             leg.alertHeadlines = old.alertHeadlines
         }
         let accepted = escalationState
-        let started = legStartedAt, predicted = legPredictedSeconds
+        let started = legStartedAt
+        let predicted = legPredictedSeconds
         let stoppedBefore = legStoppedBefore
         startLeg(leg)
         escalationState = accepted
@@ -6896,10 +7248,12 @@ final class AppModel: ObservableObject {
             for delay in [0.0, 6, 15, 30, 60] {
                 if delay > 0 { try? await Task.sleep(for: .seconds(delay)) }
                 guard let self, self.mode == .navigating, gen == self.tripGeneration,
-                      self.navigation.route?.id == leg.id else { return }
+                    self.navigation.route?.id == leg.id
+                else { return }
                 let scored = await self.scoredBurst(leg, adoptTripFeeds: toFinal)
                 guard self.mode == .navigating, gen == self.tripGeneration,
-                      var live = self.navigation.route, live.id == leg.id else { return }
+                    var live = self.navigation.route, live.id == leg.id
+                else { return }
                 let carried = (risk: live.weatherRisk, headlines: live.alertHeadlines)
                 live.takeScore(from: scored)
                 if !scored.weatherScored {
@@ -6970,7 +7324,8 @@ final class AppModel: ObservableObject {
         // preview mode that read as "add stop freezes". Fall back to the
         // route-start position and always show progress.
         guard let fix = effectivePosition, let dest = finalDestination,
-              let leg = navigation.route else { return false }
+            let leg = navigation.route
+        else { return false }
         let name = item.name ?? "Stop"
         // A stop that fails to plan leaves the one already being driven to
         // as it was. Only the name was cleared: an offline try at a gas
@@ -6990,7 +7345,8 @@ final class AppModel: ObservableObject {
         // The else-branch is the safe direction: a missed reset only leaves
         // the range pessimistic, which the at-pump prompt and "Mark tank
         // full" both recover. A false reset hides a real empty tank.
-        let addedFuel = item.pointOfInterestCategory == .gasStation
+        let addedFuel =
+            item.pointOfInterestCategory == .gasStation
             || item.pointOfInterestCategory == .evCharger
             || (poi.activeKind == .gas && poi.results.contains { $0.item === item })
         pendingStopKind = addedFuel ? .gas : nil
@@ -7006,37 +7362,50 @@ final class AppModel: ObservableObject {
         // choice): they used to be the router's first car route, so a walker
         // was sent down roads for cars and No tolls was forgotten.
         let gen = tripGeneration
-        let hop = await withAttributesIfFiltered(await routes(
-            like: leg, from: fix, fromName: "Current location",
-            to: item.placemark.coordinate, toName: name))
-        guard var leg1 = FasterRoutePolicy.swapPick(hop, leg: leg, filters: routeFilters,
-                                                    limits: filterLimits, calmest: false)
+        let hop = await withAttributesIfFiltered(
+            await routes(
+                like: leg, from: fix, fromName: "Current location",
+                to: item.placemark.coordinate, toName: name))
+        guard
+            var leg1 = FasterRoutePolicy.swapPick(
+                hop, leg: leg, filters: routeFilters,
+                limits: filterLimits, calmest: false)
         else {
-            if gen == tripGeneration { pendingStopName = stopBefore; pendingStopKind = kindBefore }
+            if gen == tripGeneration {
+                pendingStopName = stopBefore
+                pendingStopKind = kindBefore
+            }
             return false
         }
         // Driver may have ended/finished the trip while leg1 planned: that
         // trip's stop is gone with it, and a new trip's is its own.
         guard mode == .navigating, gen == tripGeneration else {
-            if gen == tripGeneration { pendingStopName = nil; pendingStopKind = nil }
+            if gen == tripGeneration {
+                pendingStopName = nil
+                pendingStopKind = nil
+            }
             return false
         }
-        leg1.planKind = leg.planKind   // later replans keep the driver's choice
+        leg1.planKind = leg.planKind  // later replans keep the driver's choice
         startLeg(leg1)
         Task { [weak self] in
             guard let self else { return }
-            let onward = await self.withAttributesIfFiltered(await self.routes(
-                like: leg, from: item.placemark.coordinate, fromName: name,
-                to: dest.coordinate, toName: dest.name))
-            guard var leg2 = FasterRoutePolicy.swapPick(onward, leg: leg, filters: self.routeFilters,
-                                                        limits: self.filterLimits, calmest: false)
+            let onward = await self.withAttributesIfFiltered(
+                await self.routes(
+                    like: leg, from: item.placemark.coordinate, fromName: name,
+                    to: dest.coordinate, toName: dest.name))
+            guard
+                var leg2 = FasterRoutePolicy.swapPick(
+                    onward, leg: leg, filters: self.routeFilters,
+                    limits: self.filterLimits, calmest: false)
             else { return }
             leg2.planKind = leg.planKind
             let scored = await self.scored(leg2)
             // Don't reattach a phantom continuation leg after the user arrived
             // or ended navigation during this background plan+score.
             guard self.mode == .navigating, self.pendingStopName == name,
-                  gen == self.tripGeneration else { return }
+                gen == self.tripGeneration
+            else { return }
             self.upcomingLeg = scored
         }
         return true
@@ -7050,7 +7419,7 @@ final class AppModel: ObservableObject {
             pendingStopKind = nil
             upcomingLeg = nil
             pendingStopName = nil
-            startLeg(next, resetsNeeds: true)   // a stop: the food/rest clocks restart
+            startLeg(next, resetsNeeds: true)  // a stop: the food/rest clocks restart
             return
         }
         // Arrived at an ADDED STOP whose continuation leg isn't ready (the
@@ -7060,7 +7429,8 @@ final class AppModel: ObservableObject {
         // only a second failure surfaces honestly. (The engine arrives only
         // on a leg it has.)
         if let stopName = pendingStopName, let dest = finalDestination,
-           let arrivedLeg = navigation.route {
+            let arrivedLeg = navigation.route
+        {
             if pendingStopKind == .gas { arrivedAtGasStop() }
             pendingStopKind = nil
             pendingStopName = nil
@@ -7075,19 +7445,23 @@ final class AppModel: ObservableObject {
             Task { [weak self] in
                 guard let self else { return }
                 let from = self.effectivePosition ?? dest.coordinate
-                let onward = await self.withAttributesIfFiltered(await self.routes(
-                    like: arrivedLeg, from: from, fromName: stopName,
-                    to: dest.coordinate, toName: dest.name))
-                if var leg = FasterRoutePolicy.swapPick(onward, leg: arrivedLeg,
-                                                        filters: self.routeFilters,
-                                                        limits: self.filterLimits, calmest: false) {
+                let onward = await self.withAttributesIfFiltered(
+                    await self.routes(
+                        like: arrivedLeg, from: from, fromName: stopName,
+                        to: dest.coordinate, toName: dest.name))
+                if var leg = FasterRoutePolicy.swapPick(
+                    onward, leg: arrivedLeg,
+                    filters: self.routeFilters,
+                    limits: self.filterLimits, calmest: false)
+                {
                     guard self.mode == .navigating, gen == self.tripGeneration else { return }
                     leg.planKind = arrivedLeg.planKind
                     // A stop added while this scored is the newer leg: the
                     // way on must not replace the way to it.
                     let scored = await self.scoredBurst(leg)
                     guard self.mode == .navigating, gen == self.tripGeneration,
-                          self.pendingStopName == nil else { return }
+                        self.pendingStopName == nil
+                    else { return }
                     self.startLeg(scored, resetsNeeds: true)
                 } else if self.mode == .navigating {
                     // Honest state: at the stop, continuation unavailable.
@@ -7106,10 +7480,12 @@ final class AppModel: ObservableObject {
         // gated, decaying, bucketed by week-of-year). Final destination only,
         // and not a trip that began before an erase.
         if !tripLearningErased, let route = navigation.route,
-           let origin = Self.firstCoordinate(of: route),
-           let dest = finalDestination?.coordinate ?? Self.lastCoordinate(of: route) {
+            let origin = Self.firstCoordinate(of: route),
+            let dest = finalDestination?.coordinate ?? Self.lastCoordinate(of: route)
+        {
             let hubs = RouteService.corridorPartition(
-                of: route.route.polyline, everyMeters: 3000).samples
+                of: route.route.polyline, everyMeters: 3000
+            ).samples
             SeasonalRiskModel.shared.recordTrip(
                 origin: origin, dest: dest,
                 predicted: route.rankingRisk, observed: tripObservedPeak,
@@ -7128,7 +7504,8 @@ final class AppModel: ObservableObject {
         // numbers and compared them nowhere. A walk teaches nothing about
         // how this person drives.
         if let started = legStartedAt, legPredictedSeconds > 0,
-           navigation.route?.isWalk != true {
+            navigation.route?.isWalk != true
+        {
             DrivingProfileStore.shared.recordArrival(
                 predicted: legPredictedSeconds,
                 actual: Date().timeIntervalSince(started),
@@ -7182,8 +7559,9 @@ final class AppModel: ObservableObject {
             return "\(name) added — GO drives there first, then on."
         case .planning:
             plannerDestination = name
-            plannerDestinationPick = PlannerPick(text: name, coordinate: item.placemark.coordinate,
-                                                 name: name)
+            plannerDestinationPick = PlannerPick(
+                text: name, coordinate: item.placemark.coordinate,
+                name: name)
             collapsedPanels.remove("planner")
             return "\(name) is your destination — press Plan route."
         }
@@ -7209,12 +7587,15 @@ final class AppModel: ObservableObject {
         // drive home the driver never pressed GO on.
         let gen = tripGeneration
         let from = effectivePosition ?? Self.lastCoordinate(of: leg) ?? home.coordinate
-        let back = await withAttributesIfFiltered(await routes(
-            like: leg, from: from, fromName: leg.destinationName,
-            to: home.coordinate, toName: home.name))
+        let back = await withAttributesIfFiltered(
+            await routes(
+                like: leg, from: from, fromName: leg.destinationName,
+                to: home.coordinate, toName: home.name))
         guard mode == .navigating, gen == tripGeneration else { return }
-        guard var way = FasterRoutePolicy.swapPick(back, leg: leg, filters: routeFilters,
-                                                   limits: filterLimits, calmest: false)
+        guard
+            var way = FasterRoutePolicy.swapPick(
+                back, leg: leg, filters: routeFilters,
+                limits: filterLimits, calmest: false)
         else {
             arrivedAt = nil
             continuationFailure = "Can't find a way back to \(home.name) from here. Plan again."
@@ -7226,7 +7607,7 @@ final class AppModel: ObservableObject {
         // The way there is a finished trip: its arrival teaches the delay
         // model before the way back replaces it.
         learnTripDuration()
-        roundTrip = false   // the way back has no way back of its own
+        roundTrip = false  // the way back has no way back of its own
         select(route: scored)
     }
 }
@@ -7239,38 +7620,40 @@ struct FLOWSApp: App {
         // Before anything reads the Keychain (AppModel is built after this).
         FreshInstall.clearLeftoversIfFresh()
         #if os(macOS)
-        // Every text input in FLOWS is a place name, ZIP, or vehicle spec —
-        // macOS inline predictions only ever "correct" those, and the gray
-        // prediction sits as MARKED text: the click that dismisses it never
-        // reaches its real target (the field-to-field / Plan-button click
-        // swallow). SwiftUI exposes no per-field switch on macOS, so opt the
-        // app out via AppKit's documented defaults keys.
-        UserDefaults.standard.register(defaults: [
-            "NSAutomaticTextCompletionEnabled": false,
-            "NSAutomaticInlinePredictionEnabled": false,
-        ])
-        // AppKit CONSUMES the mouseDown that ends a text-field editing
-        // session — a button under that click never fires ("the first Plan
-        // click does nothing"), and SwiftUI's FocusState immediately
-        // restores the editor, so the next click is eaten too. End the
-        // session BEFORE dispatch when the click lands outside the editing
-        // field; the same click then reaches its real target. App-wide: any
-        // control next to any field gets first-click behavior.
-        NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown]) { event in
-            guard let window = event.window,
-                  let editor = window.firstResponder as? NSTextView,
-                  editor.isFieldEditor,
-                  let content = window.contentView else { return event }
-            let point = content.superview?.convert(event.locationInWindow, from: nil)
-                ?? event.locationInWindow
-            var view = content.hitTest(point)
-            while let v = view {
-                if v === editor { return event }   // click stays in the field
-                view = v.superview
+            // Every text input in FLOWS is a place name, ZIP, or vehicle spec —
+            // macOS inline predictions only ever "correct" those, and the gray
+            // prediction sits as MARKED text: the click that dismisses it never
+            // reaches its real target (the field-to-field / Plan-button click
+            // swallow). SwiftUI exposes no per-field switch on macOS, so opt the
+            // app out via AppKit's documented defaults keys.
+            UserDefaults.standard.register(defaults: [
+                "NSAutomaticTextCompletionEnabled": false,
+                "NSAutomaticInlinePredictionEnabled": false,
+            ])
+            // AppKit CONSUMES the mouseDown that ends a text-field editing
+            // session — a button under that click never fires ("the first Plan
+            // click does nothing"), and SwiftUI's FocusState immediately
+            // restores the editor, so the next click is eaten too. End the
+            // session BEFORE dispatch when the click lands outside the editing
+            // field; the same click then reaches its real target. App-wide: any
+            // control next to any field gets first-click behavior.
+            NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown]) { event in
+                guard let window = event.window,
+                    let editor = window.firstResponder as? NSTextView,
+                    editor.isFieldEditor,
+                    let content = window.contentView
+                else { return event }
+                let point =
+                    content.superview?.convert(event.locationInWindow, from: nil)
+                    ?? event.locationInWindow
+                var view = content.hitTest(point)
+                while let v = view {
+                    if v === editor { return event }  // click stays in the field
+                    view = v.superview
+                }
+                window.makeFirstResponder(nil)
+                return event
             }
-            window.makeFirstResponder(nil)
-            return event
-        }
         #endif
     }
 
@@ -7290,9 +7673,11 @@ struct FLOWSApp: App {
                             WelcomeCard().environmentObject(model)
                         }
                     }
-                    .dynamicTypeSize(TextScale.range(
-                        chosenIndex: model.textSizeIndex,
-                        maxIndex: model.textSizeMaxIndex))
+                    .dynamicTypeSize(
+                        TextScale.range(
+                            chosenIndex: model.textSizeIndex,
+                            maxIndex: model.textSizeMaxIndex)
+                    )
                     .onAppear {
                         let idx = TextScale.maxStepIndex(forWidthPoints: geometry.size.width)
                         if idx != model.textSizeMaxIndex { model.textSizeMaxIndex = idx }
@@ -7312,18 +7697,18 @@ struct FLOWSApp: App {
                     }
             }
             #if os(macOS)
-            // On the reader itself: a GeometryReader reports no minimum of
-            // its own, so a minimum set inside it never reached the window
-            // and the window could still be dragged smaller than this.
-            .frame(minWidth: 900, minHeight: 620)
+                // On the reader itself: a GeometryReader reports no minimum of
+                // its own, so a minimum set inside it never reached the window
+                // and the window could still be dragged smaller than this.
+                .frame(minWidth: 900, minHeight: 620)
             #endif
         }
         #if os(macOS)
-        .defaultSize(width: 1200, height: 800)
-        // Below the content's minimum the Mac layout cannot keep its menus
-        // apart: the settings panel alone needs 340 x 480 pt beside the map's
-        // own chrome.
-        .windowResizability(.contentMinSize)
+            .defaultSize(width: 1200, height: 800)
+            // Below the content's minimum the Mac layout cannot keep its menus
+            // apart: the settings panel alone needs 340 x 480 pt beside the map's
+            // own chrome.
+            .windowResizability(.contentMinSize)
         #endif
     }
 }

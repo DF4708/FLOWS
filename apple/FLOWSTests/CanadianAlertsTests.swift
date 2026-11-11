@@ -15,20 +15,20 @@ import XCTest
 final class CanadianAlertsTests: XCTestCase {
     /// A live record from 2026-09-21, geometry trimmed to one small ring.
     private let frost = """
-    {"id":"132605352802317227202609200503_fea1-1234","type":"Feature",
-     "geometry":{"type":"MultiPolygon","coordinates":[[[[-78.51,44.50],[-78.42,44.49],
-       [-78.42,44.60],[-78.51,44.60],[-78.51,44.50]]]]},
-     "properties":{"alert_code":"FTA","alert_type":"advisory",
-       "alert_name_en":"frost advisory","alert_short_name_en":"Frost (advisory)",
-       "publication_datetime":"2026-09-21T16:50:44.658Z",
-       "expiration_datetime":"2026-09-22T08:50:44.658Z",
-       "validity_datetime":"2026-09-22T07:00:00.000Z",
-       "event_end_datetime":"2026-09-22T13:30:00.000Z",
-       "alert_text_en":"Conditions are favourable for the development of frost tonight.",
-       "risk_colour_en":"yellow","confidence_en":"High","impact_en":"Moderate",
-       "feature_name_en":"Apsley - Woodview - Northern Peterborough County",
-       "province":"ON","status_en":"continued","feature_id":"fea1-1234"}}
-    """
+        {"id":"132605352802317227202609200503_fea1-1234","type":"Feature",
+         "geometry":{"type":"MultiPolygon","coordinates":[[[[-78.51,44.50],[-78.42,44.49],
+           [-78.42,44.60],[-78.51,44.60],[-78.51,44.50]]]]},
+         "properties":{"alert_code":"FTA","alert_type":"advisory",
+           "alert_name_en":"frost advisory","alert_short_name_en":"Frost (advisory)",
+           "publication_datetime":"2026-09-21T16:50:44.658Z",
+           "expiration_datetime":"2026-09-22T08:50:44.658Z",
+           "validity_datetime":"2026-09-22T07:00:00.000Z",
+           "event_end_datetime":"2026-09-22T13:30:00.000Z",
+           "alert_text_en":"Conditions are favourable for the development of frost tonight.",
+           "risk_colour_en":"yellow","confidence_en":"High","impact_en":"Moderate",
+           "feature_name_en":"Apsley - Woodview - Northern Peterborough County",
+           "province":"ON","status_en":"continued","feature_id":"fea1-1234"}}
+        """
 
     private func feature(_ json: String) throws -> [String: Any] {
         try XCTUnwrap(JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any])
@@ -40,15 +40,17 @@ final class CanadianAlertsTests: XCTestCase {
         XCTAssertEqual(alerts.count, 1)
         XCTAssertEqual(alert.id, "132605352802317227202609200503_fea1-1234")
         XCTAssertEqual(alert.event, "Frost Advisory")
-        XCTAssertEqual(alert.headline,
-                       "Frost Advisory for Apsley - Woodview - Northern Peterborough County")
+        XCTAssertEqual(
+            alert.headline,
+            "Frost Advisory for Apsley - Woodview - Northern Peterborough County")
         XCTAssertEqual(alert.severityScore, WeatherAlertService.severityScore("moderate"))
         // Milliseconds in every timestamp: the plain parser returned nil.
         XCTAssertEqual(alert.expires, WeatherAlertService.ecccDate("2026-09-22T08:50:44.658Z"))
         XCTAssertNotNil(alert.expires)
         XCTAssertEqual(alert.onset, WeatherAlertService.ecccDate("2026-09-22T07:00:00.000Z"))
-        XCTAssertEqual(alert.detail,
-                       "Conditions are favourable for the development of frost tonight.")
+        XCTAssertEqual(
+            alert.detail,
+            "Conditions are favourable for the development of frost tonight.")
         XCTAssertEqual(alert.polygon?.count, 5)
     }
 

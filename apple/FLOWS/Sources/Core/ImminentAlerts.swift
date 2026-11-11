@@ -69,7 +69,7 @@ enum ImminentAlerts {
         case 1: return .restArea
         case 2: return .shelter
         case 3: return .lookout
-        default: return .monitor   // 0, and the containment fallback
+        default: return .monitor  // 0, and the containment fallback
         }
     }
 
@@ -85,8 +85,10 @@ enum ImminentAlerts {
     /// has run out, or a complete check of the route no longer lists it. An
     /// incomplete check proves nothing ("no data" is never "all clear"), and
     /// the Settings demo is in no feed, so it stays until closed.
-    static func heldWarningIsOver(isDemo: Bool, expires: Date?, now: Date,
-                                  scoreComplete: Bool, stillListed: Bool) -> Bool {
+    static func heldWarningIsOver(
+        isDemo: Bool, expires: Date?, now: Date,
+        scoreComplete: Bool, stillListed: Bool
+    ) -> Bool {
         if isDemo { return false }
         if let expires, expires <= now { return true }
         return scoreComplete && !stillListed

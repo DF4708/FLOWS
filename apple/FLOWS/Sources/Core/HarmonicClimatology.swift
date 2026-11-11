@@ -37,9 +37,9 @@ struct HarmonicClimatology {
     init?(data: Data) {
         // An empty buffer never crosses; an empty file is not a table anyway.
         guard !data.isEmpty,
-              let parsed = data.lentBytes({ bytes -> FlowsHarmonicTable? in
-                  flows_climate_parse_flhh(bytes)
-              })
+            let parsed = data.lentBytes({ bytes -> FlowsHarmonicTable? in
+                flows_climate_parse_flhh(bytes)
+            })
         else { return nil }
         table = parsed
         families = parsed.families().map { $0.text }
@@ -76,7 +76,10 @@ struct HarmonicClimatology {
         let cosT, sinT, cos2T, sin2T: Double
         init(week: Int) {
             let t = flows_climate_week_trig(Int64(week))
-            cosT = t.cos_t; sinT = t.sin_t; cos2T = t.cos_2t; sin2T = t.sin_2t
+            cosT = t.cos_t
+            sinT = t.sin_t
+            cos2T = t.cos_2t
+            sin2T = t.sin_2t
         }
     }
 
@@ -93,23 +96,26 @@ struct HarmonicClimatology {
     /// Load from the same candidate roots the risk bundle uses.
     static func loadBundled() -> HarmonicClimatology? {
         #if os(macOS)
-        let repo = ProcessInfo.processInfo.environment["FLOWS_REPO"]
-            ?? "\(NSHomeDirectory())/Documents/Coding_Files/FLOWS"
-        let candidates = [
-            Bundle.main.path(forResource: "history_harmonic", ofType: "bin"),
-            "\(repo)/data/runtime_cache/history_harmonic.bin",
-            "/Users/Shared/flows/repo/data/runtime_cache/history_harmonic.bin",
-        ].compactMap { $0 }
+            let repo =
+                ProcessInfo.processInfo.environment["FLOWS_REPO"]
+                ?? "\(NSHomeDirectory())/Documents/Coding_Files/FLOWS"
+            let candidates = [
+                Bundle.main.path(forResource: "history_harmonic", ofType: "bin"),
+                "\(repo)/data/runtime_cache/history_harmonic.bin",
+                "/Users/Shared/flows/repo/data/runtime_cache/history_harmonic.bin",
+            ].compactMap { $0 }
         #else
-        let candidates = [Bundle.main.path(forResource: "history_harmonic", ofType: "bin")]
-            .compactMap { $0 }
+            let candidates = [Bundle.main.path(forResource: "history_harmonic", ofType: "bin")]
+                .compactMap { $0 }
         #endif
         for path in candidates {
             // Mapped, not copied — FileManager.contents pulled the whole
             // ~5.5 MB table into memory before parsing began.
-            if let data = try? Data(contentsOf: URL(fileURLWithPath: path),
-                                    options: .mappedIfSafe),
-               let table = HarmonicClimatology(data: data) {
+            if let data = try? Data(
+                contentsOf: URL(fileURLWithPath: path),
+                options: .mappedIfSafe),
+                let table = HarmonicClimatology(data: data)
+            {
                 return table
             }
         }

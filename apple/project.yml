@@ -15,7 +15,7 @@ options:
 
 settings:
   base:
-    SWIFT_VERSION: "5.0"
+    SWIFT_VERSION: "6.0"
     MARKETING_VERSION: "0.1.0"
     CURRENT_PROJECT_VERSION: "1"
     GENERATE_INFOPLIST_FILE: NO
@@ -342,8 +342,8 @@ targets:
       - path: FLOWS/Sources/Core/WMOAlerts.swift
       - path: FLOWS/Sources/Core/TransitItinerary.swift
       - path: FLOWS/Sources/Core/TransitClock.swift
-      - path: FLOWS/Sources/Core/Islands/UnsafeIslands.swift
-      - path: FLOWS/Sources/Core/Islands/RustLoans.swift
+      # The whole islands folder, so a new island needs no entry here.
+      - path: FLOWS/Sources/Core/Islands
       - path: FLOWS/Sources/Core/TransitShard.swift
       - path: FLOWS/Sources/Core/GTFSZip.swift
       - path: FLOWS/Sources/Core/TransitFeeds.swift

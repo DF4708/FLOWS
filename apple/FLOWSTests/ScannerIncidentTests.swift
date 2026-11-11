@@ -15,17 +15,21 @@ final class ScannerIncidentTests: XCTestCase {
     private let here = CLLocationCoordinate2D(latitude: 33.53, longitude: -82.12)
 
     private func at(_ dLat: Double, _ dLon: Double = 0) -> CLLocationCoordinate2D {
-        CLLocationCoordinate2D(latitude: here.latitude + dLat,
-                               longitude: here.longitude + dLon)
+        CLLocationCoordinate2D(
+            latitude: here.latitude + dLat,
+            longitude: here.longitude + dLon)
     }
 
-    private func incident(_ kind: ScannerIncidents.Kind,
-                          _ c: CLLocationCoordinate2D,
-                          age: TimeInterval = 0,
-                          id: String = "x") -> ScannerIncidents.Incident {
-        ScannerIncidents.Incident(id: id, kind: kind, coordinate: c,
-                                  placeText: "somewhere",
-                                  heardAt: Date().addingTimeInterval(-age))
+    private func incident(
+        _ kind: ScannerIncidents.Kind,
+        _ c: CLLocationCoordinate2D,
+        age: TimeInterval = 0,
+        id: String = "x"
+    ) -> ScannerIncidents.Incident {
+        ScannerIncidents.Incident(
+            id: id, kind: kind, coordinate: c,
+            placeText: "somewhere",
+            heardAt: Date().addingTimeInterval(-age))
     }
 
     // MARK: what kind of call is it
@@ -48,11 +52,13 @@ final class ScannerIncidentTests: XCTestCase {
         // "Motor vehicle accident with injury" is a crash, not a medical —
         // and units responding to a structure fire is a fire, not police.
         XCTAssertEqual(
-            ScannerIncidents.kind(inTranscript:
-                "motor vehicle accident with injury, medic responding"), .traffic)
+            ScannerIncidents.kind(
+                inTranscript:
+                    "motor vehicle accident with injury, medic responding"), .traffic)
         XCTAssertEqual(
-            ScannerIncidents.kind(inTranscript:
-                "units responding to a working fire, officer on scene"), .fire)
+            ScannerIncidents.kind(
+                inTranscript:
+                    "units responding to a working fire, officer on scene"), .fire)
     }
 
     func testChatterWithNoRecognizableCallIsDropped() {
@@ -65,8 +71,9 @@ final class ScannerIncidentTests: XCTestCase {
     func testEveryKindIsReachableThroughItsOwnWords() {
         for kind in ScannerIncidents.Kind.allCases {
             let phrase = kind.phrases.first ?? ""
-            XCTAssertEqual(ScannerIncidents.kind(inTranscript: phrase), kind,
-                           "\(kind.rawValue) unreachable via '\(phrase)'")
+            XCTAssertEqual(
+                ScannerIncidents.kind(inTranscript: phrase), kind,
+                "\(kind.rawValue) unreachable via '\(phrase)'")
         }
     }
 
@@ -110,16 +117,18 @@ final class ScannerIncidentTests: XCTestCase {
     func testAShortLivedCallFadesBeforeALongOne() {
         // A traffic stop is over in minutes; a stale police pin is a lie
         // about where the police are. A hazard blocks a road far longer.
-        XCTAssertLessThan(ScannerIncidents.lifetime(for: .police),
-                          ScannerIncidents.lifetime(for: .hazard))
-        XCTAssertLessThan(ScannerIncidents.lifetime(for: .medical),
-                          ScannerIncidents.lifetime(for: .fire))
+        XCTAssertLessThan(
+            ScannerIncidents.lifetime(for: .police),
+            ScannerIncidents.lifetime(for: .hazard))
+        XCTAssertLessThan(
+            ScannerIncidents.lifetime(for: .medical),
+            ScannerIncidents.lifetime(for: .fire))
     }
 
     // MARK: what gets drawn
 
     func testOnlyNearbyCallsAreShown() {
-        let far = incident(.fire, at(3.0), id: "far")     // ~330 km away
+        let far = incident(.fire, at(3.0), id: "far")  // ~330 km away
         let near = incident(.fire, at(0.05), id: "near")  // ~5 km away
         let shown = ScannerIncidents.visible([far, near], near: here)
         XCTAssertEqual(shown.map(\.id), ["near"])
@@ -129,14 +138,16 @@ final class ScannerIncidentTests: XCTestCase {
         // The point of the corridor: something ahead on your road matters
         // before you are anywhere near it.
         let ahead = incident(.traffic, at(2.0), id: "ahead")
-        let shown = ScannerIncidents.visible([ahead], near: here,
-                                             corridor: [at(2.0)])
+        let shown = ScannerIncidents.visible(
+            [ahead], near: here,
+            corridor: [at(2.0)])
         XCTAssertEqual(shown.map(\.id), ["ahead"])
     }
 
     func testExpiredCallsAreNeverShownEvenIfClose() {
-        let stale = incident(.police, here,
-                             age: ScannerIncidents.lifetime(for: .police) + 60)
+        let stale = incident(
+            .police, here,
+            age: ScannerIncidents.lifetime(for: .police) + 60)
         XCTAssertTrue(ScannerIncidents.visible([stale], near: here).isEmpty)
     }
 
@@ -146,7 +157,7 @@ final class ScannerIncidentTests: XCTestCase {
         // Dispatch repeats a call to several units; without merging, one
         // crash becomes a cluster of pins on one corner.
         let first = incident(.traffic, here, id: "first")
-        let repeated = incident(.traffic, at(0.0005), id: "second")   // ~55 m
+        let repeated = incident(.traffic, at(0.0005), id: "second")  // ~55 m
         let merged = ScannerIncidents.merged([first], adding: repeated)
         XCTAssertEqual(merged.map(\.id), ["second"])
     }
@@ -161,7 +172,7 @@ final class ScannerIncidentTests: XCTestCase {
 
     func testTwoCallsOfAKindFarApartBothStand() {
         let a = incident(.fire, here, id: "a")
-        let b = incident(.fire, at(0.05), id: "b")   // ~5 km
+        let b = incident(.fire, at(0.05), id: "b")  // ~5 km
         XCTAssertEqual(ScannerIncidents.merged([a], adding: b).count, 2)
     }
 
@@ -200,22 +211,26 @@ final class HazardDominanceTests: XCTestCase {
     }
 
     func testFloodingCanNameAnAreaNow() {
-        XCTAssertEqual(HazardRanking.dominantFamily(["qpf_flood": 0.8, "fire": 0.5]),
-                       "qpf_flood")
+        XCTAssertEqual(
+            HazardRanking.dominantFamily(["qpf_flood": 0.8, "fire": 0.5]),
+            "qpf_flood")
     }
 
     func testFireStillWinsWhenFireIsActuallyTheWorstThing() {
-        XCTAssertEqual(HazardRanking.dominantFamily(["fire": 0.92, "convective": 0.55]),
-                       "fire")
+        XCTAssertEqual(
+            HazardRanking.dominantFamily(["fire": 0.92, "convective": 0.55]),
+            "fire")
     }
 
     func testAnAcuteHazardWinsATIEButNotAGap() {
         // A distinct named danger is the more useful label when the numbers
         // are level — but a nudge, never a veto.
-        XCTAssertEqual(HazardRanking.dominantFamily(["fire": 0.70, "convective": 0.70]),
-                       "fire")
-        XCTAssertEqual(HazardRanking.dominantFamily(["fire": 0.70, "convective": 0.80]),
-                       "convective")
+        XCTAssertEqual(
+            HazardRanking.dominantFamily(["fire": 0.70, "convective": 0.70]),
+            "fire")
+        XCTAssertEqual(
+            HazardRanking.dominantFamily(["fire": 0.70, "convective": 0.80]),
+            "convective")
     }
 
     func testAQuietAreaIsNotNamedAtAll() {
@@ -228,12 +243,15 @@ final class HazardDominanceTests: XCTestCase {
     func testEveryFamilyCanWinWhenItIsTheWorst() {
         // No family may be structurally excluded from naming an area — that
         // exclusion is what this whole fix was about.
-        let families = ["fire", "convective", "qpf_flood", "winter", "wind",
-                        "heat", "cold", "air", "radiation", "seismic",
-                        "tropical", "volcanic", "avalanche", "tsunami"]
+        let families = [
+            "fire", "convective", "qpf_flood", "winter", "wind",
+            "heat", "cold", "air", "radiation", "seismic",
+            "tropical", "volcanic", "avalanche", "tsunami",
+        ]
         for f in families {
-            var scores = Dictionary(uniqueKeysWithValues:
-                families.map { ($0, 0.5) })
+            var scores = Dictionary(
+                uniqueKeysWithValues:
+                    families.map { ($0, 0.5) })
             scores[f] = 0.99
             XCTAssertEqual(HazardRanking.dominantFamily(scores), f, f)
         }
@@ -243,9 +261,12 @@ final class HazardDominanceTests: XCTestCase {
 /// What a suggestion row actually plans against.
 final class DestinationSuggestionTests: XCTestCase {
 
-    private func suggestion(_ title: String, _ subtitle: String,
-                            _ kind: DestinationSearch.Suggestion.Kind)
-        -> DestinationSearch.Suggestion {
+    private func suggestion(
+        _ title: String, _ subtitle: String,
+        _ kind: DestinationSearch.Suggestion.Kind
+    )
+        -> DestinationSearch.Suggestion
+    {
         DestinationSearch.Suggestion(title: title, subtitle: subtitle, kind: kind)
     }
 
@@ -262,8 +283,9 @@ final class DestinationSuggestionTests: XCTestCase {
         // became "Sun Prairie, Recent" — which geocodes to nothing, and the
         // driver got "couldn't find that place" for a town they visit
         // every week.
-        XCTAssertEqual(suggestion("Sun Prairie", "Recent", .recent).searchText,
-                       "Sun Prairie")
+        XCTAssertEqual(
+            suggestion("Sun Prairie", "Recent", .recent).searchText,
+            "Sun Prairie")
     }
 
     func testAPredictionDoesNotPlanAgainstItsReason() {

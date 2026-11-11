@@ -104,21 +104,26 @@ enum AirTravel {
     /// The airports with airline service near a point, best first (nearest,
     /// with a large airport worth a longer drive).
     static func nearest(to c: CLLocationCoordinate2D, limit: Int = 3) -> [Airport] {
-        airports(flows_airports_nearest(c.latitude, c.longitude, Int64(limit)),
-                 places: flows_airports_nearest_places(c.latitude, c.longitude, Int64(limit)))
+        airports(
+            flows_airports_nearest(c.latitude, c.longitude, Int64(limit)),
+            places: flows_airports_nearest_places(c.latitude, c.longitude, Int64(limit)))
     }
 
     /// The two ends of a flight for this trip — board, then alight — or none
     /// when no flight fits it. The MAP SEARCH this replaced turned an empty
     /// or throttled answer into "no flight fits this trip" for routes with
     /// daily service, and judged airports by name.
-    static func flightEnds(from: CLLocationCoordinate2D,
-                           to: CLLocationCoordinate2D) -> (board: Airport, alight: Airport)? {
+    static func flightEnds(
+        from: CLLocationCoordinate2D,
+        to: CLLocationCoordinate2D
+    ) -> (board: Airport, alight: Airport)? {
         let gap = minAirportGapMiles * 1609.344
-        let rows = flows_airports_pair(from.latitude, from.longitude,
-                                       to.latitude, to.longitude, gap)
-        let places = flows_airports_pair_places(from.latitude, from.longitude,
-                                                to.latitude, to.longitude, gap)
+        let rows = flows_airports_pair(
+            from.latitude, from.longitude,
+            to.latitude, to.longitude, gap)
+        let places = flows_airports_pair_places(
+            from.latitude, from.longitude,
+            to.latitude, to.longitude, gap)
         let found = airports(rows, places: places)
         guard found.count == 2 else { return nil }
         return (found[0], found[1])
@@ -126,25 +131,30 @@ enum AirTravel {
 
     /// The bridge's rows ("IATA␟name␟city␟country␟size") beside their three
     /// doubles each (latitude, longitude, meters).
-    private static func airports(_ rows: RustVec<RustString>,
-                                 places: RustVec<Double>) -> [Airport] {
+    private static func airports(
+        _ rows: RustVec<RustString>,
+        places: RustVec<Double>
+    ) -> [Airport] {
         var numbers: [Double] = []
         for value in places { numbers.append(value) }
         var out: [Airport] = []
         var i = 0
         for row in rows {
             let text: String = row.text
-            let parts: [String] = text
+            let parts: [String] =
+                text
                 .split(separator: "\u{1F}", omittingEmptySubsequences: false)
                 .map(String.init)
             let base = i * 3
             i += 1
             guard parts.count == 6, numbers.count >= base + 3 else { continue }
-            let place = CLLocationCoordinate2D(latitude: numbers[base],
-                                               longitude: numbers[base + 1])
-            let airport = Airport(code: parts[0], name: parts[1], city: parts[2],
-                                  country: parts[3], region: parts[4], size: parts[5],
-                                  coordinate: place, meters: numbers[base + 2])
+            let place = CLLocationCoordinate2D(
+                latitude: numbers[base],
+                longitude: numbers[base + 1])
+            let airport = Airport(
+                code: parts[0], name: parts[1], city: parts[2],
+                country: parts[3], region: parts[4], size: parts[5],
+                coordinate: place, meters: numbers[base + 2])
             out.append(airport)
         }
         return out
@@ -182,19 +192,26 @@ enum AirTravel {
 
     /// Board / fly / land instructions in plain words, with the airport
     /// buffers stated so the total time is explainable.
-    static func flightSteps(board: String, alight: String,
-                            airportMiles: Double) -> [String] {
-        ["Get to \(board) 90 minutes early",
-         "Fly \(TransitPlanning.durationPhrase(flightSeconds(airportMiles: airportMiles)))",
-         "Land at \(alight) — bags and exit take about 30 minutes"]
+    static func flightSteps(
+        board: String, alight: String,
+        airportMiles: Double
+    ) -> [String] {
+        [
+            "Get to \(board) 90 minutes early",
+            "Fly \(TransitPlanning.durationPhrase(flightSeconds(airportMiles: airportMiles)))",
+            "Land at \(alight) — bags and exit take about 30 minutes",
+        ]
     }
 
     /// Keyless neutral flight search for the airport pair — plain-text query,
     /// no API key, works in any browser.
     static func flightSearchURL(from board: String, to alight: String) -> URL? {
         var parts = URLComponents(string: "https://www.google.com/travel/flights")
-        parts?.queryItems = [URLQueryItem(name: "q",
-                                          value: "flights from \(board) to \(alight)")]
+        parts?.queryItems = [
+            URLQueryItem(
+                name: "q",
+                value: "flights from \(board) to \(alight)")
+        ]
         return parts?.url
     }
 
@@ -214,13 +231,17 @@ enum AirTravel {
     /// when FLOWS knows their codes, then the boarding airport's own page,
     /// then a search by name. No date is filled in — FLOWS plans the road
     /// for today and has no idea when the driver would fly.
-    static func ticket(board: String, alight: String,
-                       boardCode: String? = nil, alightCode: String? = nil,
-                       airportURL: URL?) -> (label: String, url: URL?) {
+    static func ticket(
+        board: String, alight: String,
+        boardCode: String? = nil, alightCode: String? = nil,
+        airportURL: URL?
+    ) -> (label: String, url: URL?) {
         let byCode = boardCode.flatMap { b in
             alightCode.flatMap { flightSearchURL(boardCode: b, alightCode: $0) }
         }
-        return ("Find flights: \(board) → \(alight)",
-                byCode ?? airportURL ?? flightSearchURL(from: board, to: alight))
+        return (
+            "Find flights: \(board) → \(alight)",
+            byCode ?? airportURL ?? flightSearchURL(from: board, to: alight)
+        )
     }
 }

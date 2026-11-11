@@ -87,7 +87,7 @@ enum BroadcastRadio {
 
     /// One broadcaster's stream.
     struct Station: Codable, Identifiable, Equatable, Hashable {
-        var id: String            // the directory's stable station uuid
+        var id: String  // the directory's stable station uuid
         var name: String
         var url: String
         var tags: String
@@ -103,7 +103,8 @@ enum BroadcastRadio {
         var dialLabel: String? { BroadcastRadio.dialLabel(from: name) }
 
         var streamURL: URL? {
-            let secured = url.hasPrefix("http://")
+            let secured =
+                url.hasPrefix("http://")
                 ? "https://" + url.dropFirst("http://".count) : url
             return URL(string: secured)
         }
@@ -129,8 +130,10 @@ enum BroadcastRadio {
     /// Rank stations for a driver at `position`: located ones nearest first,
     /// then the rest by bitrate. A local broadcaster is the point — a
     /// higher-bitrate stream from three states away is not "local radio".
-    static func ranked(_ stations: [Station],
-                       near position: CLLocationCoordinate2D?) -> [Station] {
+    static func ranked(
+        _ stations: [Station],
+        near position: CLLocationCoordinate2D?
+    ) -> [Station] {
         let placeholder = stations.isEmpty
         let lats = placeholder ? [0] : stations.map { $0.latitude ?? 0 }
         let hasLat: [UInt8] = placeholder ? [0] : stations.map { $0.latitude == nil ? 0 : 1 }
@@ -142,9 +145,10 @@ enum BroadcastRadio {
                 lons.lent { lo in
                     hasLon.lent { hlo in
                         bitrates.lent { br in
-                            Array(flows_tags_ranked_stations(
-                                la, hla, lo, hlo, br, Int64(stations.count),
-                                position?.latitude ?? 0, position?.longitude ?? 0, position != nil))
+                            Array(
+                                flows_tags_ranked_stations(
+                                    la, hla, lo, hlo, br, Int64(stations.count),
+                                    position?.latitude ?? 0, position?.longitude ?? 0, position != nil))
                         }
                     }
                 }

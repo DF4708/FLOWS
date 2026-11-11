@@ -7,8 +7,9 @@
 // -----------------------------------------------------------------------------
 
 import Foundation
+
 #if os(iOS)
-import UIKit
+    import UIKit
 #endif
 
 /// Hearing-parity channel: everything FLOWS announces OUT LOUD also lands
@@ -22,7 +23,7 @@ enum Haptics {
     @MainActor
     static func warning() {
         #if os(iOS)
-        UINotificationFeedbackGenerator().notificationOccurred(.warning)
+            UINotificationFeedbackGenerator().notificationOccurred(.warning)
         #endif
     }
 
@@ -31,7 +32,7 @@ enum Haptics {
     @MainActor
     static func offer() {
         #if os(iOS)
-        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
         #endif
     }
 }

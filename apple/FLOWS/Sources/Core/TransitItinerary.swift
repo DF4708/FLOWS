@@ -43,13 +43,17 @@ struct TransitFare: Equatable {
     /// money, for the operator's currency.
     func text(locale: Locale = .current) -> String {
         if cents == 0 && !from { return "free" }
-        let money = Self.moneyFaces.with(locale.identifier + "|" + currency, make: {
-            let f = NumberFormatter()
-            f.numberStyle = .currency
-            f.locale = locale
-            f.currencyCode = currency
-            return f
-        }) { $0.string(from: NSNumber(value: amount)) } ?? String(format: "%.2f", amount)
+        let money =
+            Self.moneyFaces.with(
+                locale.identifier + "|" + currency,
+                make: {
+                    let f = NumberFormatter()
+                    f.numberStyle = .currency
+                    f.locale = locale
+                    f.currencyCode = currency
+                    return f
+                }
+            ) { $0.string(from: NSNumber(value: amount)) } ?? String(format: "%.2f", amount)
         return from ? "from \(money)" : money
     }
 
@@ -93,7 +97,7 @@ struct TransitLeg: Identifiable {
 }
 
 struct TransitItinerary {
-    let mode: String                 // "Amtrak" / "Greyhound" / "Rail" / "Bus"
+    let mode: String  // "Amtrak" / "Greyhound" / "Rail" / "Bus"
     let legs: [TransitLeg]
     let fare: Double
     /// For the optional "open the live schedule in Maps" secondary action.
@@ -130,8 +134,10 @@ struct TransitItinerary {
     /// every connection's wait inside it — and `after` from there. The wait
     /// for the first vehicle is not counted: a rider leaves later instead.
     /// Nil without a timetable's clock.
-    static func doorToDoor(before: TimeInterval?, schedule: TransitSchedule?,
-                           after: TimeInterval?) -> TimeInterval? {
+    static func doorToDoor(
+        before: TimeInterval?, schedule: TransitSchedule?,
+        after: TimeInterval?
+    ) -> TimeInterval? {
         guard let on = schedule?.boardAt, let off = schedule?.alightAt, off >= on else {
             return nil
         }
@@ -187,9 +193,11 @@ enum TransitPlanning {
     static func rideSteps(
         mode: String, board: String, alight: String, seconds: TimeInterval?
     ) -> [String] {
-        ["Board the \(shownName(mode)) at \(board)",
-         "Ride \(durationPhrase(seconds))",
-         "Get off at \(alight)"]
+        [
+            "Board the \(shownName(mode)) at \(board)",
+            "Ride \(durationPhrase(seconds))",
+            "Get off at \(alight)",
+        ]
     }
 
     /// What a ride is called on a card. Every coach between cities was
@@ -268,11 +276,13 @@ enum RentalCars {
     /// The DiscoverCars city a traveller near a point books a car in — its
     /// name and where it is — or nil when no rental city is near.
     static func pickup(near c: CLLocationCoordinate2D)
-        -> (name: String, coordinate: CLLocationCoordinate2D)? {
+        -> (name: String, coordinate: CLLocationCoordinate2D)?
+    {
         let parts = flows_rides_rental_pickup_near(c.latitude, c.longitude).text
             .split(separator: "\u{1F}", omittingEmptySubsequences: false)
         guard parts.count == 3, !parts[0].isEmpty,
-              let lat = Double(parts[1]), let lon = Double(parts[2]) else { return nil }
+            let lat = Double(parts[1]), let lon = Double(parts[2])
+        else { return nil }
         return (String(parts[0]), CLLocationCoordinate2D(latitude: lat, longitude: lon))
     }
 
@@ -308,8 +318,11 @@ enum RentalCars {
     /// The arrival airport's own rental page ("…/usa-illinois/chicago/ord")
     /// when DiscoverCars lists it; otherwise the best page near the airport.
     static func compareURL(airport code: String, at coordinate: CLLocationCoordinate2D) -> URL? {
-        URL(string: flows_rides_rental_landing_airport(code, coordinate.latitude,
-                                                       coordinate.longitude).text)
+        URL(
+            string: flows_rides_rental_landing_airport(
+                code, coordinate.latitude,
+                coordinate.longitude
+            ).text)
             ?? compareURL
     }
 
@@ -323,8 +336,10 @@ enum TransitTickets {
     /// booking site; local transit uses the boarding station's own page when
     /// MapKit knows it (usually the agency), else nil (fares are on-board /
     /// agency-app for most local systems — the label still names the ride).
-    static func ticket(mode: String, board: String, alight: String,
-                       stationURL: URL? = nil) -> (label: String, url: URL?) {
+    static func ticket(
+        mode: String, board: String, alight: String,
+        stationURL: URL? = nil
+    ) -> (label: String, url: URL?) {
         let ride = "\(board) → \(alight)"
         switch mode {
         case "Amtrak":
@@ -333,12 +348,16 @@ enum TransitTickets {
             // boarding station's own Amtrak page is the useful one (times,
             // services, and the booking form); their front page, which
             // carries that form, is the fallback.
-            return ("Buy Amtrak ticket: \(ride)",
-                    amtrakStationURL(stationURL) ?? URL(string: "https://www.amtrak.com"))
+            return (
+                "Buy Amtrak ticket: \(ride)",
+                amtrakStationURL(stationURL) ?? URL(string: "https://www.amtrak.com")
+            )
         case "Greyhound":
             // Where Greyhound itself says to buy, in its own schedule feed.
-            return ("Bus tickets, Greyhound and partner lines: \(ride)",
-                    URL(string: "https://shop.greyhound.com"))
+            return (
+                "Bus tickets, Greyhound and partner lines: \(ride)",
+                URL(string: "https://shop.greyhound.com")
+            )
         case "Rail":
             return ("Rail fare: \(ride)", stationURL)
         default:
@@ -351,7 +370,8 @@ enum TransitTickets {
     /// transit agency — is not an Amtrak ticket and is left alone.
     static func amtrakStationURL(_ url: URL?) -> URL? {
         guard let url, let host = url.host()?.lowercased(),
-              host == "amtrak.com" || host.hasSuffix(".amtrak.com") else { return nil }
+            host == "amtrak.com" || host.hasSuffix(".amtrak.com")
+        else { return nil }
         return url
     }
 }
@@ -370,7 +390,10 @@ enum TransitMode: CaseIterable, Hashable { case rail, bus, plane, ship, rental }
 struct TripShape: Equatable {
     /// The long way. `short` is a trip with none: the city's own buses and
     /// trains, or a rental car, go door to door.
-    enum Main: Int { case short = 0, plane, train, coach, ship }
+    enum Main: Int {
+        case short = 0
+        case plane, train, coach, ship
+    }
     /// How the rider reaches the main ride.
     enum Access: Int {
         /// Walk when the station is close, drive and park when it is not.
@@ -381,7 +404,10 @@ struct TripShape: Equatable {
         case local
     }
     /// How the rider gets from the main ride to where they are going.
-    enum Egress: Int { case walk = 0, local, rental, rentOrRide }
+    enum Egress: Int {
+        case walk = 0
+        case local, rental, rentOrRide
+    }
 
     let main: Main
     let access: Access
@@ -476,15 +502,19 @@ struct TripShape: Equatable {
 
     /// Whether a city trip on any vehicle, taking `otherSeconds`, should
     /// replace the one on the chosen vehicles (nil: they cannot make it).
-    static func otherVehicleWins(chosenSeconds: TimeInterval?,
-                                 otherSeconds: TimeInterval) -> Bool {
+    static func otherVehicleWins(
+        chosenSeconds: TimeInterval?,
+        otherSeconds: TimeInterval
+    ) -> Bool {
         flows_transit_other_vehicle_wins(chosenSeconds ?? 0, chosenSeconds != nil, otherSeconds)
     }
 
     /// Whether a city ride taking `transitSeconds` door to door (waiting
     /// included) should replace a walk of `walkSeconds`.
-    static func transitBeatsWalk(walkSeconds: TimeInterval?,
-                                 transitSeconds: TimeInterval) -> Bool {
+    static func transitBeatsWalk(
+        walkSeconds: TimeInterval?,
+        transitSeconds: TimeInterval
+    ) -> Bool {
         flows_transit_beats_walk(walkSeconds ?? 0, walkSeconds != nil, transitSeconds)
     }
 }
@@ -571,8 +601,9 @@ struct TransitSchedule: Equatable {
         let span: String
         let seconds: TimeInterval
         if let on = first.boardAt, let off = last.alightAt {
-            span = TransitClock.span(board: on, boardZone: first.boardZone,
-                                     alight: off, alightZone: last.alightZone, locale: locale)
+            span = TransitClock.span(
+                board: on, boardZone: first.boardZone,
+                alight: off, alightZone: last.alightZone, locale: locale)
             seconds = off.timeIntervalSince(on)
         } else {
             span = "\(first.clockSpan) … \(last.clockSpan)"
@@ -583,7 +614,8 @@ struct TransitSchedule: Equatable {
             legs: legs,
             boardName: first.boardName,
             alightName: last.alightName,
-            routeName: changes == 0 ? first.routeName
+            routeName: changes == 0
+                ? first.routeName
                 : (changes == 1 ? "1 change" : "\(changes) changes"),
             clockSpan: span,
             rideSeconds: seconds,
@@ -720,38 +752,44 @@ enum ShipTravel {
 
     /// The census ferries from a terminal within `reachMeters` of `start`
     /// to one within it of `end`, least ground to cover first.
-    static func crossings(from start: CLLocationCoordinate2D, to end: CLLocationCoordinate2D,
-                          reachMeters: Double = terminalReachMeters,
-                          limit: Int = 3) -> [Crossing] {
+    static func crossings(
+        from start: CLLocationCoordinate2D, to end: CLLocationCoordinate2D,
+        reachMeters: Double = terminalReachMeters,
+        limit: Int = 3
+    ) -> [Crossing] {
         var out: [Crossing] = []
-        for row in flows_transit_ferry_crossings(start.latitude, start.longitude,
-                                                 end.latitude, end.longitude,
-                                                 reachMeters, Int64(limit)) {
+        for row in flows_transit_ferry_crossings(
+            start.latitude, start.longitude,
+            end.latitude, end.longitude,
+            reachMeters, Int64(limit))
+        {
             let f = row.text
                 .split(separator: "\u{1F}", omittingEmptySubsequences: false).map(String.init)
             guard f.count == 20, f[0] == "ferry",
-                  let bLat = Double(f[6]), let bLon = Double(f[7]),
-                  let aLat = Double(f[10]), let aLon = Double(f[11])
+                let bLat = Double(f[6]), let bLon = Double(f[7]),
+                let aLat = Double(f[10]), let aLon = Double(f[11])
             else { continue }
             let minutes = Int(f[12]).flatMap { $0 > 0 ? $0 : nil }
             let season: (Int, Int, Int, Int)? = {
                 guard let m1 = Int(f[14]), let d1 = Int(f[15]), let m2 = Int(f[16]),
-                      let d2 = Int(f[17]), m1 > 0, m2 > 0 else { return nil }
+                    let d2 = Int(f[17]), m1 > 0, m2 > 0
+                else { return nil }
                 return (m1, d1, m2, d2)
             }()
             func place(_ name: String, _ city: String) -> String {
                 city.isEmpty || name.localizedCaseInsensitiveContains(city) ? name : "\(name), \(city)"
             }
-            out.append(Crossing(
-                route: f[1], operatorName: f[2],
-                operatorURL: f[3].isEmpty ? nil : URL(string: f[3]),
-                boardName: place(f[4], f[5]),
-                boardCoordinate: CLLocationCoordinate2D(latitude: bLat, longitude: bLon),
-                alightName: place(f[8], f[9]),
-                alightCoordinate: CLLocationCoordinate2D(latitude: aLat, longitude: aLon),
-                minutes: minutes, season: season,
-                crossingsADay: Double(f[18]) ?? 0,
-                cars: f[19] == "1" ? true : f[19] == "0" ? false : nil))
+            out.append(
+                Crossing(
+                    route: f[1], operatorName: f[2],
+                    operatorURL: f[3].isEmpty ? nil : URL(string: f[3]),
+                    boardName: place(f[4], f[5]),
+                    boardCoordinate: CLLocationCoordinate2D(latitude: bLat, longitude: bLon),
+                    alightName: place(f[8], f[9]),
+                    alightCoordinate: CLLocationCoordinate2D(latitude: aLat, longitude: aLon),
+                    minutes: minutes, season: season,
+                    crossingsADay: Double(f[18]) ?? 0,
+                    cars: f[19] == "1" ? true : f[19] == "0" ? false : nil))
         }
         return out
     }
@@ -761,8 +799,10 @@ enum ShipTravel {
     /// they started from, or 2 km. Seattle's water taxi lands in West
     /// Seattle, eleven kilometres from Bainbridge Island, and was offered
     /// as the way there when no other boat's timetable was read.
-    static func sailingHelps(start: CLLocationCoordinate2D, landing: CLLocationCoordinate2D,
-                             end: CLLocationCoordinate2D) -> Bool {
+    static func sailingHelps(
+        start: CLLocationCoordinate2D, landing: CLLocationCoordinate2D,
+        end: CLLocationCoordinate2D
+    ) -> Bool {
         func meters(_ a: CLLocationCoordinate2D, _ b: CLLocationCoordinate2D) -> Double {
             CLLocation(latitude: a.latitude, longitude: a.longitude)
                 .distance(from: CLLocation(latitude: b.latitude, longitude: b.longitude))
@@ -793,8 +833,9 @@ enum ShipTravel {
     /// has a name.
     static func cruiseSearchURL(from terminal: String, toward: String) -> URL? {
         guard let port = placeWord(terminal) else { return nil }
-        return search(placeWord(toward).map { "cruises from \(port) to \($0)" }
-                      ?? "cruises from \(port)")
+        return search(
+            placeWord(toward).map { "cruises from \(port) to \($0)" }
+                ?? "cruises from \(port)")
     }
 
     /// Whether a map result reads as a cruise terminal: it says "cruise", or

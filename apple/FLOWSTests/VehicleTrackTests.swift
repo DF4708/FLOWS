@@ -16,8 +16,9 @@ final class VehicleTrackTests: XCTestCase {
     private let here = CLLocationCoordinate2D(latitude: 43.07, longitude: -89.40)
 
     private func north(_ meters: Double) -> CLLocationCoordinate2D {
-        CLLocationCoordinate2D(latitude: here.latitude + meters / 111_320,
-                               longitude: here.longitude)
+        CLLocationCoordinate2D(
+            latitude: here.latitude + meters / 111_320,
+            longitude: here.longitude)
     }
 
     // MARK: sliding, not hopping
@@ -51,20 +52,28 @@ final class VehicleTrackTests: XCTestCase {
     func testAParkedVehicleHoldsItsLastDirectionRatherThanSpinning() {
         // GPS course is noise at a standstill. A car waiting at a light must
         // not rotate on the spot.
-        XCTAssertEqual(VehicleTrack.heading(courseDegrees: 271, speedMps: 0.1,
-                                            previous: 90), 90)
-        XCTAssertNil(VehicleTrack.heading(courseDegrees: -1, speedMps: 0,
-                                          previous: nil))
+        XCTAssertEqual(
+            VehicleTrack.heading(
+                courseDegrees: 271, speedMps: 0.1,
+                previous: 90), 90)
+        XCTAssertNil(
+            VehicleTrack.heading(
+                courseDegrees: -1, speedMps: 0,
+                previous: nil))
     }
 
     func testAMovingVehicleUsesTheReportedCourse() {
-        XCTAssertEqual(VehicleTrack.heading(courseDegrees: 180, speedMps: 20,
-                                            previous: 90), 180)
+        XCTAssertEqual(
+            VehicleTrack.heading(
+                courseDegrees: 180, speedMps: 20,
+                previous: 90), 180)
     }
 
     func testAFixWithNoCourseKeepsTheLastKnownDirection() {
-        XCTAssertEqual(VehicleTrack.heading(courseDegrees: -1, speedMps: 20,
-                                            previous: 45), 45)
+        XCTAssertEqual(
+            VehicleTrack.heading(
+                courseDegrees: -1, speedMps: 20,
+                previous: 45), 45)
     }
 
     func testTurningAcrossNorthTakesTheShortWayRound() {
@@ -84,36 +93,48 @@ final class VehicleTrackTests: XCTestCase {
     // MARK: which drawing to use
 
     func testLookingStraightDownShowsTheRoof() {
-        XCTAssertEqual(VehicleAspect.forCamera(pitchDegrees: 0,
-                                               relativeBearing: 0), .top)
+        XCTAssertEqual(
+            VehicleAspect.forCamera(
+                pitchDegrees: 0,
+                relativeBearing: 0), .top)
     }
 
     func testFollowingBehindShowsTheBack() {
-        XCTAssertEqual(VehicleAspect.forCamera(pitchDegrees: 60,
-                                               relativeBearing: 0), .rear)
+        XCTAssertEqual(
+            VehicleAspect.forCamera(
+                pitchDegrees: 60,
+                relativeBearing: 0), .rear)
     }
 
     func testACameraFacingTheCarShowsItsFront() {
-        XCTAssertEqual(VehicleAspect.forCamera(pitchDegrees: 60,
-                                               relativeBearing: 180), .front)
+        XCTAssertEqual(
+            VehicleAspect.forCamera(
+                pitchDegrees: 60,
+                relativeBearing: 180), .front)
     }
 
     func testACameraOffToTheSideShowsTheSide() {
-        XCTAssertEqual(VehicleAspect.forCamera(pitchDegrees: 60,
-                                               relativeBearing: 90), .side)
+        XCTAssertEqual(
+            VehicleAspect.forCamera(
+                pitchDegrees: 60,
+                relativeBearing: 90), .side)
     }
 
     // MARK: what shape it is
 
     func testAnEighteenWheelerIsNotDrawnAsAHatchback() {
-        XCTAssertEqual(VehicleShape.matching(make: "Freightliner", model: "Cascadia",
-                                             gvwrLbs: 80_000, isTrucker: true), .semi)
+        XCTAssertEqual(
+            VehicleShape.matching(
+                make: "Freightliner", model: "Cascadia",
+                gvwrLbs: 80_000, isTrucker: true), .semi)
     }
 
     func testWeightDecidesBeforeTheNameDoes() {
         // A box truck badged with a car-sounding model is still a box truck.
-        XCTAssertEqual(VehicleShape.matching(make: "Isuzu", model: "Elf",
-                                             gvwrLbs: 14_000, isTrucker: false), .box)
+        XCTAssertEqual(
+            VehicleShape.matching(
+                make: "Isuzu", model: "Elf",
+                gvwrLbs: 14_000, isTrucker: false), .box)
     }
 
     func testCommonBodiesAreRecognizedByName() {
@@ -124,17 +145,23 @@ final class VehicleTrackTests: XCTestCase {
             ("Honda", "Civic", .car),
         ]
         for (make, model, want) in cases {
-            XCTAssertEqual(VehicleShape.matching(make: make, model: model,
-                                                 gvwrLbs: nil, isTrucker: false),
-                           want, "\(make) \(model)")
+            XCTAssertEqual(
+                VehicleShape.matching(
+                    make: make, model: model,
+                    gvwrLbs: nil, isTrucker: false),
+                want, "\(make) \(model)")
         }
     }
 
     func testWithNoVehicleOnFileTruckerModeStillGetsATruck() {
-        XCTAssertEqual(VehicleShape.matching(make: nil, model: nil,
-                                             gvwrLbs: nil, isTrucker: true), .semi)
-        XCTAssertEqual(VehicleShape.matching(make: nil, model: nil,
-                                             gvwrLbs: nil, isTrucker: false), .car)
+        XCTAssertEqual(
+            VehicleShape.matching(
+                make: nil, model: nil,
+                gvwrLbs: nil, isTrucker: true), .semi)
+        XCTAssertEqual(
+            VehicleShape.matching(
+                make: nil, model: nil,
+                gvwrLbs: nil, isTrucker: false), .car)
     }
 
     func testEveryShapeHasADrawingForEveryAngle() {
@@ -143,8 +170,9 @@ final class VehicleTrackTests: XCTestCase {
         // names themselves were checked against the installed symbol set.
         for shape in VehicleShape.allCases {
             for aspect in VehicleAspect.allCases {
-                XCTAssertFalse(shape.symbol(aspect).isEmpty,
-                               "\(shape.rawValue)/\(aspect.rawValue)")
+                XCTAssertFalse(
+                    shape.symbol(aspect).isEmpty,
+                    "\(shape.rawValue)/\(aspect.rawValue)")
             }
             XCTAssertFalse(shape.title.isEmpty)
         }
@@ -155,25 +183,28 @@ final class VehicleTrackTests: XCTestCase {
     func testTheAimPointShiftsWhenChromeCoversTheTop() {
         // Chrome on top means the open band is lower, so the camera must aim
         // ahead of the vehicle to push it down into view.
-        let shifted = CameraZoom.chaseCenter(vehicle: here, headingDegrees: 0,
-                                             distanceMeters: 1_000,
-                                             topCover: 0.3, bottomCover: 0.1)
+        let shifted = CameraZoom.chaseCenter(
+            vehicle: here, headingDegrees: 0,
+            distanceMeters: 1_000,
+            topCover: 0.3, bottomCover: 0.1)
         XCTAssertGreaterThan(shifted.latitude, here.latitude)
     }
 
     func testAnUncoveredMapAimsStraightAtTheVehicle() {
-        let same = CameraZoom.chaseCenter(vehicle: here, headingDegrees: 90,
-                                          distanceMeters: 1_000,
-                                          topCover: 0.2, bottomCover: 0.2)
+        let same = CameraZoom.chaseCenter(
+            vehicle: here, headingDegrees: 90,
+            distanceMeters: 1_000,
+            topCover: 0.2, bottomCover: 0.2)
         XCTAssertEqual(same.latitude, here.latitude, accuracy: 1e-9)
         XCTAssertEqual(same.longitude, here.longitude, accuracy: 1e-9)
     }
 
     func testTheShiftFollowsTheHeading() {
         // Heading east, the aim point moves east — not north.
-        let east = CameraZoom.chaseCenter(vehicle: here, headingDegrees: 90,
-                                          distanceMeters: 1_000,
-                                          topCover: 0.3, bottomCover: 0.1)
+        let east = CameraZoom.chaseCenter(
+            vehicle: here, headingDegrees: 90,
+            distanceMeters: 1_000,
+            topCover: 0.3, bottomCover: 0.1)
         XCTAssertGreaterThan(east.longitude, here.longitude)
         XCTAssertEqual(east.latitude, here.latitude, accuracy: 1e-6)
     }
@@ -200,12 +231,14 @@ final class VehicleTrackTests: XCTestCase {
 /// Framing a route clear of whichever edge the chrome covers.
 final class PanelFramingTests: XCTestCase {
     /// A route rect somewhere with room around it.
-    private let route = MKMapRect(x: 40_000_000, y: 90_000_000,
-                                  width: 400_000, height: 200_000)
+    private let route = MKMapRect(
+        x: 40_000_000, y: 90_000_000,
+        width: 400_000, height: 200_000)
 
     private func framed(_ edge: CameraZoom.PanelEdge) -> MKMapRect {
-        CameraZoom.framedRect(route, panelEdge: edge,
-                              windowAspect: 2.0, panelFraction: 0.4)
+        CameraZoom.framedRect(
+            route, panelEdge: edge,
+            windowAspect: 2.0, panelFraction: 0.4)
     }
 
     func testABottomPanelLiftsTheRouteUpTheScreen() {
@@ -243,8 +276,9 @@ final class PanelFramingTests: XCTestCase {
     }
 
     func testNoPanelMeansNoShift() {
-        let unshifted = CameraZoom.framedRect(route, panelEdge: .bottom,
-                                              windowAspect: 2.0, panelFraction: 0)
+        let unshifted = CameraZoom.framedRect(
+            route, panelEdge: .bottom,
+            windowAspect: 2.0, panelFraction: 0)
         XCTAssertEqual(unshifted.midY, route.midY, accuracy: 1)
     }
 }
@@ -264,8 +298,9 @@ final class ChromeFitTests: XCTestCase {
             let g = scale(w, h)
             let panelLeftEdge = (w - g.sidePanel) / 2
             let keyRightEdge = g.pad + g.legendOuterWidth
-            XCTAssertLessThanOrEqual(keyRightEdge, panelLeftEdge,
-                                     "key overlaps the panel at \(w)×\(h)")
+            XCTAssertLessThanOrEqual(
+                keyRightEdge, panelLeftEdge,
+                "key overlaps the panel at \(w)×\(h)")
         }
     }
 
@@ -279,8 +314,9 @@ final class ChromeFitTests: XCTestCase {
     }
 
     func testTheKeyWidensWithTheWindow() {
-        XCTAssertGreaterThan(scale(1600, 1000).legendDrawWidth,
-                             scale(900, 700).legendDrawWidth)
+        XCTAssertGreaterThan(
+            scale(1600, 1000).legendDrawWidth,
+            scale(900, 700).legendDrawWidth)
     }
 
     func testAGutterTooNarrowToReadHidesTheKeyEntirely() {

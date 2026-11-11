@@ -45,23 +45,26 @@ struct AlertLengthSample: Equatable {
 enum AlertLengthLearning {
     /// The examples in one api.weather.gov alert list. Cancelled messages
     /// and events with no stated end teach nothing.
-    static func samples(from features: [[String: Any]],
-                        parse: (String) -> Date?) -> [AlertLengthSample] {
+    static func samples(
+        from features: [[String: Any]],
+        parse: (String) -> Date?
+    ) -> [AlertLengthSample] {
         features.compactMap { feature -> AlertLengthSample? in
             guard let props = feature["properties"] as? [String: Any],
-                  let id = props["id"] as? String ?? feature["id"] as? String,
-                  let event = (props["event"] as? String) ?? (props["headline"] as? String),
-                  !event.isEmpty,
-                  (props["messageType"] as? String)?.lowercased() != "cancel",
-                  let ends = (props["ends"] as? String).flatMap(parse),
-                  let onset = ["onset", "effective", "sent"]
-                      .compactMap({ props[$0] as? String }).compactMap(parse).first
+                let id = props["id"] as? String ?? feature["id"] as? String,
+                let event = (props["event"] as? String) ?? (props["headline"] as? String),
+                !event.isEmpty,
+                (props["messageType"] as? String)?.lowercased() != "cancel",
+                let ends = (props["ends"] as? String).flatMap(parse),
+                let onset = ["onset", "effective", "sent"]
+                    .compactMap({ props[$0] as? String }).compactMap(parse).first
             else { return nil }
             let hours = ends.timeIntervalSince(onset) / 3600
             guard flows_alerts_length_usable(hours) else { return nil }
-            return AlertLengthSample(eventKey: eventKey(props: props, id: id),
-                                     kind: flows_alerts_usual_kind(event).text,
-                                     hours: hours, ends: ends, opens: opens(props: props))
+            return AlertLengthSample(
+                eventKey: eventKey(props: props, id: id),
+                kind: flows_alerts_usual_kind(event).text,
+                hours: hours, ends: ends, opens: opens(props: props))
         }
     }
 
@@ -123,7 +126,8 @@ final class AlertLengthMemory: Sendable {
     private let url: URL
 
     init(directory: URL? = nil) {
-        let dir = directory
+        let dir =
+            directory
             ?? (try? FileManager.default.url(
                 for: .applicationSupportDirectory, in: .userDomainMask,
                 appropriateFor: nil, create: true))
@@ -169,8 +173,8 @@ final class AlertLengthMemory: Sendable {
                 let oldStart = old.map { $0.ends.addingTimeInterval(-exp($0.ln) * 3600) }
                 let start: Date
                 switch (oldStart, sample.opens) {
-                case let (was?, true): start = min(was, sampleStart)
-                case let (was?, false): start = was
+                case (let was?, true): start = min(was, sampleStart)
+                case (let was?, false): start = was
                 case (nil, true): start = sampleStart
                 case (nil, false): continue
                 }

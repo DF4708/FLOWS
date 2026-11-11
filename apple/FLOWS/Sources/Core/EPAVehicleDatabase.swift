@@ -23,11 +23,14 @@ enum EPAClassSpecs {
 
     /// EPA VClass → (tank gal, height ft, GVWR, tow capacity) typicals.
     static func physical(forVClass vclass: String)
-        -> (tank: Double, height: Double, gvwr: Double?, towCap: Double?) {
+        -> (tank: Double, height: Double, gvwr: Double?, towCap: Double?)
+    {
         // NaN crosses back for a rating the class does not publish.
         let p = flows_trip_vehicle_epa_class_physical(vclass)
-        return (p.tank, p.height, p.gvwr.isNaN ? nil : p.gvwr,
-                p.tow_capacity.isNaN ? nil : p.tow_capacity)
+        return (
+            p.tank, p.height, p.gvwr.isNaN ? nil : p.gvwr,
+            p.tow_capacity.isNaN ? nil : p.tow_capacity
+        )
     }
 
     /// Sanity clamp: a small-car class must never inherit a van-size tank
@@ -54,9 +57,12 @@ enum EPAClassSpecs {
     /// EV's MPGe used to be stored as mi/kWh, and the gas class tank clamped
     /// to match gave every EPA EV about 600 mi of range; its battery now
     /// comes from EPA's own rated range.
-    static func filledIn(cityEPA: Double, highwayEPA: Double, fuelType: FuelType,
-                         epaRangeMiles: Double?, classTank: Double)
-        -> (city: Double, highway: Double, combined: Double, tank: Double) {
+    static func filledIn(
+        cityEPA: Double, highwayEPA: Double, fuelType: FuelType,
+        epaRangeMiles: Double?, classTank: Double
+    )
+        -> (city: Double, highway: Double, combined: Double, tank: Double)
+    {
         let perUnit = fuelType == .electric ? kWhPerGallonEquivalent : 1
         let city = cityEPA / perUnit
         let highway = highwayEPA / perUnit
@@ -108,8 +114,9 @@ actor EPAVehicleDatabase {
     func details(year: String, make: String, model: String) async -> Details? {
         let m = make.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? make
         let mo = model.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? model
-        guard let optionsXML = await fetch(
-            "https://www.fueleconomy.gov/ws/rest/vehicle/menu/options?year=\(year)&make=\(m)&model=\(mo)"),
+        guard
+            let optionsXML = await fetch(
+                "https://www.fueleconomy.gov/ws/rest/vehicle/menu/options?year=\(year)&make=\(m)&model=\(mo)"),
             let id = firstTag("value", in: optionsXML),
             let xml = await fetch("https://www.fueleconomy.gov/ws/rest/vehicle/\(id)"),
             let city = firstTag("city08", in: xml).flatMap(Double.init),
@@ -117,9 +124,10 @@ actor EPAVehicleDatabase {
         else { return nil }
         let vclass = firstTag("VClass", in: xml) ?? "Midsize Cars"
         let fuel = firstTag("fuelType1", in: xml) ?? "Regular Gasoline"
-        return Details(cityMPU: city, highwayMPU: highway, vClass: vclass,
-                       fuelType: EPAClassSpecs.fuelType(forEPA: fuel),
-                       rangeMiles: firstTag("range", in: xml).flatMap(Double.init))
+        return Details(
+            cityMPU: city, highwayMPU: highway, vClass: vclass,
+            fuelType: EPAClassSpecs.fuelType(forEPA: fuel),
+            rangeMiles: firstTag("range", in: xml).flatMap(Double.init))
     }
 
     private func menu(_ url: String) async -> [String] {
@@ -132,8 +140,9 @@ actor EPAVehicleDatabase {
 
     private func fetch(_ url: String) async -> String? {
         guard let u = URL(string: url),
-              let (data, resp) = try? await ThrottledNet.fetch(u),
-              (resp as? HTTPURLResponse)?.statusCode == 200 else { return nil }
+            let (data, resp) = try? await ThrottledNet.fetch(u),
+            (resp as? HTTPURLResponse)?.statusCode == 200
+        else { return nil }
         return String(data: data, encoding: .utf8)
     }
 
@@ -146,9 +155,11 @@ actor EPAVehicleDatabase {
         var out: [String] = []
         var search = xml[xml.startIndex...]
         while let open = search.range(of: "<\(tag)>"),
-              let close = search.range(of: "</\(tag)>", range: open.upperBound..<search.endIndex) {
-            out.append(String(search[open.upperBound..<close.lowerBound])
-                .replacingOccurrences(of: "&amp;", with: "&"))
+            let close = search.range(of: "</\(tag)>", range: open.upperBound..<search.endIndex)
+        {
+            out.append(
+                String(search[open.upperBound..<close.lowerBound])
+                    .replacingOccurrences(of: "&amp;", with: "&"))
             search = search[close.upperBound...]
         }
         return out

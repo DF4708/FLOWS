@@ -106,7 +106,10 @@ struct EverydayPlace: Codable, Equatable {
 struct EverydayStore: Codable, Equatable {
     /// Learned home anchor — supplied by SeasonalStore.learnedHome() (the
     /// most-frequent trip-origin cell), not guessed independently here.
-    struct Anchor: Codable, Equatable { var lat: Double; var lon: Double }
+    struct Anchor: Codable, Equatable {
+        var lat: Double
+        var lon: Double
+    }
 
     /// Straight-line start→end miles of completed trips, most recent last
     /// (rolling window so decades of history can't freeze the estimate).
@@ -202,8 +205,9 @@ struct EverydayStore: Codable, Equatable {
     /// with no anchor there is nothing to cache around.
     func isInsideEverydayRadius(lat: Double, lon: Double) -> Bool {
         guard let home else { return false }
-        return Self.miles(from: CLLocationCoordinate2D(latitude: home.lat, longitude: home.lon),
-                          to: CLLocationCoordinate2D(latitude: lat, longitude: lon))
+        return Self.miles(
+            from: CLLocationCoordinate2D(latitude: home.lat, longitude: home.lon),
+            to: CLLocationCoordinate2D(latitude: lat, longitude: lon))
             <= radiusMiles
     }
 
@@ -213,9 +217,11 @@ struct EverydayStore: Codable, Equatable {
     /// Repeat sightings of the same place (same attribute id) accumulate into
     /// one record. Returns whether the place is (now) cached.
     @discardableResult
-    mutating func remember(name: String, lat: Double, lon: Double,
-                           street: String, city: String,
-                           in category: EverydayCategory) -> Bool {
+    mutating func remember(
+        name: String, lat: Double, lon: Double,
+        street: String, city: String,
+        in category: EverydayCategory
+    ) -> Bool {
         guard isInsideEverydayRadius(lat: lat, lon: lon) else { return false }
         let id = EverydayPlace.attributeID(name: name, latitude: lat, longitude: lon)
         var places = categories[category.rawValue] ?? []
@@ -225,8 +231,10 @@ struct EverydayStore: Codable, Equatable {
             if !street.isEmpty { places[i].street = street }
             if !city.isEmpty { places[i].city = city }
         } else {
-            places.append(EverydayPlace(id: id, name: name, latitude: lat, longitude: lon,
-                                        street: street, city: city, seen: 1))
+            places.append(
+                EverydayPlace(
+                    id: id, name: name, latitude: lat, longitude: lon,
+                    street: street, city: city, seen: 1))
             // Bounded store: evict the least-used (then least-seen, then
             // stalest) entry so one category can't grow without limit —
             // among the places already kept. The newcomer (0 uses, seen
@@ -235,7 +243,8 @@ struct EverydayStore: Codable, Equatable {
             // was ever learned.
             if places.count > Self.maxPlacesPerCategory {
                 let kept = places.dropLast()
-                let uses = kept.map { Int64($0.uses) }, seen = kept.map { Int64($0.seen) }
+                let uses = kept.map { Int64($0.uses) }
+                let seen = kept.map { Int64($0.seen) }
                 let last = kept.map(\.lastUsedT)
                 let evict = uses.lent { u in
                     seen.lent { s in
@@ -250,10 +259,13 @@ struct EverydayStore: Codable, Equatable {
     }
 
     /// Count a real lookup (the driver tapped the row) with its context.
-    mutating func recordUse(id: String, in category: EverydayCategory,
-                            contextID: String, t: Double) {
+    mutating func recordUse(
+        id: String, in category: EverydayCategory,
+        contextID: String, t: Double
+    ) {
         guard var places = categories[category.rawValue],
-              let i = places.firstIndex(where: { $0.id == id }) else { return }
+            let i = places.firstIndex(where: { $0.id == id })
+        else { return }
         places[i].uses += 1
         places[i].lastUsedT = max(places[i].lastUsedT, t)
         places[i].contexts[contextID, default: 0] += 1
@@ -266,7 +278,8 @@ struct EverydayStore: Codable, Equatable {
         let places = categories[category.rawValue] ?? []
         // Nothing to rank (and an empty buffer never crosses).
         guard !places.isEmpty else { return [] }
-        let uses = places.map { Int64($0.uses) }, seen = places.map { Int64($0.seen) }
+        let uses = places.map { Int64($0.uses) }
+        let seen = places.map { Int64($0.seen) }
         let last = places.map(\.lastUsedT)
         // Names cross in Unicode NFC, joined by U+001F (which no place name
         // holds; one that did is written as a space), so the byte order Rust
@@ -293,8 +306,10 @@ struct EverydayStore: Codable, Equatable {
     /// Unique attribute id for a lookup context: time-of-day bucket,
     /// weekday/weekend, and the ~11 km start cell (same 0.1° quantization as
     /// RouteKey). "h2|we|c433,-894" = weekend morning leaving the home cell.
-    static func contextID(hourBucket: Int, weekend: Bool,
-                          startLat: Double, startLon: Double) -> String {
+    static func contextID(
+        hourBucket: Int, weekend: Bool,
+        startLat: Double, startLon: Double
+    ) -> String {
         // A place that is not a number must not trap the Int conversion.
         func cell(_ v: Double) -> Int { Int(exactly: (v * 10).rounded()) ?? 0 }
         return "h\(hourBucket)|\(weekend ? "we" : "wd")"
@@ -304,10 +319,12 @@ struct EverydayStore: Codable, Equatable {
     /// Decode a context id back to its parts — the training-row export reads
     /// the stored keys, so the id format and this parser move together.
     static func parseContext(_ id: String)
-        -> (hourBucket: Int, weekend: Bool, startLat: Double, startLon: Double)? {
+        -> (hourBucket: Int, weekend: Bool, startLat: Double, startLon: Double)?
+    {
         let parts = id.split(separator: "|")
         guard parts.count == 3, parts[0].hasPrefix("h"), parts[2].hasPrefix("c"),
-              let bucket = Int(parts[0].dropFirst()) else { return nil }
+            let bucket = Int(parts[0].dropFirst())
+        else { return nil }
         let cell = parts[2].dropFirst().split(separator: ",")
         guard cell.count == 2, let lat = Double(cell[0]), let lon = Double(cell[1])
         else { return nil }
@@ -321,7 +338,7 @@ struct EverydayStore: Codable, Equatable {
         var rows: [[String: Double]] = []
         for (raw, places) in categories {
             guard let category = EverydayCategory(rawValue: raw) else { continue }
-            let catIndex = category.featureIndex   // frozen; see featureIndex
+            let catIndex = category.featureIndex  // frozen; see featureIndex
             for place in places {
                 for (ctx, count) in place.contexts {
                     guard let c = Self.parseContext(ctx) else { continue }
@@ -345,12 +362,16 @@ struct EverydayStore: Codable, Equatable {
 /// route head. The future pattern net maps (context, place) → use likelihood
 /// to refine the frequency ranking.
 enum EverydayFeatures {
-    static func vector(hourBucket: Int, weekend: Bool,
-                       startLat: Double, startLon: Double,
-                       placeLat: Double, placeLon: Double,
-                       category: EverydayCategory) -> [Double] {
-        Array(flows_learning_everyday_features(Int64(hourBucket), weekend, startLat, startLon,
-                                               placeLat, placeLon, Int64(category.featureIndex)))
+    static func vector(
+        hourBucket: Int, weekend: Bool,
+        startLat: Double, startLon: Double,
+        placeLat: Double, placeLon: Double,
+        category: EverydayCategory
+    ) -> [Double] {
+        Array(
+            flows_learning_everyday_features(
+                Int64(hourBucket), weekend, startLat, startLon,
+                placeLat, placeLon, Int64(category.featureIndex)))
     }
     static let count = Int(flows_learning_everyday_feature_count())
 }
@@ -384,12 +405,14 @@ final class EverydayPlaces: ObservableObject {
     private var persistQueue: DispatchQueue { SecureBehaviorStore.persistQueue }
 
     init() {
-        let dir = (try? FileManager.default.url(
-            for: .applicationSupportDirectory, in: .userDomainMask,
-            appropriateFor: nil, create: true)) ?? URL(fileURLWithPath: NSTemporaryDirectory())
+        let dir =
+            (try? FileManager.default.url(
+                for: .applicationSupportDirectory, in: .userDomainMask,
+                appropriateFor: nil, create: true)) ?? URL(fileURLWithPath: NSTemporaryDirectory())
         url = dir.appendingPathComponent("flows_everyday_places.json")
         if let data = SecureBehaviorStore.readMigrating(url),
-           let loaded = try? JSONDecoder().decode(EverydayStore.self, from: data) {
+            let loaded = try? JSONDecoder().decode(EverydayStore.self, from: data)
+        {
             store = loaded
         }
     }
@@ -430,15 +453,17 @@ final class EverydayPlaces: ObservableObject {
         let weekday = cal.component(.weekday, from: now)
         let weekend = weekday == 1 || weekday == 7
         let contextKey = position.map {
-            EverydayStore.contextID(hourBucket: bucket, weekend: weekend,
-                                    startLat: $0.latitude, startLon: $0.longitude)
+            EverydayStore.contextID(
+                hourBucket: bucket, weekend: weekend,
+                startLat: $0.latitude, startLon: $0.longitude)
         }
         let timePrefix = "h\(bucket)|\(weekend ? "we" : "wd")"
         let evidence = allPlaces.map { p -> DestinationPrediction.Evidence in
             var e = DestinationPrediction.Evidence(
                 id: p.id, name: p.name,
-                coordinate: CLLocationCoordinate2D(latitude: p.latitude,
-                                                   longitude: p.longitude))
+                coordinate: CLLocationCoordinate2D(
+                    latitude: p.latitude,
+                    longitude: p.longitude))
             if let contextKey { e.contextHits = p.contexts[contextKey] ?? 0 }
             // Back-off tier: same hour + day type, any starting point.
             e.timeHits = p.contexts
@@ -454,7 +479,8 @@ final class EverydayPlaces: ObservableObject {
         // so only when sure: a place tapped once read "You've been here
         // recently" as a prediction. A weak guess about where someone is
         // going is worse than silence — recents still list below.
-        let topEvidence = ranked.first
+        let topEvidence =
+            ranked.first
             .flatMap { top in evidence.first { $0.id == top.id }?.totalHits } ?? 0
         return DestinationPrediction.isConfident(ranked, minimumEvidence: topEvidence)
             ? ranked : []
@@ -474,9 +500,10 @@ final class EverydayPlaces: ObservableObject {
             CLLocationCoordinate2D(latitude: $0.lat, longitude: $0.lon)
         }
         if let home = SeasonalRiskModel.shared.learnedHomeCoordinate(current: current) {
-            let moved = current.map {
-                EverydayStore.miles(from: $0, to: home) > 15
-            } ?? false
+            let moved =
+                current.map {
+                    EverydayStore.miles(from: $0, to: home) > 15
+                } ?? false
             store.setHome(lat: home.latitude, lon: home.longitude)
             if moved {
                 // NO COORDINATES IN THE JOURNAL. The diagnostic log is
@@ -486,8 +513,9 @@ final class EverydayPlaces: ObservableObject {
                 // (~1.1 km) names the driver's neighbourhood in a file the
                 // encryption does not cover. The event is what's useful for
                 // support; the position is not.
-                FlowsDiag.log(.info, "learning",
-                              "everyday center moved — sustained new origin")
+                FlowsDiag.log(
+                    .info, "learning",
+                    "everyday center moved — sustained new origin")
             }
         }
         persist()
@@ -495,13 +523,18 @@ final class EverydayPlaces: ObservableObject {
 
     /// Remember a batch of fresh search results (one persist for the batch).
     /// Entries outside the everyday circle are ignored by the store.
-    func remember(_ sightings: [(name: String, lat: Double, lon: Double,
-                                 street: String, city: String)],
-                  in category: EverydayCategory) {
+    func remember(
+        _ sightings: [(
+            name: String, lat: Double, lon: Double,
+            street: String, city: String
+        )],
+        in category: EverydayCategory
+    ) {
         guard !sightings.isEmpty else { return }
         for s in sightings {
-            store.remember(name: s.name, lat: s.lat, lon: s.lon,
-                           street: s.street, city: s.city, in: category)
+            store.remember(
+                name: s.name, lat: s.lat, lon: s.lon,
+                street: s.street, city: s.city, in: category)
         }
         persist()
     }
@@ -509,22 +542,31 @@ final class EverydayPlaces: ObservableObject {
     /// The instant result set: remembered stops for a category, most-used
     /// first — only when the driver is inside the everyday circle (away from
     /// home the cache is the wrong answer, so the network path runs alone).
-    func instantResults(in category: EverydayCategory,
-                        near position: CLLocationCoordinate2D?) -> [EverydayPlace] {
+    func instantResults(
+        in category: EverydayCategory,
+        near position: CLLocationCoordinate2D?
+    ) -> [EverydayPlace] {
         guard let position,
-              store.isInsideEverydayRadius(lat: position.latitude,
-                                           lon: position.longitude) else { return [] }
+            store.isInsideEverydayRadius(
+                lat: position.latitude,
+                lon: position.longitude)
+        else { return [] }
         return store.ranked(in: category)
     }
 
     /// The driver tapped a result row: make sure the place is cached (if it
     /// is inside the circle) and count the lookup with its context.
-    func noteUse(name: String, lat: Double, lon: Double,
-                 in category: EverydayCategory, from start: CLLocationCoordinate2D?) {
+    func noteUse(
+        name: String, lat: Double, lon: Double,
+        in category: EverydayCategory, from start: CLLocationCoordinate2D?
+    ) {
         let now = Date()
         let t = now.timeIntervalSince1970
-        guard store.remember(name: name, lat: lat, lon: lon, street: "", city: "",
-                             in: category) else { return }
+        guard
+            store.remember(
+                name: name, lat: lat, lon: lon, street: "", city: "",
+                in: category)
+        else { return }
         let cal = Self.gregorian
         let weekday = cal.component(.weekday, from: now)
         let ctx = EverydayStore.contextID(
@@ -532,8 +574,9 @@ final class EverydayPlaces: ObservableObject {
             weekend: weekday == 1 || weekday == 7,
             startLat: start?.latitude ?? store.home?.lat ?? 0,
             startLon: start?.longitude ?? store.home?.lon ?? 0)
-        store.recordUse(id: EverydayPlace.attributeID(name: name, latitude: lat, longitude: lon),
-                        in: category, contextID: ctx, t: t)
+        store.recordUse(
+            id: EverydayPlace.attributeID(name: name, latitude: lat, longitude: lon),
+            in: category, contextID: ctx, t: t)
         persist()
     }
 

@@ -140,8 +140,8 @@ actor YelpLink {
     func setKey(_ key: String) { apiKey = key }
 
     struct BusinessInfo {
-        let rating: Double?      // 0–5
-        let price: String?       // "$"…"$$$$"
+        let rating: Double?  // 0–5
+        let price: String?  // "$"…"$$$$"
         var isOpenNow: Bool? = nil
         /// Weekly hours lines, Monday first ("Monday: 9:00 AM – 5:00 PM") —
         /// Google supplies them; Yelp's search response doesn't, so nil there.
@@ -174,26 +174,31 @@ actor YelpLink {
         var allowed = CharacterSet.urlQueryAllowed
         allowed.remove(charactersIn: "&=+?")
         let term = name.addingPercentEncoding(withAllowedCharacters: allowed) ?? name
-        guard let url = URL(string: "https://api.yelp.com/v3/businesses/search?term=\(term)"
-                            + "&latitude=\(latitude)&longitude=\(longitude)&limit=1") else { return nil }
+        guard
+            let url = URL(
+                string: "https://api.yelp.com/v3/businesses/search?term=\(term)"
+                    + "&latitude=\(latitude)&longitude=\(longitude)&limit=1")
+        else { return nil }
         var request = URLRequest(url: url)
         request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         guard let (data, resp) = try? await ThrottledNet.fetch(request),
-              (resp as? HTTPURLResponse)?.statusCode == 200,
-              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
-        else { return nil }   // not answered: asked again next time
+            (resp as? HTTPURLResponse)?.statusCode == 200,
+            let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else { return nil }  // not answered: asked again next time
         guard let businesses = json["businesses"] as? [[String: Any]],
-              let first = businesses.first else {
-            cache[key] = (Date(), nil)   // answered: no match
+            let first = businesses.first
+        else {
+            cache[key] = (Date(), nil)  // answered: no match
             if cache.count > 300 { CacheEviction.dropHalf(&cache) }
             return nil
         }
         let hoursBlock = (first["business_hours"] as? [[String: Any]])?.first
-        let info = BusinessInfo(rating: first["rating"] as? Double,
-                                price: first["price"] as? String,
-                                isOpenNow: hoursBlock?["is_open_now"] as? Bool,
-                                url: (first["url"] as? String).flatMap(URL.init),
-                                source: .yelp)
+        let info = BusinessInfo(
+            rating: first["rating"] as? Double,
+            price: first["price"] as? String,
+            isOpenNow: hoursBlock?["is_open_now"] as? Bool,
+            url: (first["url"] as? String).flatMap(URL.init),
+            source: .yelp)
         cache[key] = (Date(), info)
         if cache.count > 300 { CacheEviction.dropHalf(&cache) }
         return info
@@ -219,7 +224,8 @@ actor GooglePlacesLink {
     /// Text Search (New), field-masked to exactly what the rows display:
     /// rating, price level, open-now. Location-biased to the placemark.
     func info(name: String, latitude: Double, longitude: Double)
-        async -> YelpLink.BusinessInfo? {
+        async -> YelpLink.BusinessInfo?
+    {
         guard !apiKey.isEmpty else { return nil }
         let key = "\(name)|\(Int(latitude * 500))|\(Int(longitude * 500))"
         if let hit = cache[key], Date().timeIntervalSince(hit.at) < YelpLink.answerSeconds {
@@ -238,18 +244,20 @@ actor GooglePlacesLink {
         let body: [String: Any] = [
             "textQuery": name,
             "pageSize": 1,
-            "locationBias": ["circle": [
-                "center": ["latitude": latitude, "longitude": longitude],
-                "radius": 5_000.0,
-            ]],
+            "locationBias": [
+                "circle": [
+                    "center": ["latitude": latitude, "longitude": longitude],
+                    "radius": 5_000.0,
+                ]
+            ],
         ]
         request.httpBody = try? JSONSerialization.data(withJSONObject: body)
         guard let (data, resp) = try? await ThrottledNet.fetch(request),
-              (resp as? HTTPURLResponse)?.statusCode == 200,
-              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
-        else { return nil }   // not answered: asked again next time
+            (resp as? HTTPURLResponse)?.statusCode == 200,
+            let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else { return nil }  // not answered: asked again next time
         guard let places = json["places"] as? [[String: Any]], let first = places.first else {
-            cache[key] = (Date(), nil)   // answered: no match
+            cache[key] = (Date(), nil)  // answered: no match
             if cache.count > 300 { CacheEviction.dropHalf(&cache) }
             return nil
         }
@@ -264,11 +272,13 @@ actor GooglePlacesLink {
             }
         }
         let openNow = (first["currentOpeningHours"] as? [String: Any])?["openNow"] as? Bool
-        let hours = (first["regularOpeningHours"] as? [String: Any])?["weekdayDescriptions"]
+        let hours =
+            (first["regularOpeningHours"] as? [String: Any])?["weekdayDescriptions"]
             as? [String]
-        let info = YelpLink.BusinessInfo(rating: first["rating"] as? Double,
-                                         price: price, isOpenNow: openNow,
-                                         hours: hours, source: .google)
+        let info = YelpLink.BusinessInfo(
+            rating: first["rating"] as? Double,
+            price: price, isOpenNow: openNow,
+            hours: hours, source: .google)
         cache[key] = (Date(), info)
         if cache.count > 300 { CacheEviction.dropHalf(&cache) }
         return info
@@ -280,9 +290,11 @@ actor GooglePlacesLink {
 /// specific provider.
 enum RatingsProvider {
     static func info(name: String, latitude: Double, longitude: Double)
-        async -> YelpLink.BusinessInfo? {
+        async -> YelpLink.BusinessInfo?
+    {
         if let g = await GooglePlacesLink.shared.info(
-            name: name, latitude: latitude, longitude: longitude) {
+            name: name, latitude: latitude, longitude: longitude)
+        {
             return g
         }
         return await YelpLink.shared.info(
@@ -356,10 +368,12 @@ enum ShowerAvailability: String {
         }
 
         static func loadBundled() -> LocationTable {
-            guard let url = Bundle.main.url(forResource: "truckstop_showers",
-                                            withExtension: "json"),
-                  let data = try? Data(contentsOf: url),
-                  let parsed = try? JSONDecoder().decode([Entry].self, from: data)
+            guard
+                let url = Bundle.main.url(
+                    forResource: "truckstop_showers",
+                    withExtension: "json"),
+                let data = try? Data(contentsOf: url),
+                let parsed = try? JSONDecoder().decode([Entry].self, from: data)
             else { return LocationTable(entries: []) }
             return LocationTable(entries: parsed)
         }
@@ -383,7 +397,7 @@ enum ShowerAvailability: String {
     /// pages, keyed by (state, city) — bundled as pilot_city_showers.json.
     /// The POI result's placemark supplies the same key at lookup time.
     struct CityTable {
-        private let map: [String: Int]   // "wi|madison" → shower count
+        private let map: [String: Int]  // "wi|madison" → shower count
 
         /// Pilot/Flying J (back-compat default resource).
         static func loadBundled() -> CityTable { loadBundled(resource: "pilot_city_showers") }
@@ -391,16 +405,19 @@ enum ShowerAvailability: String {
         /// Load one brand's verified city→showers scrape. Per-brand tables stay
         /// SEPARATE so a Love's result never matches a Pilot city key.
         static func loadBundled(resource: String) -> CityTable {
-            guard let url = Bundle.main.url(forResource: resource,
-                                            withExtension: "json"),
-                  let data = try? Data(contentsOf: url),
-                  let rows = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]]
+            guard
+                let url = Bundle.main.url(
+                    forResource: resource,
+                    withExtension: "json"),
+                let data = try? Data(contentsOf: url),
+                let rows = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]]
             else { return CityTable(map: [:]) }
             var m: [String: Int] = [:]
             for row in rows {
                 guard let state = row["state"] as? String,
-                      let city = row["city"] as? String,
-                      let showers = row["showers"] as? Int else { continue }
+                    let city = row["city"] as? String,
+                    let showers = row["showers"] as? Int
+                else { continue }
                 m["\(lowercased(state))|\(lowercased(city))"] = showers
             }
             return CityTable(map: m)
@@ -462,8 +479,9 @@ enum ShowerAvailability: String {
             disproved = isDisproved(lat: lat, lon: lon)
             tag = table?.entry(nearLat: lat, lon: lon)?.shower
         }
-        return ShowerAvailability(rustCode: flows_places_text_shower_ladder(
-            name ?? "", name != nil, lat != nil && lon != nil, disproved, tag ?? "", tag != nil))
+        return ShowerAvailability(
+            rustCode: flows_places_text_shower_ladder(
+                name ?? "", name != nil, lat != nil && lon != nil, disproved, tag ?? "", tag != nil))
     }
 
     /// The brand default by name: chains where showers are the standard at

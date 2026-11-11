@@ -23,33 +23,40 @@ final class StoresAndCostsTests: XCTestCase {
         XCTAssertLessThan(walmart, target, "Walmart outranks Target on market share")
         XCTAssertLessThan(homeDepot, target)
         XCTAssertGreaterThan(local, target, "unknown local brands sort after national ones")
-        XCTAssertEqual(POIRanking.storeMarketShareRank(name: nil),
-                       POIRanking.storeMarketShareOrder.count)
+        XCTAssertEqual(
+            POIRanking.storeMarketShareRank(name: nil),
+            POIRanking.storeMarketShareOrder.count)
     }
 
     // Ranking: rated stores first (highest rating first); unrated stores follow
     // by market share; corridor position breaks remaining ties.
     func testRankStoresOrdering() {
         func cand(_ name: String, rating: Double?, ahead: Double)
-            -> POIRanking.Candidate<String> {
-            POIRanking.Candidate(item: name,
-                                 coordinate: CLLocationCoordinate2D(latitude: 43, longitude: -89),
-                                 aheadMeters: ahead, detourMeters: 500,
-                                 pricePerUnit: nil, rating: rating)
+            -> POIRanking.Candidate<String>
+        {
+            POIRanking.Candidate(
+                item: name,
+                coordinate: CLLocationCoordinate2D(latitude: 43, longitude: -89),
+                aheadMeters: ahead, detourMeters: 500,
+                pricePerUnit: nil, rating: rating)
         }
-        let ranked = POIRanking.rankStores([
-            cand("Bob's Electronics", rating: 4.9, ahead: 9_000),
-            cand("Best Buy", rating: 4.0, ahead: 2_000),
-            cand("Walmart Supercenter", rating: nil, ahead: 8_000),
-            cand("Target", rating: nil, ahead: 1_000),
-            cand("Corner Store", rating: nil, ahead: 500),
-        ], name: { $0 })
-        XCTAssertEqual(ranked.map(\.item),
-                       ["Bob's Electronics",       // 4.9★ beats everything
-                        "Best Buy",                // 4.0★ next
-                        "Walmart Supercenter",     // unrated: biggest brand first…
-                        "Target",                  // …then Target,
-                        "Corner Store"])           // …then unknown local
+        let ranked = POIRanking.rankStores(
+            [
+                cand("Bob's Electronics", rating: 4.9, ahead: 9_000),
+                cand("Best Buy", rating: 4.0, ahead: 2_000),
+                cand("Walmart Supercenter", rating: nil, ahead: 8_000),
+                cand("Target", rating: nil, ahead: 1_000),
+                cand("Corner Store", rating: nil, ahead: 500),
+            ], name: { $0 })
+        XCTAssertEqual(
+            ranked.map(\.item),
+            [
+                "Bob's Electronics",  // 4.9★ beats everything
+                "Best Buy",  // 4.0★ next
+                "Walmart Supercenter",  // unrated: biggest brand first…
+                "Target",  // …then Target,
+                "Corner Store",
+            ])  // …then unknown local
     }
 
     // Store categories all carry a usable query + symbol.
@@ -70,7 +77,8 @@ final class StoresAndCostsTests: XCTestCase {
             "<tr><td><a href=\"/dnav/pet/pet_pri_gnd_dcus_\(code)_w.htm\">x</a></td>"
                 + "<td>\(older)</td><td>\(latest)</td></tr>"
         }
-        let html = "<table><caption>U.S. Regular Gasoline Prices</caption>\(head)<tbody>"
+        let html =
+            "<table><caption>U.S. Regular Gasoline Prices</caption>\(head)<tbody>"
             + row("nus", "4.478", "4.465") + row("r20", "4.386", "4.291")
             + "</tbody></table><table><caption>States</caption>\(head)<tbody>"
             + row("sca", "6.003", "6.189")
@@ -88,22 +96,32 @@ final class StoresAndCostsTests: XCTestCase {
 
     // Fuel cost math: 300 mi at 30 mpg × $3.00 = $30; degenerate inputs → nil.
     func testDriveFuelCost() {
-        XCTAssertEqual(TripCosts.driveFuelCostUSD(miles: 300, milesPerUnit: 30,
-                                                  pricePerUnit: 3.0)!,
-                       30, accuracy: 1e-9)
-        XCTAssertNil(TripCosts.driveFuelCostUSD(miles: 300, milesPerUnit: 0,
-                                                pricePerUnit: 3.0))
-        XCTAssertNil(TripCosts.driveFuelCostUSD(miles: .nan, milesPerUnit: 30,
-                                                pricePerUnit: 3.0))
+        XCTAssertEqual(
+            TripCosts.driveFuelCostUSD(
+                miles: 300, milesPerUnit: 30,
+                pricePerUnit: 3.0)!,
+            30, accuracy: 1e-9)
+        XCTAssertNil(
+            TripCosts.driveFuelCostUSD(
+                miles: 300, milesPerUnit: 0,
+                pricePerUnit: 3.0))
+        XCTAssertNil(
+            TripCosts.driveFuelCostUSD(
+                miles: .nan, milesPerUnit: 30,
+                pricePerUnit: 3.0))
     }
 
     // A walk burns no fuel: a 408-mile walk read "~$51 fuel est." on its card.
     func testAWalkCostsNoFuel() {
-        XCTAssertNil(TripCosts.routeFuelCostUSD(isWalk: true, miles: 408, milesPerUnit: 30,
-                                                pricePerUnit: 3.75))
-        XCTAssertEqual(TripCosts.routeFuelCostUSD(isWalk: false, miles: 300, milesPerUnit: 30,
-                                                  pricePerUnit: 3.0)!,
-                       30, accuracy: 1e-9, "a drive still costs what it did")
+        XCTAssertNil(
+            TripCosts.routeFuelCostUSD(
+                isWalk: true, miles: 408, milesPerUnit: 30,
+                pricePerUnit: 3.75))
+        XCTAssertEqual(
+            TripCosts.routeFuelCostUSD(
+                isWalk: false, miles: 300, milesPerUnit: 30,
+                pricePerUnit: 3.0)!,
+            30, accuracy: 1e-9, "a drive still costs what it did")
     }
 
     // CO₂: a 25-mpg gas car ≈ 355 g/mi; transit per-passenger-mile beats it.

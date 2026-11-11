@@ -27,8 +27,10 @@ final class LegSwapAndRoadAheadTests: XCTestCase {
         override var hasHighways: Bool { highways }
     }
 
-    private func route(_ road: MKRoute = Road(), kind: RoutePlanKind = .standard,
-                       risk: Double = 0, eta: Double = 600) -> PlannedRoute {
+    private func route(
+        _ road: MKRoute = Road(), kind: RoutePlanKind = .standard,
+        risk: Double = 0, eta: Double = 600
+    ) -> PlannedRoute {
         var r = PlannedRoute(route: road, sourceName: "A", destinationName: "B", planKind: kind)
         r.weatherRisk = risk
         r.etaOverride = eta
@@ -45,21 +47,28 @@ final class LegSwapAndRoadAheadTests: XCTestCase {
         let leg = route()
         let tolled = route(Road(tolls: true), eta: 300)
         let free = route(eta: 420)
-        let pick = FasterRoutePolicy.swapPick([tolled, free], leg: leg, filters: [],
-                                              limits: FilterLimits(), calmest: false)
+        let pick = FasterRoutePolicy.swapPick(
+            [tolled, free], leg: leg, filters: [],
+            limits: FilterLimits(), calmest: false)
         XCTAssertEqual(pick?.id, free.id)
         // No highways, set by the driver (or by walking): the local road.
         let freeway = route(Road(highways: true), eta: 300)
-        XCTAssertEqual(FasterRoutePolicy.swapPick([freeway, free], leg: leg, filters: [.noHighways],
-                                                  limits: FilterLimits(), calmest: false)?.id,
-                       free.id)
+        XCTAssertEqual(
+            FasterRoutePolicy.swapPick(
+                [freeway, free], leg: leg, filters: [.noHighways],
+                limits: FilterLimits(), calmest: false)?.id,
+            free.id)
         // With nothing kept by any, the router's first still goes.
-        XCTAssertEqual(FasterRoutePolicy.swapPick([tolled, freeway], leg: leg,
-                                                  filters: [.noHighways],
-                                                  limits: FilterLimits(), calmest: false)?.id,
-                       tolled.id)
-        XCTAssertNil(FasterRoutePolicy.swapPick([], leg: leg, filters: [],
-                                                limits: FilterLimits(), calmest: false))
+        XCTAssertEqual(
+            FasterRoutePolicy.swapPick(
+                [tolled, freeway], leg: leg,
+                filters: [.noHighways],
+                limits: FilterLimits(), calmest: false)?.id,
+            tolled.id)
+        XCTAssertNil(
+            FasterRoutePolicy.swapPick(
+                [], leg: leg, filters: [],
+                limits: FilterLimits(), calmest: false))
     }
 
     /// A known low bridge outranks a toll: a trailer under an 11 ft post is
@@ -67,19 +76,23 @@ final class LegSwapAndRoadAheadTests: XCTestCase {
     func testASafetyFilterOutranksARoadChoice() {
         let leg = route()
         var lowBridge = route(eta: 300)
-        lowBridge.clearancesMeters = [3.35]   // 11 ft
+        lowBridge.clearancesMeters = [3.35]  // 11 ft
         let tolled = route(Road(tolls: true), eta: 420)
-        let limits = FilterLimits()   // 13'6" with the 2 ft margin
-        XCTAssertEqual(FasterRoutePolicy.swapPick([lowBridge, tolled], leg: leg,
-                                                  filters: [.lowBridges], limits: limits,
-                                                  calmest: false)?.id,
-                       tolled.id)
+        let limits = FilterLimits()  // 13'6" with the 2 ft margin
+        XCTAssertEqual(
+            FasterRoutePolicy.swapPick(
+                [lowBridge, tolled], leg: leg,
+                filters: [.lowBridges], limits: limits,
+                calmest: false)?.id,
+            tolled.id)
         // Clearances not loaded yet: nothing known against it.
         let unknown = route(eta: 300)
-        XCTAssertEqual(FasterRoutePolicy.swapPick([unknown, tolled], leg: leg,
-                                                  filters: [.lowBridges], limits: limits,
-                                                  calmest: false)?.id,
-                       unknown.id)
+        XCTAssertEqual(
+            FasterRoutePolicy.swapPick(
+                [unknown, tolled], leg: leg,
+                filters: [.lowBridges], limits: limits,
+                calmest: false)?.id,
+            unknown.id)
     }
 
     /// A road through a reported full closure is never the swapped-in road
@@ -91,13 +104,17 @@ final class LegSwapAndRoadAheadTests: XCTestCase {
         closedCalm.throughClosedRoad = true
         let openYellow = route(risk: 0.7, eta: 900)
         for calmest in [true, false] {
-            XCTAssertEqual(FasterRoutePolicy.swapPick([closedCalm, openYellow], leg: leg, filters: [],
-                                                      limits: FilterLimits(), calmest: calmest)?.id,
-                           openYellow.id, "calmest: \(calmest)")
+            XCTAssertEqual(
+                FasterRoutePolicy.swapPick(
+                    [closedCalm, openYellow], leg: leg, filters: [],
+                    limits: FilterLimits(), calmest: calmest)?.id,
+                openYellow.id, "calmest: \(calmest)")
         }
-        XCTAssertEqual(FasterRoutePolicy.swapPick([closedCalm], leg: leg, filters: [],
-                                                  limits: FilterLimits(), calmest: true)?.id,
-                       closedCalm.id)
+        XCTAssertEqual(
+            FasterRoutePolicy.swapPick(
+                [closedCalm], leg: leg, filters: [],
+                limits: FilterLimits(), calmest: true)?.id,
+            closedCalm.id)
     }
 
     /// A reroute away from risk takes the calmest road that qualifies at the
@@ -108,39 +125,48 @@ final class LegSwapAndRoadAheadTests: XCTestCase {
         let yellow = route(risk: 0.7, eta: 300)
         let green = route(risk: 0.5, eta: 900)
         let clearButTolled = route(Road(tolls: true), risk: 0.1, eta: 600)
-        let pick = FasterRoutePolicy.swapPick([yellow, clearButTolled, green], leg: leg,
-                                              filters: [], limits: FilterLimits(), calmest: true)
+        let pick = FasterRoutePolicy.swapPick(
+            [yellow, clearButTolled, green], leg: leg,
+            filters: [], limits: FilterLimits(), calmest: true)
         XCTAssertEqual(pick?.id, green.id)
         // Equal risk: the sooner arrival.
         let sooner = route(risk: 0.5, eta: 600)
-        XCTAssertEqual(FasterRoutePolicy.swapPick([green, sooner], leg: leg, filters: [],
-                                                  limits: FilterLimits(), calmest: true)?.id,
-                       sooner.id)
+        XCTAssertEqual(
+            FasterRoutePolicy.swapPick(
+                [green, sooner], leg: leg, filters: [],
+                limits: FilterLimits(), calmest: true)?.id,
+            sooner.id)
     }
 
     /// A toll never holds a reroute in the storm it escapes: a Clear toll
     /// road beats a toll-free Red one, No tolls or not, and the stormy road
     /// itself isn't picked again. Yellow beats Red the same way.
     func testARoadChoiceNeverHoldsARerouteInTheStorm() {
-        let leg = route()   // no tolls on it, so a toll road breaks the choice
+        let leg = route()  // no tolls on it, so a toll road breaks the choice
         let stormy = route(risk: 0.95, eta: 300)
         let red = route(risk: 0.9, eta: 400)
         let clearTolled = route(Road(tolls: true), risk: 0.1, eta: 600)
         for filters: Set<RouteFilter> in [[], [.noTolls]] {
-            XCTAssertEqual(FasterRoutePolicy.swapPick([stormy, red, clearTolled], leg: leg,
-                                                      filters: filters, limits: FilterLimits(),
-                                                      calmest: true)?.id,
-                           clearTolled.id)
+            XCTAssertEqual(
+                FasterRoutePolicy.swapPick(
+                    [stormy, red, clearTolled], leg: leg,
+                    filters: filters, limits: FilterLimits(),
+                    calmest: true)?.id,
+                clearTolled.id)
         }
         let yellowTolled = route(Road(tolls: true), risk: 0.75, eta: 600)
-        XCTAssertEqual(FasterRoutePolicy.swapPick([red, yellowTolled], leg: leg,
-                                                  filters: [.noTolls], limits: FilterLimits(),
-                                                  calmest: true)?.id,
-                       yellowTolled.id)
+        XCTAssertEqual(
+            FasterRoutePolicy.swapPick(
+                [red, yellowTolled], leg: leg,
+                filters: [.noTolls], limits: FilterLimits(),
+                calmest: true)?.id,
+            yellowTolled.id)
         // The way to an added stop isn't weighed by risk: the choice holds.
-        XCTAssertEqual(FasterRoutePolicy.swapPick([red, clearTolled], leg: leg, filters: [],
-                                                  limits: FilterLimits(), calmest: false)?.id,
-                       red.id)
+        XCTAssertEqual(
+            FasterRoutePolicy.swapPick(
+                [red, clearTolled], leg: leg, filters: [],
+                limits: FilterLimits(), calmest: false)?.id,
+            red.id)
     }
 
     /// Towing on a reroute: a crosswind on a Green road is less risk than a
@@ -158,40 +184,50 @@ final class LegSwapAndRoadAheadTests: XCTestCase {
         }
         let calmRed = scored(0.9)
         let windyGreen = scored(0.5, wind: 0.75)
-        XCTAssertEqual(FasterRoutePolicy.swapPick([calmRed, windyGreen], leg: leg, filters: towing,
-                                                  limits: FilterLimits(), calmest: true)?.id,
-                       windyGreen.id)
+        XCTAssertEqual(
+            FasterRoutePolicy.swapPick(
+                [calmRed, windyGreen], leg: leg, filters: towing,
+                limits: FilterLimits(), calmest: true)?.id,
+            windyGreen.id)
         let windyClear = scored(0.2, wind: 0.75)
         let calmGreen = scored(0.6)
-        XCTAssertEqual(FasterRoutePolicy.swapPick([windyClear, calmGreen], leg: leg,
-                                                  filters: towing, limits: FilterLimits(),
-                                                  calmest: true)?.id,
-                       calmGreen.id)
+        XCTAssertEqual(
+            FasterRoutePolicy.swapPick(
+                [windyClear, calmGreen], leg: leg,
+                filters: towing, limits: FilterLimits(),
+                calmest: true)?.id,
+            calmGreen.id)
         var lowBridgeClear = scored(0.1)
-        lowBridgeClear.clearancesMeters = [3.35]   // 11 ft, under a 13'6" rig
-        XCTAssertEqual(FasterRoutePolicy.swapPick([lowBridgeClear, calmRed], leg: leg,
-                                                  filters: towing, limits: FilterLimits(),
-                                                  calmest: true)?.id,
-                       calmRed.id)
+        lowBridgeClear.clearancesMeters = [3.35]  // 11 ft, under a 13'6" rig
+        XCTAssertEqual(
+            FasterRoutePolicy.swapPick(
+                [lowBridgeClear, calmRed], leg: leg,
+                filters: towing, limits: FilterLimits(),
+                calmest: true)?.id,
+            calmRed.id)
         // A grade is no wall: a rig climbs 6.3%, slowly. A steep Clear road
         // beats a gentle Red one in a Tornado Warning.
         var steepClear = scored(0.2)
         steepClear.maxGradePercent = 6.3
         var gentleRed = scored(0.9)
         gentleRed.maxGradePercent = 5.5
-        XCTAssertEqual(FasterRoutePolicy.swapPick([gentleRed, steepClear], leg: leg,
-                                                  filters: towing, limits: FilterLimits(),
-                                                  calmest: true)?.id,
-                       steepClear.id)
+        XCTAssertEqual(
+            FasterRoutePolicy.swapPick(
+                [gentleRed, steepClear], leg: leg,
+                filters: towing, limits: FilterLimits(),
+                calmest: true)?.id,
+            steepClear.id)
         // Between two roads at one level, the grade still counts.
         var steepGreen = scored(0.5)
         steepGreen.maxGradePercent = 6.3
         var gentleGreen = scored(0.55)
         gentleGreen.maxGradePercent = 5.5
-        XCTAssertEqual(FasterRoutePolicy.swapPick([steepGreen, gentleGreen], leg: leg,
-                                                  filters: towing, limits: FilterLimits(),
-                                                  calmest: true)?.id,
-                       gentleGreen.id)
+        XCTAssertEqual(
+            FasterRoutePolicy.swapPick(
+                [steepGreen, gentleGreen], leg: leg,
+                filters: towing, limits: FilterLimits(),
+                calmest: true)?.id,
+            gentleGreen.id)
     }
 
     /// The level a reroute escapes by: Clear and Green are one low level.
@@ -213,9 +249,11 @@ final class LegSwapAndRoadAheadTests: XCTestCase {
         both.weatherScored = true
         both.familyPeaks = ["wind": 0.9]
         let filters: Set<RouteFilter> = [.noTolls, .noHighWinds]
-        XCTAssertEqual(RouteFilter.closestMatch(in: [both, tolled, windy], filters: filters,
-                                                limits: FilterLimits())?.id,
-                       windy.id)   // one broken each; the calmer
+        XCTAssertEqual(
+            RouteFilter.closestMatch(
+                in: [both, tolled, windy], filters: filters,
+                limits: FilterLimits())?.id,
+            windy.id)  // one broken each; the calmer
         XCTAssertNil(RouteFilter.closestMatch(in: [], filters: filters, limits: FilterLimits()))
     }
 
@@ -225,13 +263,17 @@ final class LegSwapAndRoadAheadTests: XCTestCase {
     func testWithNoHighwaysTheClosestMatchIsTheLocalRoadsRoute() {
         let interstate = route(Road(highways: true), risk: 0.1, eta: 4_800)
         let local = route(Road(highways: true), kind: .avoidHighways, risk: 0.3, eta: 6_900)
-        XCTAssertEqual(RouteFilter.closestMatch(in: [interstate, local], filters: [.noHighways],
-                                                limits: FilterLimits())?.id,
-                       local.id)
+        XCTAssertEqual(
+            RouteFilter.closestMatch(
+                in: [interstate, local], filters: [.noHighways],
+                limits: FilterLimits())?.id,
+            local.id)
         // Without No highways the calmer road still wins.
-        XCTAssertEqual(RouteFilter.closestMatch(in: [interstate, local], filters: [.noTolls],
-                                                limits: FilterLimits())?.id,
-                       interstate.id)
+        XCTAssertEqual(
+            RouteFilter.closestMatch(
+                in: [interstate, local], filters: [.noTolls],
+                limits: FilterLimits())?.id,
+            interstate.id)
     }
 
     // MARK: the needs clock across a reroute
@@ -239,19 +281,25 @@ final class LegSwapAndRoadAheadTests: XCTestCase {
     /// A reroute 110 miles in keeps the rest stop at mile 120 — 10 miles
     /// ahead, not 120 from the new leg's start. A stop restarts the clock.
     func testARerouteKeepsTheRestCountdown() {
-        let before = TripNeeds.milesSinceStop(beforeLeg: 0, drivenOnLastLegMeters: 110 * 1609.344,
-                                              stopped: false)
+        let before = TripNeeds.milesSinceStop(
+            beforeLeg: 0, drivenOnLastLegMeters: 110 * 1609.344,
+            stopped: false)
         XCTAssertEqual(before, 110, accuracy: 1e-9)
         // A second reroute 5 miles on keeps counting.
-        XCTAssertEqual(TripNeeds.milesSinceStop(beforeLeg: before,
-                                                drivenOnLastLegMeters: 5 * 1609.344,
-                                                stopped: false),
-                       115, accuracy: 1e-9)
-        XCTAssertEqual(TripNeeds.milesSinceStop(beforeLeg: before, drivenOnLastLegMeters: 1_000,
-                                                stopped: true), 0)
+        XCTAssertEqual(
+            TripNeeds.milesSinceStop(
+                beforeLeg: before,
+                drivenOnLastLegMeters: 5 * 1609.344,
+                stopped: false),
+            115, accuracy: 1e-9)
+        XCTAssertEqual(
+            TripNeeds.milesSinceStop(
+                beforeLeg: before, drivenOnLastLegMeters: 1_000,
+                stopped: true), 0)
         // The schedule runs from the stop through the new leg (100 more miles).
-        let schedule = TripNeeds.schedule(totalMiles: before + 100,
-                                          intervals: TripNeeds.Intervals(restMiles: 120))
+        let schedule = TripNeeds.schedule(
+            totalMiles: before + 100,
+            intervals: TripNeeds.Intervals(restMiles: 120))
         let next = TripNeeds.next(after: before, in: schedule)
         XCTAssertEqual(next?.need, .rest)
         XCTAssertEqual(next?.mile ?? 0, 120, accuracy: 1e-9)
@@ -267,9 +315,11 @@ final class LegSwapAndRoadAheadTests: XCTestCase {
     /// Warning at the third, a Wind Advisory at the last.
     private func scoredLeg() -> PlannedRoute {
         var r = route()
-        r.alertEvents = ["Flood Warning"]   // what planning saw
-        r.riskSamples = [sample(0.6, "Flood Warning"), sample(0.1, nil),
-                         sample(0.95, "Tornado Warning"), sample(0.4, "Wind Advisory")]
+        r.alertEvents = ["Flood Warning"]  // what planning saw
+        r.riskSamples = [
+            sample(0.6, "Flood Warning"), sample(0.1, nil),
+            sample(0.95, "Tornado Warning"), sample(0.4, "Wind Advisory"),
+        ]
         r.riskSegments = [10_000, 10_000, 10_000].map {
             RiskSegment(coordinates: [], risk: 0, lengthMeters: $0)
         }
@@ -281,14 +331,17 @@ final class LegSwapAndRoadAheadTests: XCTestCase {
     /// alerts" through a Tornado Warning issued an hour in.
     func testTheRoadAheadNamesLiveAlertsWorstFirst() {
         let leg = scoredLeg()
-        XCTAssertEqual(leg.alertEventsAhead(alongMeters: 15_000),
-                       ["Tornado Warning", "Wind Advisory"])
+        XCTAssertEqual(
+            leg.alertEventsAhead(alongMeters: 15_000),
+            ["Tornado Warning", "Wind Advisory"])
         // Inside the first stretch, its first check point still counts.
-        XCTAssertEqual(leg.alertEventsAhead(alongMeters: 5_000),
-                       ["Tornado Warning", "Flood Warning", "Wind Advisory"])
+        XCTAssertEqual(
+            leg.alertEventsAhead(alongMeters: 5_000),
+            ["Tornado Warning", "Flood Warning", "Wind Advisory"])
         // At the third check point, the first is well behind.
-        XCTAssertEqual(leg.alertEventsAhead(alongMeters: 20_000),
-                       ["Tornado Warning", "Wind Advisory"])
+        XCTAssertEqual(
+            leg.alertEventsAhead(alongMeters: 20_000),
+            ["Tornado Warning", "Wind Advisory"])
         // Nothing scored yet: the plan-time list is all there is.
         XCTAssertEqual(route().alertEventsAhead(alongMeters: 0), [])
         var unscored = route()
@@ -299,8 +352,9 @@ final class LegSwapAndRoadAheadTests: XCTestCase {
         // live watch has seen it; the watch's list leads, each alert once.
         var watched = scoredLeg()
         watched.watchedAlertEvents = ["Tornado Warning", "Flash Flood Warning"]
-        XCTAssertEqual(watched.alertEventsAhead(alongMeters: 15_000),
-                       ["Tornado Warning", "Flash Flood Warning", "Wind Advisory"])
+        XCTAssertEqual(
+            watched.alertEventsAhead(alongMeters: 15_000),
+            ["Tornado Warning", "Flash Flood Warning", "Wind Advisory"])
     }
 
     /// A leg with no check points yet (the way to an added stop, a replan
@@ -318,11 +372,14 @@ final class LegSwapAndRoadAheadTests: XCTestCase {
     // MARK: warning shapes on the driven route
 
     private func polygon(_ event: String, expires: Date?, at lat: Double = 41.0)
-        -> WeatherAlertService.AlertPolygon {
+        -> WeatherAlertService.AlertPolygon
+    {
         WeatherAlertService.AlertPolygon(
-            coordinates: [CLLocationCoordinate2D(latitude: lat, longitude: -104.8),
-                          CLLocationCoordinate2D(latitude: lat + 0.1, longitude: -104.8),
-                          CLLocationCoordinate2D(latitude: lat + 0.1, longitude: -104.7)],
+            coordinates: [
+                CLLocationCoordinate2D(latitude: lat, longitude: -104.8),
+                CLLocationCoordinate2D(latitude: lat + 0.1, longitude: -104.8),
+                CLLocationCoordinate2D(latitude: lat + 0.1, longitude: -104.7),
+            ],
             severity: 0.95, event: event, expires: expires)
     }
 
@@ -363,21 +420,29 @@ final class LegSwapAndRoadAheadTests: XCTestCase {
         let inside = CLLocationCoordinate2D(latitude: 41.08, longitude: -104.78)
         let away = CLLocationCoordinate2D(latitude: 44.0, longitude: -100.0)
         // looked inside it, nothing in force draws it: gone
-        XCTAssertTrue(WeatherAlertService.mergedPolygons(
-            [drawn], live: [], now: now, looked: [inside]).isEmpty)
+        XCTAssertTrue(
+            WeatherAlertService.mergedPolygons(
+                [drawn], live: [], now: now, looked: [inside]
+            ).isEmpty)
         // nothing was looked at inside it: stays (it may simply be ahead)
-        XCTAssertEqual(WeatherAlertService.mergedPolygons(
-            [drawn], live: [], now: now, looked: [away]).count, 1)
+        XCTAssertEqual(
+            WeatherAlertService.mergedPolygons(
+                [drawn], live: [], now: now, looked: [away]
+            ).count, 1)
         // no pass to judge by: stays
         XCTAssertEqual(WeatherAlertService.mergedPolygons([drawn], live: [], now: now).count, 1)
         // still in force: stays, and is not redrawn
         let same = polygon("Tornado Warning", expires: nil)
-        XCTAssertEqual(WeatherAlertService.mergedPolygons(
-            [drawn], live: [same], now: now, looked: [inside]).map(\.id), [drawn.id])
+        XCTAssertEqual(
+            WeatherAlertService.mergedPolygons(
+                [drawn], live: [same], now: now, looked: [inside]
+            ).map(\.id), [drawn.id])
         // re-issued over a new shape: the old one goes, the new one joins
         let moved = polygon("Tornado Warning", expires: nil, at: 41.5)
-        XCTAssertEqual(WeatherAlertService.mergedPolygons(
-            [drawn], live: [moved], now: now, looked: [inside]).map(\.id), [moved.id])
+        XCTAssertEqual(
+            WeatherAlertService.mergedPolygons(
+                [drawn], live: [moved], now: now, looked: [inside]
+            ).map(\.id), [moved.id])
     }
 
     // MARK: what is said
@@ -385,10 +450,12 @@ final class LegSwapAndRoadAheadTests: XCTestCase {
     /// The rising-risk prompt is spoken: what raised it, one period, no
     /// promise of a spoken answer nobody listens for.
     func testTheRisingRiskPromptIsSpoken() {
-        XCTAssertEqual(SiriSummaries.escalationPrompt(headline: "Tornado Warning ahead"),
-                       "Your route is getting riskier. Tornado Warning ahead.")
-        XCTAssertEqual(SiriSummaries.escalationPrompt(headline: "Road closed ahead."),
-                       "Your route is getting riskier. Road closed ahead.")
+        XCTAssertEqual(
+            SiriSummaries.escalationPrompt(headline: "Tornado Warning ahead"),
+            "Your route is getting riskier. Tornado Warning ahead.")
+        XCTAssertEqual(
+            SiriSummaries.escalationPrompt(headline: "Road closed ahead."),
+            "Your route is getting riskier. Road closed ahead.")
         let long = String(repeating: "Flooding reported on the highway. ", count: 10)
         XCTAssertLessThanOrEqual(SiriSummaries.escalationPrompt(headline: long).count, 200)
     }
@@ -397,13 +464,15 @@ final class LegSwapAndRoadAheadTests: XCTestCase {
     /// is on screen to pick.
     func testATripOfferSaysHowToTakeIt() {
         XCTAssertEqual(
-            SiriSummaries.tripOffer(name: "Cheyenne", meters: 100 * 1609.344, seconds: 5_400,
-                                    whileDriving: true),
+            SiriSummaries.tripOffer(
+                name: "Cheyenne", meters: 100 * 1609.344, seconds: 5_400,
+                whileDriving: true),
             "Route to Cheyenne: about 100 miles and 1 hour 30 minutes. "
                 + "Say: go ahead in FLOWS to switch to it.")
         XCTAssertEqual(
-            SiriSummaries.tripOffer(name: "Cheyenne", meters: 100 * 1609.344, seconds: 5_400,
-                                    whileDriving: false),
+            SiriSummaries.tripOffer(
+                name: "Cheyenne", meters: 100 * 1609.344, seconds: 5_400,
+                whileDriving: false),
             "Route to Cheyenne: about 100 miles and 1 hour 30 minutes. "
                 + "Say: go ahead in FLOWS — or pick a route on screen.")
         XCTAssertEqual(

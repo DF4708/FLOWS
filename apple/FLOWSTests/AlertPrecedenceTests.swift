@@ -8,6 +8,7 @@
 
 import Foundation
 import XCTest
+
 // The test target compiles the app sources directly; there is no FLOWS module to import.
 
 /// The owner's rule for alerts: specific to the threat, never spam, and the
@@ -23,8 +24,10 @@ final class AlertPrecedenceTests: XCTestCase {
         let advisory = ImminentAlerts.threatRank(event: "Flood Advisory", severityScore: 0.95)
         XCTAssertGreaterThan(tornado, advisory)
         let candidates = [
-            ImminentAlerts.Candidate(alertID: "advisory", distanceMeters: 2_000, severityScore: 0.95, threatRank: advisory),
-            ImminentAlerts.Candidate(alertID: "tornado", distanceMeters: 9_000, severityScore: 0.72, threatRank: tornado),
+            ImminentAlerts.Candidate(
+                alertID: "advisory", distanceMeters: 2_000, severityScore: 0.95, threatRank: advisory),
+            ImminentAlerts.Candidate(
+                alertID: "tornado", distanceMeters: 9_000, severityScore: 0.72, threatRank: tornado),
         ]
         XCTAssertEqual(ImminentAlerts.firstImminent(candidates, speedMps: 29)?.alertID, "tornado")
     }
@@ -41,19 +44,23 @@ final class AlertPrecedenceTests: XCTestCase {
         XCTAssertEqual(ImminentAlerts.firstImminent(both, speedMps: 29)?.alertID, "wind")
         XCTAssertEqual(ImminentAlerts.firstImminent([both[0]], speedMps: 29)?.alertID, "amber")
         // and a lookout is still classified as one
-        XCTAssertEqual(ImminentAlerts.classify(event: "AMBER Alert", severityScore: 0.95, expires: nil, now: now), .lookout)
+        XCTAssertEqual(
+            ImminentAlerts.classify(event: "AMBER Alert", severityScore: 0.95, expires: nil, now: now), .lookout)
     }
 
     func testFireWeatherIsAPredictorNotAReasonToShelter() {
         // A Red Flag Warning used to sit on the life-safety list and command
         // "shelter now" like a tornado. It is fire weather.
         XCTAssertFalse(ImminentAlerts.isLifeSafetyEvent("Red Flag Warning"))
-        XCTAssertEqual(ImminentAlerts.classify(event: "Red Flag Warning", severityScore: 0.72,
-                                               expires: now.addingTimeInterval(3600), now: now), .restArea)
+        XCTAssertEqual(
+            ImminentAlerts.classify(
+                event: "Red Flag Warning", severityScore: 0.72,
+                expires: now.addingTimeInterval(3600), now: now), .restArea)
         XCTAssertEqual(ImminentAlerts.threatRank(event: "Red Flag Warning", severityScore: 0.72), 1)
         // An actual fire still is.
         XCTAssertTrue(ImminentAlerts.isLifeSafetyEvent("Fire Warning"))
-        XCTAssertEqual(ImminentAlerts.classify(event: "Fire Warning", severityScore: 0.3, expires: nil, now: now), .shelter)
+        XCTAssertEqual(
+            ImminentAlerts.classify(event: "Fire Warning", severityScore: 0.3, expires: nil, now: now), .shelter)
     }
 
     func testATornadoEmergencyIsLifeSafety() {
@@ -78,10 +85,14 @@ final class AlertPrecedenceTests: XCTestCase {
         XCTAssertEqual(ShelterPolicy.kind(forEvent: "Dust Storm Warning", severityScore: 0.95), .inVehicle)
         XCTAssertEqual(ShelterPolicy.kind(forEvent: "Tornado Watch", severityScore: 0.7), .sturdyBuilding)
         XCTAssertEqual(ShelterPolicy.kind(forEvent: "Flash Flood Emergency", severityScore: 0.3), .officialShelter)
-        XCTAssertEqual(ImminentAlerts.classify(event: "Wind Advisory", severityScore: 0.7,
-                                               expires: now.addingTimeInterval(3600), now: now), .restArea)
-        XCTAssertEqual(ImminentAlerts.classify(event: "Wind Advisory", severityScore: 0.7,
-                                               expires: now.addingTimeInterval(-60), now: now), .monitor)
+        XCTAssertEqual(
+            ImminentAlerts.classify(
+                event: "Wind Advisory", severityScore: 0.7,
+                expires: now.addingTimeInterval(3600), now: now), .restArea)
+        XCTAssertEqual(
+            ImminentAlerts.classify(
+                event: "Wind Advisory", severityScore: 0.7,
+                expires: now.addingTimeInterval(-60), now: now), .monitor)
     }
 
     func testEquallyRankedAlertsFallBackToSeverityThenDistance() {
@@ -89,7 +100,8 @@ final class AlertPrecedenceTests: XCTestCase {
         let c = [
             ImminentAlerts.Candidate(alertID: "near-mild", distanceMeters: 1_000, severityScore: 0.72, threatRank: r),
             ImminentAlerts.Candidate(alertID: "far-severe", distanceMeters: 8_000, severityScore: 0.88, threatRank: r),
-            ImminentAlerts.Candidate(alertID: "nearest-severe", distanceMeters: 3_000, severityScore: 0.88, threatRank: r),
+            ImminentAlerts.Candidate(
+                alertID: "nearest-severe", distanceMeters: 3_000, severityScore: 0.88, threatRank: r),
         ]
         XCTAssertEqual(ImminentAlerts.firstImminent(c, speedMps: 29)?.alertID, "nearest-severe")
     }
@@ -98,14 +110,16 @@ final class AlertPrecedenceTests: XCTestCase {
     func testAHeldBannerLetsGoOnlyWhenItsAlertIsOver() {
         let now = Date()
         func over(demo: Bool = false, expires: Date? = nil, complete: Bool, listed: Bool) -> Bool {
-            ImminentAlerts.heldWarningIsOver(isDemo: demo, expires: expires, now: now,
-                                             scoreComplete: complete, stillListed: listed)
+            ImminentAlerts.heldWarningIsOver(
+                isDemo: demo, expires: expires, now: now,
+                scoreComplete: complete, stillListed: listed)
         }
         XCTAssertFalse(over(complete: true, listed: true), "still in force")
         XCTAssertTrue(over(complete: true, listed: false), "gone from a complete check")
         XCTAssertFalse(over(complete: false, listed: false), "no data is not all clear")
-        XCTAssertTrue(over(expires: now.addingTimeInterval(-1), complete: false, listed: true),
-                      "run out")
+        XCTAssertTrue(
+            over(expires: now.addingTimeInterval(-1), complete: false, listed: true),
+            "run out")
         XCTAssertFalse(over(expires: now.addingTimeInterval(60), complete: true, listed: true))
         XCTAssertFalse(over(demo: true, complete: true, listed: false), "the demo is in no feed")
     }

@@ -27,7 +27,11 @@ let flowsSignposter = OSSignposter(subsystem: "com.flows.app", category: "perf")
 final class AdaptiveTuning: Sendable {
     static let shared = AdaptiveTuning()
 
-    enum Tier: Int, Sendable { case low = 0, standard = 1, high = 2 }
+    enum Tier: Int, Sendable {
+        case low = 0
+        case standard = 1
+        case high = 2
+    }
 
     struct Settings: Sendable, Equatable {
         /// App-wide cap on concurrent network requests (the FlowsHTTP gate).
@@ -56,11 +60,13 @@ final class AdaptiveTuning: Sendable {
 
     private init() {
         let info = ProcessInfo.processInfo
-        baseTier = Self.baseTier(cores: info.activeProcessorCount,
-                                 memoryGB: Double(info.physicalMemory) / 1_073_741_824)
-        current = OSAllocatedUnfairLock(initialState: Self.settings(
-            tier: baseTier, thermal: info.thermalState,
-            lowPower: info.isLowPowerModeEnabled || NetworkPath.shared.isLowData))
+        baseTier = Self.baseTier(
+            cores: info.activeProcessorCount,
+            memoryGB: Double(info.physicalMemory) / 1_073_741_824)
+        current = OSAllocatedUnfairLock(
+            initialState: Self.settings(
+                tier: baseTier, thermal: info.thermalState,
+                lowPower: info.isLowPowerModeEnabled || NetworkPath.shared.isLowData))
         // Low Data Mode is the person asking for less traffic: it backs off
         // the way Low Power Mode does (fewer requests, a smaller map sweep,
         // longer-lived caches). It used to change nothing here.
@@ -77,9 +83,10 @@ final class AdaptiveTuning: Sendable {
 
     @objc private func recompute() {
         let info = ProcessInfo.processInfo
-        let s = Self.settings(tier: baseTier, thermal: info.thermalState,
-                              lowPower: info.isLowPowerModeEnabled
-                                  || NetworkPath.shared.isLowData)
+        let s = Self.settings(
+            tier: baseTier, thermal: info.thermalState,
+            lowPower: info.isLowPowerModeEnabled
+                || NetworkPath.shared.isLowData)
         current.withLock { $0 = s }
     }
 
@@ -103,12 +110,15 @@ final class AdaptiveTuning: Sendable {
     /// on) and Low Power Mode, with the planning burst bounded by the headroom
     /// the state allows — a critical device gets no boost at all. Pinned to
     /// the original by rust/flows-bridge/tests/fixtures/swift_modes_oracle.tsv.
-    static func settings(tier: Tier, thermal: ProcessInfo.ThermalState,
-                         lowPower: Bool) -> Settings {
+    static func settings(
+        tier: Tier, thermal: ProcessInfo.ThermalState,
+        lowPower: Bool
+    ) -> Settings {
         let s = flows_modes_tuning_settings(UInt8(tier.rawValue), Int64(thermal.rawValue), lowPower)
-        return Settings(maxInFlight: Int(s.max_in_flight),
-                        planningMaxInFlight: Int(s.planning_max_in_flight),
-                        viewportGridSpan: Int(s.viewport_grid_span),
-                        ttlMultiplier: s.ttl_multiplier, debounceSeconds: s.debounce_seconds)
+        return Settings(
+            maxInFlight: Int(s.max_in_flight),
+            planningMaxInFlight: Int(s.planning_max_in_flight),
+            viewportGridSpan: Int(s.viewport_grid_span),
+            ttlMultiplier: s.ttl_multiplier, debounceSeconds: s.debounce_seconds)
     }
 }

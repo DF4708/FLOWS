@@ -8,8 +8,8 @@
 
 import Compression
 import Foundation
-import os
 import Security
+import os
 
 // THE UNSAFE ISLANDS (this folder, Core/Islands).
 //
@@ -45,6 +45,7 @@ struct SharedISO8601Parser: @unchecked Sendable {
     }
 
     func date(from text: String) -> Date? { parser.date(from: text) }
+    func string(from date: Date) -> String { parser.string(from: date) }
 }
 
 /// Formatters kept by key. Building a `DateFormatter` or `NumberFormatter` is
@@ -128,8 +129,9 @@ enum RawBytes {
         let written = out.withUnsafeMutableBytes { dst -> Int in
             deflated.withUnsafeBytes { src -> Int in
                 guard let to = dst.bindMemory(to: UInt8.self).baseAddress,
-                      let from = src.bindMemory(to: UInt8.self).baseAddress,
-                      dst.count == capacity else { return 0 }
+                    let from = src.bindMemory(to: UInt8.self).baseAddress,
+                    dst.count == capacity
+                else { return 0 }
                 return compression_decode_buffer(
                     to, capacity, from, src.count, nil, COMPRESSION_ZLIB)
             }
@@ -147,4 +149,39 @@ enum RawBytes {
             return stream.write(base, maxLength: raw.count)
         }
     }
+}
+
+/// An object a main-queue callback hands to the main actor.
+///
+/// Apple's delegate callbacks (CoreBluetooth here) arrive as plain,
+/// unisolated calls even when the manager was told to deliver them on the
+/// main queue, and the objects they carry are not `Sendable`.
+///
+/// PROMISE: the value is wrapped inside a callback that is already running
+/// on the main queue, and the compiler lets it be read back only on the main
+/// actor, so it never leaves the main thread.
+struct MainQueueOnly<Value>: @unchecked Sendable {
+    private let held: Value
+    init(_ value: Value) { held = value }
+    @MainActor var value: Value { held }
+}
+
+/// One timer, kept where a deinit (which runs off the actor) can stop it.
+///
+/// PROMISE: the timer is only stored and invalidated here, never read back,
+/// and every swap happens under the lock, so no timer is invalidated twice
+/// or left running after its slot is gone.
+final class TimerSlot: Sendable {
+    private let slot = OSAllocatedUnfairLock<Timer?>(uncheckedState: nil)
+
+    /// Keep `timer` (or nothing), stopping the one it replaces.
+    func set(_ timer: Timer?) {
+        let old = slot.withLockUnchecked { kept -> Timer? in
+            defer { kept = timer }
+            return kept
+        }
+        old?.invalidate()
+    }
+
+    deinit { set(nil) }
 }

@@ -27,7 +27,42 @@ struct FLOWSWatchApp: App {
     }
 }
 
-/// Receives guidance from the phone.
+/// What one message from the phone says, read out of the loose dictionary
+/// where it arrives so only plain values cross to the main actor.
+private struct GuidancePayload: Sendable {
+    var navigating: Bool?
+    var instruction: String?
+    var distance: String?
+    var vehicle: CLLocationCoordinate2D?
+    var heading: Double?
+    var route: [CLLocationCoordinate2D]?
+    /// The phone sent a route line and it was empty.
+    var routeIsEmpty = false
+    var nearTurn = false
+    var arrived = false
+
+    init(_ payload: [String: Any]) {
+        navigating = payload["navigating"] as? Bool
+        instruction = payload["instruction"] as? String
+        distance = payload["distance"] as? String
+        if let lat = payload["lat"] as? Double, let lon = payload["lon"] as? Double {
+            vehicle = CLLocationCoordinate2D(latitude: lat, longitude: lon)
+        }
+        heading = payload["heading"] as? Double
+        if let flat = payload["routeLat"] as? [Double],
+            let flon = payload["routeLon"] as? [Double], flat.count == flon.count
+        {
+            route = zip(flat, flon).map { CLLocationCoordinate2D(latitude: $0, longitude: $1) }
+        }
+        routeIsEmpty = (payload["routeLat"] as? [Double])?.isEmpty == true
+        nearTurn = payload["nearTurn"] as? Bool == true
+        arrived = payload["arrived"] as? Bool == true
+    }
+}
+
+/// Receives guidance from the phone. The face lives on the main actor; the
+/// phone's messages arrive on a background queue and hop over in order.
+@MainActor
 final class WatchGuidance: NSObject, ObservableObject, WCSessionDelegate {
     static let shared = WatchGuidance()
 
@@ -49,7 +84,7 @@ final class WatchGuidance: NSObject, ObservableObject, WCSessionDelegate {
     /// not a live trip. A drive refreshes the stamp every couple of seconds,
     /// so only a trip the phone never ended (quit, crash, dead battery)
     /// leaves one — and the system keeps it, and hands it over late.
-    private static func isStale(_ context: [String: Any]) -> Bool {
+    private nonisolated static func isStale(_ context: [String: Any]) -> Bool {
         guard let at = context["at"] as? Double else { return false }
         return Date().timeIntervalSince1970 - at >= 15 * 60
     }
@@ -58,65 +93,70 @@ final class WatchGuidance: NSObject, ObservableObject, WCSessionDelegate {
     /// at once instead of "Waiting for FLOWS" until the next change, while
     /// it is fresh. One without a stamp (an older phone build) is never
     /// replayed.
-    func session(_ session: WCSession, activationDidCompleteWith state: WCSessionActivationState,
-                 error: Error?) {
+    nonisolated func session(
+        _ session: WCSession,
+        activationDidCompleteWith state: WCSessionActivationState,
+        error: Error?
+    ) {
         let waiting = session.receivedApplicationContext
         guard state == .activated, waiting["at"] is Double, !Self.isStale(waiting) else { return }
         apply(waiting)
     }
 
-    func session(_ session: WCSession, didReceiveMessage message: [String: Any]) {
+    nonisolated func session(_ session: WCSession, didReceiveMessage message: [String: Any]) {
         apply(message)
     }
 
     /// A context delivered late (the app was closed or asleep when it came)
     /// is checked the same way. An old one clears the face rather than being
     /// skipped: the face may still hold an even older trip.
-    func session(_ session: WCSession, didReceiveApplicationContext context: [String: Any]) {
+    nonisolated func session(
+        _ session: WCSession,
+        didReceiveApplicationContext context: [String: Any]
+    ) {
         guard !Self.isStale(context) else {
+            // The main queue is the main actor's own queue, and it keeps the
+            // phone's messages in the order they came.
             DispatchQueue.main.async {
-                self.navigating = false
-                self.instruction = "Waiting for FLOWS on iPhone…"
-                self.distanceText = ""
-                self.routeCoords = []
-                self.vehicle = nil
+                MainActor.assumeIsolated { self.clear() }
             }
             return
         }
         apply(context)
     }
 
-    private func apply(_ payload: [String: Any]) {
+    private func clear() {
+        navigating = false
+        instruction = "Waiting for FLOWS on iPhone…"
+        distanceText = ""
+        routeCoords = []
+        vehicle = nil
+    }
+
+    private nonisolated func apply(_ payload: [String: Any]) {
+        let said = GuidancePayload(payload)
         DispatchQueue.main.async {
-            self.navigating = payload["navigating"] as? Bool ?? self.navigating
-            if let text = payload["instruction"] as? String { self.instruction = text }
-            if let d = payload["distance"] as? String { self.distanceText = d }
-            if let lat = payload["lat"] as? Double, let lon = payload["lon"] as? Double {
-                self.vehicle = CLLocationCoordinate2D(latitude: lat, longitude: lon)
-            }
-            if let h = payload["heading"] as? Double { self.heading = h }
-            if let flat = payload["routeLat"] as? [Double],
-               let flon = payload["routeLon"] as? [Double], flat.count == flon.count {
-                self.routeCoords = zip(flat, flon).map {
-                    CLLocationCoordinate2D(latitude: $0, longitude: $1)
-                }
-            }
-            // A trip that ended goes whole — its line, its position and its
-            // heading. The phone's "Trip ended" carries no position, so the
-            // arrow would otherwise stay on the map under it.
-            if payload["navigating"] as? Bool == false,
-               (payload["routeLat"] as? [Double])?.isEmpty == true {
-                self.vehicle = nil
-                self.heading = 0
-            }
-            // The wrist tap: fires when the phone says a turn is near.
-            if payload["nearTurn"] as? Bool == true {
-                WKInterfaceDevice.current().play(.directionUp)
-            }
-            if payload["arrived"] as? Bool == true {
-                WKInterfaceDevice.current().play(.success)
-            }
+            MainActor.assumeIsolated { self.show(said) }
         }
+    }
+
+    private func show(_ said: GuidancePayload) {
+        navigating = said.navigating ?? navigating
+        if let text = said.instruction { instruction = text }
+        if let d = said.distance { distanceText = d }
+        if let at = said.vehicle { vehicle = at }
+        if let h = said.heading { heading = h }
+        if let route = said.route { routeCoords = route }
+        // A trip that ended goes whole — its line, its position and its
+        // heading. The phone's "Trip ended" carries no position, so the
+        // arrow would otherwise stay on the map under it.
+        if said.navigating == false, said.routeIsEmpty {
+            vehicle = nil
+            heading = 0
+        }
+        // The wrist tap: fires when the phone says a turn is near.
+        if said.nearTurn { WKInterfaceDevice.current().play(.directionUp) }
+        if said.arrived { WKInterfaceDevice.current().play(.success) }
     }
 }
 
@@ -173,23 +213,26 @@ struct WatchNavView: View {
                 // top padding keeps it clear of the system clock.
                 .padding(.horizontal, 6)
                 .padding(.top, 4)
-                .background(GeometryReader { card in
-                    Color.clear
-                        .onAppear { cardCover = Self.cover(card: card, face: face) }
-                        .onChange(of: card.size.height) { _, _ in
-                            cardCover = Self.cover(card: card, face: face)
-                        }
-                })
+                .background(
+                    GeometryReader { card in
+                        Color.clear
+                            .onAppear { cardCover = Self.cover(card: card, face: face) }
+                            .onChange(of: card.size.height) { _, _ in
+                                cardCover = Self.cover(card: card, face: face)
+                            }
+                    })
             }
         }
         // Latitude and longitude both: due east or west only the longitude moves.
         .onChange(of: link.vehicle.map { [$0.latitude, $0.longitude] }) { _, _ in
             guard let v = link.vehicle else { return }
             withAnimation(.easeInOut(duration: 0.6)) {
-                camera = .camera(MapCamera(
-                    centerCoordinate: Self.aimPoint(vehicle: v, headingDegrees: link.heading,
-                                                    distanceMeters: 800, cover: cardCover),
-                    distance: 800, heading: link.heading, pitch: 0))
+                camera = .camera(
+                    MapCamera(
+                        centerCoordinate: Self.aimPoint(
+                            vehicle: v, headingDegrees: link.heading,
+                            distanceMeters: 800, cover: cardCover),
+                        distance: 800, heading: link.heading, pitch: 0))
             }
         }
     }
@@ -206,13 +249,16 @@ struct WatchNavView: View {
     /// the card: ahead of it along the heading by half the covered share of
     /// the view. The map's height tracks the camera distance, the same
     /// approximation the phone's chase camera makes.
-    static func aimPoint(vehicle: CLLocationCoordinate2D, headingDegrees: Double,
-                         distanceMeters: Double, cover: Double) -> CLLocationCoordinate2D {
+    static func aimPoint(
+        vehicle: CLLocationCoordinate2D, headingDegrees: Double,
+        distanceMeters: Double, cover: Double
+    ) -> CLLocationCoordinate2D {
         let ahead = distanceMeters * cover / 2
         let radians = headingDegrees * .pi / 180
         let metersPerDegree = 111_320.0
         let latitude = vehicle.latitude + ahead * cos(radians) / metersPerDegree
-        let longitude = vehicle.longitude + ahead * sin(radians)
+        let longitude =
+            vehicle.longitude + ahead * sin(radians)
             / (metersPerDegree * max(cos(vehicle.latitude * .pi / 180), 0.01))
         return CLLocationCoordinate2D(latitude: latitude, longitude: longitude)
     }

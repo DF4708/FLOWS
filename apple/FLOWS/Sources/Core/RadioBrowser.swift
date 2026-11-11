@@ -49,9 +49,10 @@ final class RadioBrowser: ObservableObject {
         /// Bridge into the trucker-radio player (one shared AVPlayer path —
         /// tuning an AM/FM stream stops a NOAA relay and vice versa).
         var channel: TruckerRadio.Channel {
-            TruckerRadio.Channel(name: name,
-                                 detail: genre.isEmpty ? "AM/FM stream" : genre,
-                                 url: url)
+            TruckerRadio.Channel(
+                name: name,
+                detail: genre.isEmpty ? "AM/FM stream" : genre,
+                url: url)
         }
     }
 
@@ -85,8 +86,10 @@ final class RadioBrowser: ObservableObject {
     /// then jazz. Only the newest search writes the list.
     private var asked = 0
 
-    func searchNearby(near position: CLLocationCoordinate2D?,
-                      stateCode: String?) async {
+    func searchNearby(
+        near position: CLLocationCoordinate2D?,
+        stateCode: String?
+    ) async {
         asked += 1
         let mine = asked
         status = "Finding stations…"
@@ -96,9 +99,11 @@ final class RadioBrowser: ObservableObject {
             return
         }
         if let position,
-           let found = await fetchStations(
-               Self.searchURL(host: host, state: nil, name: nil,
-                              near: position)), !found.isEmpty {
+            let found = await fetchStations(
+                Self.searchURL(
+                    host: host, state: nil, name: nil,
+                    near: position)), !found.isEmpty
+        {
             guard mine == asked else { return }
             stations = Self.rankedNearest(found, near: position)
             status = nil
@@ -115,8 +120,10 @@ final class RadioBrowser: ObservableObject {
     /// back is re-filed through BroadcastRadio.kind, whose match order puts
     /// the narrow kinds first, and anything that lands somewhere else is
     /// dropped. Asking for Rock gets rock.
-    func searchGenre(_ kind: BroadcastRadio.Kind,
-                     near position: CLLocationCoordinate2D?) async {
+    func searchGenre(
+        _ kind: BroadcastRadio.Kind,
+        near position: CLLocationCoordinate2D?
+    ) async {
         asked += 1
         let mine = asked
         status = "Finding stations…"
@@ -127,9 +134,12 @@ final class RadioBrowser: ObservableObject {
         }
         var found: [Station] = []
         for word in kind.tagWords.prefix(3) {
-            guard let batch = await fetchStations(
-                Self.searchURL(host: host, state: nil, name: nil,
-                               tag: word, near: position)) else { continue }
+            guard
+                let batch = await fetchStations(
+                    Self.searchURL(
+                        host: host, state: nil, name: nil,
+                        tag: word, near: position))
+            else { continue }
             found += batch
         }
         var seen = Set<String>()
@@ -138,16 +148,20 @@ final class RadioBrowser: ObservableObject {
         }
         guard mine == asked else { return }
         stations = position.map { Self.rankedNearest(filed, near: $0) } ?? filed
-        status = stations.isEmpty
+        status =
+            stations.isEmpty
             ? "No \(kind.title.lowercased()) stations near you right now." : nil
     }
 
     /// Nearest transmitter first; the directory's vote order decides between
     /// stations it can't place. "Local radio" means the broadcaster down the
     /// road, not the most-voted stream three states away.
-    nonisolated static func rankedNearest(_ found: [Station],
-                                          near position: CLLocationCoordinate2D)
-        -> [Station] {
+    nonisolated static func rankedNearest(
+        _ found: [Station],
+        near position: CLLocationCoordinate2D
+    )
+        -> [Station]
+    {
         // Each ranked station is the FIRST one sharing its stream URL, as the
         // directory lists a station once per bitrate (rust/flows-core
         // tags_and_replies.rs).
@@ -163,9 +177,10 @@ final class RadioBrowser: ObservableObject {
                     lons.lent { lo in
                         hasLon.lent { hlo in
                             votes.lent { vo in
-                                Array(flows_tags_ranked_nearest(
-                                    la, hla, lo, hlo, vo, urls, urlLengths, Int64(found.count),
-                                    position.latitude, position.longitude))
+                                Array(
+                                    flows_tags_ranked_nearest(
+                                        la, hla, lo, hlo, vo, urls, urlLengths, Int64(found.count),
+                                        position.latitude, position.longitude))
                             }
                         }
                     }
@@ -187,18 +202,19 @@ final class RadioBrowser: ObservableObject {
         status = "Finding stations…"
         guard let host = await ensureHost() else {
             guard mine == asked else { return }
-            stations = []   // an old search's list must not answer this one
+            stations = []  // an old search's list must not answer this one
             status = "Station list didn't load. Check the connection and try again."
             return
         }
         let byName = await fetchStations(
             Self.searchURL(host: host, state: nil, name: query))
         let byGenre = await fetchStations(
-            Self.searchURL(host: host, state: nil, name: nil,
-                           tag: query.lowercased()))
+            Self.searchURL(
+                host: host, state: nil, name: nil,
+                tag: query.lowercased()))
         guard mine == asked else { return }
         guard let merged = Self.merged(nameHits: byName, tagHits: byGenre) else {
-            stations = []   // (the failed search played the LAST one's top hit)
+            stations = []  // (the failed search played the LAST one's top hit)
             status = "Station list didn't load. Check the connection and try again."
             return
         }
@@ -209,8 +225,9 @@ final class RadioBrowser: ObservableObject {
     private func run(state: String?, name: String?, ticket: Int) async {
         status = "Finding stations…"
         guard let host = await ensureHost(),
-              let found = await fetchStations(
-                Self.searchURL(host: host, state: state, name: name)) else {
+            let found = await fetchStations(
+                Self.searchURL(host: host, state: state, name: name))
+        else {
             guard ticket == asked else { return }
             stations = []
             status = "Station list didn't load. Check the connection and try again."
@@ -225,8 +242,9 @@ final class RadioBrowser: ObservableObject {
     /// failed (distinct from a clean empty result).
     private func fetchStations(_ url: URL?) async -> [Station]? {
         guard let url,
-              let (data, resp) = try? await ThrottledNet.fetch(url),
-              (resp as? HTTPURLResponse)?.statusCode == 200 else { return nil }
+            let (data, resp) = try? await ThrottledNet.fetch(url),
+            (resp as? HTTPURLResponse)?.statusCode == 200
+        else { return nil }
         return Self.parseStations(data)
     }
 
@@ -238,14 +256,16 @@ final class RadioBrowser: ObservableObject {
     private func ensureHost() async -> String? {
         if let host { return host }
         if let listURL = URL(string: Self.allServersURL),
-           let (data, resp) = try? await ThrottledNet.fetch(listURL),
-           (resp as? HTTPURLResponse)?.statusCode == 200 {
+            let (data, resp) = try? await ThrottledNet.fetch(listURL),
+            (resp as? HTTPURLResponse)?.statusCode == 200
+        {
             for candidate in Self.parseServers(data).shuffled()
             where Self.isAllowedMirror(candidate) {
                 guard let stats = URL(string: "https://\(candidate)/json/stats"),
-                      let (d, r) = try? await ThrottledNet.fetch(stats),
-                      (r as? HTTPURLResponse)?.statusCode == 200,
-                      Self.serverLooksHealthy(d) else { continue }
+                    let (d, r) = try? await ThrottledNet.fetch(stats),
+                    (r as? HTTPURLResponse)?.statusCode == 200,
+                    Self.serverLooksHealthy(d)
+                else { continue }
                 host = candidate
                 return candidate
             }
@@ -271,8 +291,10 @@ final class RadioBrowser: ObservableObject {
     }
 
     nonisolated static func parseServers(_ data: Data) -> [String] {
-        guard let rows = try? JSONSerialization.jsonObject(with: data)
-                as? [[String: Any]] else { return [] }
+        guard
+            let rows = try? JSONSerialization.jsonObject(with: data)
+                as? [[String: Any]]
+        else { return [] }
         let names = rows.map { $0["name"] as? String }
         let kept = RustTextColumn(names).with { joined, lengths, present in
             Array(flows_tags_unique_server_names(joined, lengths, present, Int64(names.count)))
@@ -282,8 +304,10 @@ final class RadioBrowser: ObservableObject {
 
     /// Mirror stats payload → is this mirror serving? (`{"status":"OK"}`).
     nonisolated static func serverLooksHealthy(_ data: Data) -> Bool {
-        guard let json = try? JSONSerialization.jsonObject(with: data)
-                as? [String: Any] else { return false }
+        guard
+            let json = try? JSONSerialization.jsonObject(with: data)
+                as? [String: Any]
+        else { return false }
         return json["status"] as? String == "OK"
     }
 
@@ -291,14 +315,17 @@ final class RadioBrowser: ObservableObject {
     /// (`hidebroken`), HTTPS only (`is_https` — re-checked client-side),
     /// community-vote order. `state`, `name`, and `tag` (genre) are the
     /// three search modes.
-    nonisolated static func searchURL(host: String, state: String?,
-                                      name: String?, tag: String? = nil,
-                                      near: CLLocationCoordinate2D? = nil) -> URL? {
+    nonisolated static func searchURL(
+        host: String, state: String?,
+        name: String?, tag: String? = nil,
+        near: CLLocationCoordinate2D? = nil
+    ) -> URL? {
         // .urlQueryAllowed leaves & = + literal (the Yelp lesson) — use a
         // strict component set for the free-text term.
         var allowed = CharacterSet.urlQueryAllowed
         allowed.remove(charactersIn: "&=+?")
-        var query = "countrycode=US&hidebroken=true&is_https=true"
+        var query =
+            "countrycode=US&hidebroken=true&is_https=true"
             + "&order=votes&reverse=true&limit=60"
         if let state, let s = state.addingPercentEncoding(withAllowedCharacters: allowed) {
             query += "&state=\(s)"
@@ -317,7 +344,8 @@ final class RadioBrowser: ObservableObject {
             // "what's on the air around here".
             let lat = (near.latitude * 10).rounded() / 10
             let lon = (near.longitude * 10).rounded() / 10
-            query += "&geo_lat=\(lat)&geo_long=\(lon)"
+            query +=
+                "&geo_lat=\(lat)&geo_long=\(lon)"
                 + "&geo_distance=\(nearbyRadiusMeters)"
         }
         return URL(string: "https://\(host)/json/stations/search?\(query)")
@@ -326,15 +354,18 @@ final class RadioBrowser: ObservableObject {
     /// Merge the two free-text modes: name matches lead, genre (tag)
     /// matches follow, duplicates drop. nil only when BOTH requests failed
     /// — one working mode still serves.
-    nonisolated static func merged(nameHits: [Station]?,
-                                   tagHits: [Station]?) -> [Station]? {
+    nonisolated static func merged(
+        nameHits: [Station]?,
+        tagHits: [Station]?
+    ) -> [Station]? {
         let combined = (nameHits ?? []) + (tagHits ?? [])
         let plan = RustTextColumn(combined.map(\.name)).with { names, nameLengths, _ in
             RustTextColumn(combined.map(\.url)).with { urls, urlLengths, _ in
-                Array(flows_tags_merged_stations(
-                    names, nameLengths, urls, urlLengths,
-                    Int64(nameHits?.count ?? 0), nameHits != nil,
-                    Int64(tagHits?.count ?? 0), tagHits != nil))
+                Array(
+                    flows_tags_merged_stations(
+                        names, nameLengths, urls, urlLengths,
+                        Int64(nameHits?.count ?? 0), nameHits != nil,
+                        Int64(tagHits?.count ?? 0), tagHits != nil))
             }
         }
         guard plan.first == 1 else { return nil }
@@ -346,24 +377,29 @@ final class RadioBrowser: ObservableObject {
     /// name (the directory lists one station once per bitrate), directory
     /// vote order preserved.
     nonisolated static func parseStations(_ data: Data) -> [Station] {
-        guard let rows = try? JSONSerialization.jsonObject(with: data)
-                as? [[String: Any]] else { return [] }
+        guard
+            let rows = try? JSONSerialization.jsonObject(with: data)
+                as? [[String: Any]]
+        else { return [] }
         let names = RustTextColumn(rows.map { $0["name"] as? String })
         let urls = RustTextColumn(rows.map { $0["url_resolved"] as? String })
         let kept = names.with { nameText, nameLengths, hasName in
             urls.with { urlText, urlLengths, hasURL in
-                Array(flows_tags_kept_station_rows(nameText, nameLengths, hasName,
-                                                   urlText, urlLengths, hasURL, Int64(rows.count)))
+                Array(
+                    flows_tags_kept_station_rows(
+                        nameText, nameLengths, hasName,
+                        urlText, urlLengths, hasURL, Int64(rows.count)))
             }
         }
         return kept.map { index in
             let row = rows[Int(index)]
-            return Station(name: flows_tags_station_name(row["name"] as? String ?? "").text,
-                           url: row["url_resolved"] as? String ?? "",
-                           genre: genreWords(fromTags: row["tags"] as? String ?? ""),
-                           votes: row["votes"] as? Int ?? 0,
-                           latitude: row["geo_lat"] as? Double,
-                           longitude: row["geo_long"] as? Double)
+            return Station(
+                name: flows_tags_station_name(row["name"] as? String ?? "").text,
+                url: row["url_resolved"] as? String ?? "",
+                genre: genreWords(fromTags: row["tags"] as? String ?? ""),
+                votes: row["votes"] as? Int ?? 0,
+                latitude: row["geo_lat"] as? Double,
+                longitude: row["geo_long"] as? Double)
         }
     }
 

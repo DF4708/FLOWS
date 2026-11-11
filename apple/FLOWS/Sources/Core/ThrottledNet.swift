@@ -24,15 +24,15 @@ import os
 ///      doesn't pile on — which is exactly what an old iPhone needs.
 enum ThrottledNet {
     #if os(iOS)
-    /// Multipath TCP for Wi-Fi ↔ cellular HANDOVER — exactly the moment a
-    /// driver pulls out of their driveway mid-plan and the phone walks off
-    /// home Wi-Fi. Requires the paid-team
-    /// com.apple.developer.networking.multipath entitlement, which
-    /// ad-hoc/local signing cannot carry (same situation as the WeatherKit
-    /// hook): WITHOUT the entitlement iOS refuses multipath sockets, so the
-    /// default stays .none. When the app is provisioned for it, set this to
-    /// .handover — the session below picks it up with no other changes.
-    static let multipathService: URLSessionConfiguration.MultipathServiceType = .none
+        /// Multipath TCP for Wi-Fi ↔ cellular HANDOVER — exactly the moment a
+        /// driver pulls out of their driveway mid-plan and the phone walks off
+        /// home Wi-Fi. Requires the paid-team
+        /// com.apple.developer.networking.multipath entitlement, which
+        /// ad-hoc/local signing cannot carry (same situation as the WeatherKit
+        /// hook): WITHOUT the entitlement iOS refuses multipath sockets, so the
+        /// default stays .none. When the app is provisioned for it, set this to
+        /// .handover — the session below picks it up with no other changes.
+        static let multipathService: URLSessionConfiguration.MultipathServiceType = .none
     #endif
 
     static let session: URLSession = {
@@ -47,7 +47,7 @@ enum ThrottledNet {
         cfg.waitsForConnectivity = true
         cfg.httpAdditionalHeaders = ["User-Agent": "FLOWS (wizeman555@gmail.com)"]
         #if os(iOS)
-        cfg.multipathServiceType = Self.multipathService
+            cfg.multipathServiceType = Self.multipathService
         #endif
         // Real protocol-level HTTP cache (probed 2026-08: api.weather.gov
         // sends ETag/Last-Modified on alerts and forecasts, and marks /points
@@ -96,7 +96,7 @@ enum ThrottledNet {
         cfg.urlCache = nil
         cfg.httpAdditionalHeaders = ["User-Agent": "FLOWS (wizeman555@gmail.com)"]
         #if os(iOS)
-        cfg.multipathServiceType = Self.multipathService
+            cfg.multipathServiceType = Self.multipathService
         #endif
         return URLSession(configuration: cfg)
     }()
@@ -115,7 +115,8 @@ enum ThrottledNet {
     /// there), through its own one-at-a-time gate and the host breaker.
     static func download(_ request: URLRequest, to destination: URL) async throws -> URLResponse {
         try await fetchGuarded(host: request.url?.host, gate: bulkGate) {
-            let file: URL, response: URLResponse
+            let file: URL
+            let response: URLResponse
             do {
                 (file, response) = try await bulkSession.download(for: request)
             } catch {
@@ -158,8 +159,9 @@ enum ThrottledNet {
                 // breaker kept Overpass and weather.gov shut for two minutes
                 // of good signal — speed limits and cameras went blank.
                 if !(error is CancellationError),
-                   (error as? URLError)?.code != .cancelled,
-                   !NetworkPath.shared.saysOffline(error) {
+                    (error as? URLError)?.code != .cancelled,
+                    !NetworkPath.shared.saysOffline(error)
+                {
                     await HostBreaker.shared.recordFailure(host)
                 } else {
                     // Cancelled: not a failure, but must release a half-open
@@ -196,16 +198,17 @@ enum ThrottledNet {
         _ urls: [URL?],
         parse: @Sendable @escaping (Data, HTTPURLResponse) -> T?
     ) async -> T? {
-        await firstNonNil(urls.map { maybeURL in
-            { () async -> T? in
-                guard let url = maybeURL,
-                      let (data, resp) = try? await fetch(url),
-                      let http = resp as? HTTPURLResponse, http.statusCode == 200,
-                      let value = parse(data, http)
-                else { return nil }
-                return value
-            }
-        })
+        await firstNonNil(
+            urls.map { maybeURL in
+                { () async -> T? in
+                    guard let url = maybeURL,
+                        let (data, resp) = try? await fetch(url),
+                        let http = resp as? HTTPURLResponse, http.statusCode == 200,
+                        let value = parse(data, http)
+                    else { return nil }
+                    return value
+                }
+            })
     }
 
     /// Request-based twin of `firstValid(_:parse:)` for POST / custom-header
@@ -214,15 +217,16 @@ enum ThrottledNet {
         _ requests: [URLRequest],
         parse: @Sendable @escaping (Data, HTTPURLResponse) -> T?
     ) async -> T? {
-        await firstNonNil(requests.map { req in
-            { () async -> T? in
-                guard let (data, resp) = try? await fetch(req),
-                      let http = resp as? HTTPURLResponse, http.statusCode == 200,
-                      let value = parse(data, http)
-                else { return nil }
-                return value
-            }
-        })
+        await firstNonNil(
+            requests.map { req in
+                { () async -> T? in
+                    guard let (data, resp) = try? await fetch(req),
+                        let http = resp as? HTTPURLResponse, http.statusCode == 200,
+                        let value = parse(data, http)
+                    else { return nil }
+                    return value
+                }
+            })
     }
 }
 
@@ -315,8 +319,10 @@ final class NetworkPath: Sendable {
     /// The error is the device's, not the host's: no path now, or an
     /// error that only an unconnected device gives.
     func saysOffline(_ error: Error) -> Bool {
-        let offlineCodes: [URLError.Code] = [.notConnectedToInternet, .networkConnectionLost,
-                                             .dataNotAllowed, .internationalRoamingOff]
+        let offlineCodes: [URLError.Code] = [
+            .notConnectedToInternet, .networkConnectionLost,
+            .dataNotAllowed, .internationalRoamingOff,
+        ]
         if let code = (error as? URLError)?.code, offlineCodes.contains(code) { return true }
         return state.withLock { !$0.up }
     }
@@ -339,7 +345,7 @@ actor HostBreaker {
     func admits(_ host: String) -> Bool {
         guard let opened = openedAt[host] else { return true }
         if Date().timeIntervalSince(opened) >= cooldown, !probing.contains(host) {
-            probing.insert(host)   // half-open: one probe carries the verdict
+            probing.insert(host)  // half-open: one probe carries the verdict
             return true
         }
         return false
@@ -360,10 +366,11 @@ actor HostBreaker {
         failures[host] = n
         if n >= trip {
             if openedAt[host] == nil {
-                FlowsDiag.log(.warn, "net",
-                              "breaker OPEN for \(host) after \(n) transport failures")
+                FlowsDiag.log(
+                    .warn, "net",
+                    "breaker OPEN for \(host) after \(n) transport failures")
             }
-            openedAt[host] = Date()   // (re)open, restart cooldown
+            openedAt[host] = Date()  // (re)open, restart cooldown
         }
     }
 
@@ -405,9 +412,11 @@ actor RequestGate {
 
     /// Ceiling providers are injectable so gate behavior is testable with
     /// fixed numbers; the app's shared instance reads AdaptiveTuning live.
-    init(baseCeiling: @escaping @Sendable () -> Int = { AdaptiveTuning.shared.maxInFlight },
-         burstCeiling: @escaping @Sendable () -> Int = { AdaptiveTuning.shared.settings.planningMaxInFlight },
-         burstSafetyWindow: TimeInterval = 90) {
+    init(
+        baseCeiling: @escaping @Sendable () -> Int = { AdaptiveTuning.shared.maxInFlight },
+        burstCeiling: @escaping @Sendable () -> Int = { AdaptiveTuning.shared.settings.planningMaxInFlight },
+        burstSafetyWindow: TimeInterval = 90
+    ) {
         self.baseCeiling = baseCeiling
         self.burstCeiling = burstCeiling
         self.burstSafetyWindow = burstSafetyWindow
@@ -446,7 +455,7 @@ actor RequestGate {
     /// elevated ceiling on an early return. `op` is @MainActor because every
     /// burst site in the app is (scoring, hydration, prefetch); the refcount
     /// and safety window still backstop the shared instance.
-    nonisolated func withPlanningBurst<T>(_ op: @MainActor () async -> T) async -> T {
+    nonisolated func withPlanningBurst<T: Sendable>(_ op: @MainActor () async -> T) async -> T {
         await beginPlanningBurst()
         let out = await Self.$insidePlanningBurst.withValue(true) { await op() }
         await endPlanningBurst()
@@ -480,7 +489,7 @@ actor RequestGate {
         // ceiling — after a burst ends (or the device heats up) the pool must
         // shrink to the lower ceiling before waiters run again.
         if !waiters.isEmpty, active <= ceiling {
-            waiters.removeFirst().resume()   // transfer the permit directly
+            waiters.removeFirst().resume()  // transfer the permit directly
         } else if !lowWaiters.isEmpty, active <= ceiling {
             lowWaiters.removeFirst().resume()
         } else {
@@ -491,8 +500,10 @@ actor RequestGate {
     /// Run `op` while holding one permit. Reentrant-safe: the actor is only
     /// held across the cheap counter bookkeeping, not the awaited work.
     /// `throws` (not rethrows): cancellation below throws its own error.
-    func withPermit<T: Sendable>(low: Bool = false,
-                                 _ op: @Sendable () async throws -> T) async throws -> T {
+    func withPermit<T: Sendable>(
+        low: Bool = false,
+        _ op: @Sendable () async throws -> T
+    ) async throws -> T {
         await acquire(low: low)
         defer { release() }
         // A cancelled caller must not spend its permit on transport work: a

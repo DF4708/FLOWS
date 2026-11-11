@@ -68,8 +68,10 @@ enum SpeedLaw {
     /// The limit the bar should draw its lines from: the posted one when the
     /// road is tagged, the estimate otherwise. Both lines always exist, so
     /// they never blink out mid-drive.
-    static func effectiveLimitMph(postedLimitMph: Double?,
-                                  speedMph: Double) -> Double {
+    static func effectiveLimitMph(
+        postedLimitMph: Double?,
+        speedMph: Double
+    ) -> Double {
         flows_vehicle_policy_effective_limit_mph(
             postedLimitMph ?? 0, postedLimitMph != nil, speedMph)
     }
@@ -104,10 +106,11 @@ enum SpeedLaw {
 
     static func standing(speedMph: Double, postedLimitMph: Double?) -> Standing {
         switch flows_vehicle_policy_standing_code(
-            speedMph, postedLimitMph ?? 0, postedLimitMph != nil) {
+            speedMph, postedLimitMph ?? 0, postedLimitMph != nil)
+        {
         case 2: return .federalViolation
         case 1: return .stateViolation
-        default: return .legal   // nothing posted → nothing to violate
+        default: return .legal  // nothing posted → nothing to violate
         }
     }
 
@@ -138,13 +141,16 @@ enum SpeedLaw {
     ///
     /// Where those rules conflict (a road whose excessive-speed line sits
     /// above the vehicle's rated top), the vehicle's maximum wins.
-    static func dynamicTopMph(speedMph: Double,
-                              postedLimitMph: Double?,
-                              vehicleTopSpeedMph: Double?) -> Double {
+    static func dynamicTopMph(
+        speedMph: Double,
+        postedLimitMph: Double?,
+        vehicleTopSpeedMph: Double?
+    ) -> Double {
         let ceiling = barTopMph(vehicleTopSpeedMph: vehicleTopSpeedMph)
-        let mustShow = max(speedMph * headroom,
-                           stateThresholdMph(postedLimitMph: postedLimitMph) ?? 0,
-                           federalThresholdMph(postedLimitMph: postedLimitMph) ?? 0)
+        let mustShow = max(
+            speedMph * headroom,
+            stateThresholdMph(postedLimitMph: postedLimitMph) ?? 0,
+            federalThresholdMph(postedLimitMph: postedLimitMph) ?? 0)
         let stepped = (mustShow / 10).rounded(.up) * 10
         return min(max(stepped, minTopMph), ceiling)
     }

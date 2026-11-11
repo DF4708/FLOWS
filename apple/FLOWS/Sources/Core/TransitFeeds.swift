@@ -27,11 +27,14 @@ actor TransitFeeds {
     private let cacheRoot: URL
 
     init(cacheRoot: URL? = nil) {
-        self.cacheRoot = cacheRoot ?? {
-            let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first
-                ?? URL(fileURLWithPath: NSTemporaryDirectory())
-            return caches.appendingPathComponent("flows-transit", isDirectory: true)
-        }()
+        self.cacheRoot =
+            cacheRoot
+            ?? {
+                let caches =
+                    FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first
+                    ?? URL(fileURLWithPath: NSTemporaryDirectory())
+                return caches.appendingPathComponent("flows-transit", isDirectory: true)
+            }()
     }
 
     /// Where a network's published schedule comes from.
@@ -88,16 +91,20 @@ actor TransitFeeds {
     /// their own licences forbid commercial use without written permission,
     /// and FLOWS earns referral fees; they stay in the table, marked, for the
     /// day permission is on file.
-    static func cityFeeds(near latitude: Double, _ longitude: Double,
-                          limit: Int = cityFeedLimit) -> [Source] {
+    static func cityFeeds(
+        near latitude: Double, _ longitude: Double,
+        limit: Int = cityFeedLimit
+    ) -> [Source] {
         sources(flows_transit_city_feeds(latitude, longitude, Int64(limit)))
     }
 
     /// The timetables of operators that run boats — ferries, water taxis —
     /// within `reachKm` of a point, nearest first. A terminal is often
     /// outside the box of the town it serves, so this reaches past it.
-    static func shipFeeds(near latitude: Double, _ longitude: Double, reachKm: Double,
-                          limit: Int = cityFeedLimit) -> [Source] {
+    static func shipFeeds(
+        near latitude: Double, _ longitude: Double, reachKm: Double,
+        limit: Int = cityFeedLimit
+    ) -> [Source] {
         sources(flows_transit_ship_feeds(latitude, longitude, reachKm, Int64(limit)))
     }
 
@@ -110,10 +117,16 @@ actor TransitFeeds {
         reachKm: Double, limit: Int = cityFeedLimit,
         start: [Source]? = nil, end: [Source]? = nil
     ) -> [Source] {
-        let nearStart = start ?? shipFeeds(near: startLatitude, startLongitude,
-                                           reachKm: reachKm, limit: 8)
-        let nearEnd = Set((end ?? shipFeeds(near: endLatitude, endLongitude,
-                                            reachKm: reachKm, limit: 8)).map(\.name))
+        let nearStart =
+            start
+            ?? shipFeeds(
+                near: startLatitude, startLongitude,
+                reachKm: reachKm, limit: 8)
+        let nearEnd = Set(
+            (end
+                ?? shipFeeds(
+                    near: endLatitude, endLongitude,
+                    reachKm: reachKm, limit: 8)).map(\.name))
         return Array(nearStart.filter { nearEnd.contains($0.name) }.prefix(max(0, limit)))
     }
 
@@ -123,15 +136,17 @@ actor TransitFeeds {
             let f = row.text
                 .split(separator: "\u{1F}", omittingEmptySubsequences: false).map(String.init)
             guard f.count == 10, f[0] == "feed", let url = secure(f[3]),
-                  let minLat = Double(f[5]), let maxLat = Double(f[6]),
-                  let minLon = Double(f[7]), let maxLon = Double(f[8])
+                let minLat = Double(f[5]), let maxLat = Double(f[6]),
+                let minLon = Double(f[7]), let maxLon = Double(f[8])
             else { continue }
-            out.append(Source(
-                name: f[1], url: url, operatorName: f[2],
-                area: Area(minLatitude: minLat, maxLatitude: maxLat,
-                           minLongitude: minLon, maxLongitude: maxLon),
-                mirror: f[9].isEmpty ? nil : secure(f[9])
-            ))
+            out.append(
+                Source(
+                    name: f[1], url: url, operatorName: f[2],
+                    area: Area(
+                        minLatitude: minLat, maxLatitude: maxLat,
+                        minLongitude: minLon, maxLongitude: maxLon),
+                    mirror: f[9].isEmpty ? nil : secure(f[9])
+                ))
         }
         return out
     }
@@ -210,8 +225,8 @@ actor TransitFeeds {
     /// quarter of the machine's memory keeps a build polite there.
     static var buildMemoryBudget: Int {
         #if os(iOS)
-        let available = os_proc_available_memory()
-        if available > 0 { return available / 2 }
+            let available = os_proc_available_memory()
+            if available > 0 { return available / 2 }
         #endif
         return Int(min(ProcessInfo.processInfo.physicalMemory / 4, UInt64(Int.max)))
     }
@@ -220,9 +235,9 @@ actor TransitFeeds {
     /// builder reads, which is what crosses the network (Chicago's: 55 MB).
     static var maxDownloadBytes: Int {
         #if os(macOS)
-        return 1 << 30
+            return 1 << 30
         #else
-        return 200 << 20
+            return 200 << 20
         #endif
     }
 
@@ -230,8 +245,10 @@ actor TransitFeeds {
     /// anything else is downloaded: its worst-case build within the memory
     /// budget, and its download within the limit. A feed that does not is
     /// skipped, like any unusable one.
-    static func fitsDevice(_ entries: [GTFSZip.Entry], budget: Int = buildMemoryBudget,
-                           maxDownload: Int = maxDownloadBytes) -> Bool {
+    static func fitsDevice(
+        _ entries: [GTFSZip.Entry], budget: Int = buildMemoryBudget,
+        maxDownload: Int = maxDownloadBytes
+    ) -> Bool {
         worstCaseBuildBytes(entries) <= budget
             && entries.reduce(0) { $0 + max(0, $1.compressedSize) } <= maxDownload
     }
@@ -325,7 +342,8 @@ actor TransitFeeds {
         // Two screens asking at once must not fetch twice — but a question
         // about tomorrow (the bus from a station reached after midnight) is
         // not answered by today's timetable, so the day is part of the key.
-        let key = sources.map(\.name).joined(separator: "+")
+        let key =
+            sources.map(\.name).joined(separator: "+")
             + "@\(Self.serviceDate(day, zone: TimeZone.current.identifier))"
             // An ask that may not use the network fails where one that may
             // would fetch: the two are not the same piece of work.
@@ -352,9 +370,10 @@ actor TransitFeeds {
         var haveFeed = GTFSZip.hasMember("stops.txt", in: feed)
         // A refresh that just failed is not tried again on every ask: each
         // plan over a week-old feed hit a dead host again before answering.
-        let triedLately = refreshFailed[source.name].map {
-            Date().timeIntervalSince($0) < Self.refreshRetrySeconds
-        } ?? false
+        let triedLately =
+            refreshFailed[source.name].map {
+                Date().timeIntervalSince($0) < Self.refreshRetrySeconds
+            } ?? false
         if !haveFeed || (allowNetwork && isStale(feed) && !triedLately) {
             guard allowNetwork else { throw Failure.notCachedAndOffline }
             do {
@@ -389,9 +408,10 @@ actor TransitFeeds {
         let wanted = [primary] + sources.dropFirst().filter { unusable[$0.name] != date }
         let built = root().appendingPathComponent(Self.shardName(wanted, date: date)).path
         if let stamp = current(built, date: date, feeds: wanted) {
-            return Ready(prefix: built, stamp: stamp,
-                         credit: Self.credit(for: wanted.map(\.operatorName)),
-                         operators: Self.distinct(wanted.map(\.operatorName)))
+            return Ready(
+                prefix: built, stamp: stamp,
+                credit: Self.credit(for: wanted.map(\.operatorName)),
+                operators: Self.distinct(wanted.map(\.operatorName)))
         }
 
         // A merged build holds every feed it reads at once, so they share one
@@ -418,8 +438,8 @@ actor TransitFeeds {
             guard need <= budget else { continue }
             let own = TransitShard.agencyZone(feedDirectory: feed.path)
             guard !own.isEmpty,
-                  let shift = TransitClock.shift(from: own, into: zone, serviceDate: date)
-            else { continue } // a feed with no clock cannot be placed in ours
+                let shift = TransitClock.shift(from: own, into: zone, serviceDate: date)
+            else { continue }  // a feed with no clock cannot be placed in ours
             budget -= need
             parts.append((source, feed, shift, own))
         }
@@ -428,9 +448,10 @@ actor TransitFeeds {
         let name = Self.shardName(used, date: date)
         let prefix = root().appendingPathComponent(name)
         if let stamp = current(prefix.path, date: date, feeds: used) {
-            return Ready(prefix: prefix.path, stamp: stamp,
-                         credit: Self.credit(for: used.map(\.operatorName)),
-                         operators: Self.distinct(used.map(\.operatorName)))
+            return Ready(
+                prefix: prefix.path, stamp: stamp,
+                credit: Self.credit(for: used.map(\.operatorName)),
+                operators: Self.distinct(used.map(\.operatorName)))
         }
         do {
             if parts.count == 1, primary.name == Self.amtrak.name {
@@ -444,8 +465,9 @@ actor TransitFeeds {
                     agencyZone: primaryZone
                 )
                 sweepOldShards(before: min(date, Self.sweepCutoff()))
-                return Ready(prefix: prefix.path, stamp: stamp, credit: primary.credit,
-                             operators: [primary.operatorName])
+                return Ready(
+                    prefix: prefix.path, stamp: stamp, credit: primary.credit,
+                    operators: [primary.operatorName])
             }
             let merged = try TransitShard.build(
                 feeds: parts.map {
@@ -468,9 +490,10 @@ actor TransitFeeds {
                 return try await make(sources, day: day, allowNetwork: false)
             }
             sweepOldShards(before: min(date, Self.sweepCutoff()))
-            return Ready(prefix: prefix.path, stamp: merged.stamp,
-                         credit: Self.credit(for: used.map(\.operatorName)),
-                         operators: Self.distinct(used.map(\.operatorName)))
+            return Ready(
+                prefix: prefix.path, stamp: merged.stamp,
+                credit: Self.credit(for: used.map(\.operatorName)),
+                operators: Self.distinct(used.map(\.operatorName)))
         } catch let failure as Failure {
             throw failure
         } catch {
@@ -530,7 +553,8 @@ actor TransitFeeds {
         //    ranges are served; a whole archive too big for the device is
         //    refused without downloading a byte of it.
         if let (length, ranges) = try? await headOfArchive(url),
-           !Self.acceptsDownload(length: length, servesRanges: ranges) {
+            !Self.acceptsDownload(length: length, servesRanges: ranges)
+        {
             throw Failure.tooLarge("\(source.name) is too large to download whole on this device")
         }
 
@@ -575,8 +599,9 @@ actor TransitFeeds {
         var staged: [(part: URL, name: String)] = []
         do {
             for entry in entries {
-                let piece = try await keep(entry, from: url, whole: whole, total: total,
-                                           into: feed)
+                let piece = try await keep(
+                    entry, from: url, whole: whole, total: total,
+                    into: feed)
                 // Two members with one name (a feed nested in two folders)
                 // share a .part file: the later one is what it now holds.
                 staged.removeAll { $0.name == piece.name }
@@ -602,8 +627,9 @@ actor TransitFeeds {
             }
         }
         for piece in staged {
-            try FileManager.default.moveItem(at: piece.part,
-                                             to: feed.appendingPathComponent(piece.name))
+            try FileManager.default.moveItem(
+                at: piece.part,
+                to: feed.appendingPathComponent(piece.name))
         }
         try? Data(GTFSZip.wantedSignature.utf8).write(to: stampFile(source), options: .atomic)
     }
@@ -628,9 +654,9 @@ actor TransitFeeds {
             // and was small enough to accept whole — so cut the member out.
             let at = entry.headerOffset
             guard at >= 0, at + 30 <= whole.count,
-                  let data = try GTFSZip.dataRange(
-                      of: entry, localHeader: whole.subdata(in: at..<(at + 30))),
-                  at + data.upperBound <= whole.count
+                let data = try GTFSZip.dataRange(
+                    of: entry, localHeader: whole.subdata(in: at..<(at + 30))),
+                at + data.upperBound <= whole.count
             else { throw Failure.feedUnusable("\(entry.name) did not unpack") }
             var body = prefix
             body.append(whole.subdata(in: (at + data.lowerBound)..<(at + data.upperBound)))
@@ -641,10 +667,11 @@ actor TransitFeeds {
             var copied = false
             for range in [entry.likelyRange, entry.safeRange] {
                 try await download(url, range.clamped(to: 0..<total), to: chunk)
-                guard let data = try GTFSZip.dataRange(
-                          of: entry, localHeader: Self.read(chunk, 0..<30)),
-                      data.upperBound <= Self.fileSize(chunk)
-                else { continue } // the narrow range fell short: ask for the wide one
+                guard
+                    let data = try GTFSZip.dataRange(
+                        of: entry, localHeader: Self.read(chunk, 0..<30)),
+                    data.upperBound <= Self.fileSize(chunk)
+                else { continue }  // the narrow range fell short: ask for the wide one
                 try Self.copy(chunk, data, to: part, after: prefix)
                 copied = true
                 break
@@ -675,8 +702,10 @@ actor TransitFeeds {
 
     /// A new file at `target`: `prefix`, then bytes `range` of `source`,
     /// copied a megabyte at a time.
-    static func copy(_ source: URL, _ range: Range<Int>, to target: URL,
-                             after prefix: Data) throws {
+    static func copy(
+        _ source: URL, _ range: Range<Int>, to target: URL,
+        after prefix: Data
+    ) throws {
         guard FileManager.default.createFile(atPath: target.path, contents: prefix) else {
             throw Failure.feedUnusable("could not write \(target.lastPathComponent)")
         }
@@ -690,7 +719,7 @@ actor TransitFeeds {
         while left > 0 {
             try autoreleasepool {
                 guard let piece = try input.read(upToCount: min(left, 1 << 20)),
-                      !piece.isEmpty
+                    !piece.isEmpty
                 else { throw Failure.feedUnusable("a schedule file came down short") }
                 try output.write(contentsOf: piece)
                 left -= piece.count
@@ -703,8 +732,9 @@ actor TransitFeeds {
     /// put another member where this one was expected.
     private func download(_ url: URL, _ range: Range<Int>, to file: URL) async throws {
         var request = URLRequest(url: url)
-        request.setValue("bytes=\(range.lowerBound)-\(range.upperBound - 1)",
-                         forHTTPHeaderField: "Range")
+        request.setValue(
+            "bytes=\(range.lowerBound)-\(range.upperBound - 1)",
+            forHTTPHeaderField: "Range")
         let response = try await ThrottledNet.download(request, to: file)
         guard let http = response as? HTTPURLResponse, http.statusCode == 206 else {
             throw Failure.feedUnavailable("the schedule host refused a range")
@@ -719,7 +749,8 @@ actor TransitFeeds {
         let (_, response) = try await ThrottledNet.fetch(request)
         guard let http = response as? HTTPURLResponse else { return (nil, false) }
         let length = http.value(forHTTPHeaderField: "Content-Length").flatMap(Int.init)
-        let ranges = http.value(forHTTPHeaderField: "Accept-Ranges")?
+        let ranges =
+            http.value(forHTTPHeaderField: "Accept-Ranges")?
             .lowercased().contains("bytes") ?? false
         return (length, ranges)
     }
@@ -730,9 +761,9 @@ actor TransitFeeds {
     /// bites hosts that force the whole thing down.
     static var maxWholeArchiveBytes: Int {
         #if os(macOS)
-        return 250 << 20
+            return 250 << 20
         #else
-        return 60 << 20
+            return 60 << 20
         #endif
     }
 
@@ -742,8 +773,10 @@ actor TransitFeeds {
     /// host that does not must send it all, so its length decides; an
     /// unknown length is allowed, because the session's 30-second resource
     /// limit stops a runaway download anyway.
-    static func acceptsDownload(length: Int?, servesRanges: Bool,
-                                limit: Int = maxWholeArchiveBytes) -> Bool {
+    static func acceptsDownload(
+        length: Int?, servesRanges: Bool,
+        limit: Int = maxWholeArchiveBytes
+    ) -> Bool {
         if servesRanges { return true }
         guard let length else { return true }
         return length <= limit
@@ -762,8 +795,9 @@ actor TransitFeeds {
             throw Failure.feedUnavailable("the schedule host answered \(http.statusCode)")
         }
         if http.statusCode == 206,
-           let contentRange = http.value(forHTTPHeaderField: "Content-Range"),
-           let total = Int(contentRange.split(separator: "/").last ?? "") {
+            let contentRange = http.value(forHTTPHeaderField: "Content-Range"),
+            let total = Int(contentRange.split(separator: "/").last ?? "")
+        {
             return (data, total, false)
         }
         return (data, data.count, true)
@@ -771,8 +805,9 @@ actor TransitFeeds {
 
     private func bytes(_ url: URL, _ range: Range<Int>) async throws -> Data {
         var request = URLRequest(url: url)
-        request.setValue("bytes=\(range.lowerBound)-\(range.upperBound - 1)",
-                         forHTTPHeaderField: "Range")
+        request.setValue(
+            "bytes=\(range.lowerBound)-\(range.upperBound - 1)",
+            forHTTPHeaderField: "Range")
         let (data, response) = try await ThrottledNet.fetch(request)
         guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
             throw Failure.feedUnavailable("the schedule host refused a range")
@@ -796,8 +831,9 @@ actor TransitFeeds {
     /// than it does now (the stamp holds the list it was fetched for).
     private func isStale(_ feed: URL) -> Bool {
         let marker = feed.appendingPathComponent(".fetched")
-        guard let modified = try? FileManager.default
-            .attributesOfItem(atPath: marker.path)[.modificationDate] as? Date
+        guard
+            let modified = try? FileManager.default
+                .attributesOfItem(atPath: marker.path)[.modificationDate] as? Date
         else { return true }
         let fetchedFor = (try? String(contentsOf: marker, encoding: .utf8)) ?? ""
         return fetchedFor != GTFSZip.wantedSignature
@@ -844,9 +880,10 @@ actor TransitFeeds {
             let used = [primary] + subset
             let prefix = root().appendingPathComponent(Self.shardName(used, date: date)).path
             if let stamp = current(prefix, date: date, feeds: used) {
-                return Ready(prefix: prefix, stamp: stamp,
-                             credit: Self.credit(for: used.map(\.operatorName)),
-                             operators: Self.distinct(used.map(\.operatorName)))
+                return Ready(
+                    prefix: prefix, stamp: stamp,
+                    credit: Self.credit(for: used.map(\.operatorName)),
+                    operators: Self.distinct(used.map(\.operatorName)))
             }
         }
         return nil
@@ -857,9 +894,10 @@ actor TransitFeeds {
     /// asked for once (Amtrak plus a city visited last month) would sit in
     /// the cache forever.
     private func sweepOldShards(before date: Int) {
-        let contents = (try? FileManager.default.contentsOfDirectory(
-            at: root(), includingPropertiesForKeys: nil
-        )) ?? []
+        let contents =
+            (try? FileManager.default.contentsOfDirectory(
+                at: root(), includingPropertiesForKeys: nil
+            )) ?? []
         for file in contents where Self.isShard(file.lastPathComponent, before: date) {
             try? FileManager.default.removeItem(at: file)
         }
@@ -875,8 +913,8 @@ actor TransitFeeds {
         guard url.pathExtension == "ftt" || url.pathExtension == "fts" else { return false }
         let base = url.deletingPathExtension().lastPathComponent
         guard let dash = base.lastIndex(of: "-"),
-              let day = Int(base[base.index(after: dash)...]),
-              (19000101...21001231).contains(day)
+            let day = Int(base[base.index(after: dash)...]),
+            (19_000_101...21_001_231).contains(day)
         else { return false }
         return day < date
     }

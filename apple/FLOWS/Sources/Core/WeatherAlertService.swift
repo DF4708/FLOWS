@@ -50,9 +50,11 @@ final class WeatherAlertService: ObservableObject {
     /// this it stayed until its own end time, and one with no end time
     /// until the leg ended.) A shape nothing was checked inside leaves it
     /// alone, and so does an empty `looked`.
-    nonisolated static func mergedPolygons(_ existing: [AlertPolygon], live: [AlertPolygon],
-                                           now: Date,
-                                           looked: [CLLocationCoordinate2D] = []) -> [AlertPolygon] {
+    nonisolated static func mergedPolygons(
+        _ existing: [AlertPolygon], live: [AlertPolygon],
+        now: Date,
+        looked: [CLLocationCoordinate2D] = []
+    ) -> [AlertPolygon] {
         func sameWarning(_ q: AlertPolygon, _ p: AlertPolygon) -> Bool {
             q.event == p.event
                 && (q.coordinates.first.flatMap { qf in
@@ -63,9 +65,11 @@ final class WeatherAlertService: ObservableObject {
         if !looked.isEmpty {
             polygons = polygons.filter { q in
                 if live.contains(where: { sameWarning(q, $0) }) { return true }
-                let lats = q.coordinates.map(\.latitude), lons = q.coordinates.map(\.longitude)
+                let lats = q.coordinates.map(\.latitude)
+                let lons = q.coordinates.map(\.longitude)
                 guard let s = lats.min(), let n = lats.max(),
-                      let w = lons.min(), let e = lons.max() else { return true }
+                    let w = lons.min(), let e = lons.max()
+                else { return true }
                 return !looked.contains { pt in
                     pt.latitude >= s && pt.latitude <= n && pt.longitude >= w && pt.longitude <= e
                         && HazardFeedScores.pointInPolygon(pt, q.coordinates)
@@ -177,14 +181,16 @@ final class WeatherAlertService: ObservableObject {
         /// The per-sample view of what has landed so far.
         func view(_ landed: [String: [NWSAlert]]) -> [RiskSample?] {
             guard perSample else {
-                return Self.provisionalSamples(samples: samples, cellAlerts: landed,
-                                               arrivalOffsets: arrivalOffsets, now: now)
+                return Self.provisionalSamples(
+                    samples: samples, cellAlerts: landed,
+                    arrivalOffsets: arrivalOffsets, now: now)
             }
             return samples.enumerated().map { i, pt in
                 guard let hits = landed[unitKey(i, pt)] else { return nil }
                 return Self.provisionalSamples(
                     samples: [pt], cellAlerts: [Self.cellKey(pt): hits],
-                    arrivalOffsets: arrivalOffsets.map { _ in [offset(i)] }, now: now).first ?? nil
+                    arrivalOffsets: arrivalOffsets.map { _ in [offset(i)] }, now: now
+                ).first ?? nil
             }
         }
         // One representative point per grid cell, first-sample-wins (or
@@ -256,9 +262,12 @@ final class WeatherAlertService: ObservableObject {
                     // looked up at its own point stays out of the cell cache.
                     group.addTask {
                         if perSample { return (key, await self.activeAlerts(at: pt)) }
-                        return (key, await self.cache.fetch(key) {
-                            await self.activeAlerts(at: pt)
-                        })
+                        return (
+                            key,
+                            await self.cache.fetch(key) {
+                                await self.activeAlerts(at: pt)
+                            }
+                        )
                     }
                 }
                 for await (key, got) in group {
@@ -301,7 +310,8 @@ final class WeatherAlertService: ObservableObject {
             let pt = samples[i]
             if let one = Self.provisionalSamples(
                 samples: [pt], cellAlerts: [Self.cellKey(pt): alertsAt(i)],
-                arrivalOffsets: arrivalOffsets.map { _ in [offset(i)] }, now: now).first ?? nil {
+                arrivalOffsets: arrivalOffsets.map { _ in [offset(i)] }, now: now
+            ).first ?? nil {
                 scored[i] = one
             }
         }
@@ -321,8 +331,10 @@ final class WeatherAlertService: ObservableObject {
         var seen = Set<String>()
         var unique: [NWSAlert] = []
         for hits in Array(cellAlerts.values) + Array(extra.values) {
-            for h in hits where seen.insert(h.id).inserted
-                && alertSampleCount[h.id, default: 0] > 0 { unique.append(h) }
+            for h in hits
+            where seen.insert(h.id).inserted
+                && alertSampleCount[h.id, default: 0] > 0
+            { unique.append(h) }
         }
         if !unique.isEmpty {
             let order = unique.map { $0.severityScore }.lent { flows_hazard_worst_first($0) }
@@ -333,8 +345,12 @@ final class WeatherAlertService: ObservableObject {
         // each alert contributes severity × corridor-coverage.
         let n = Double(max(samples.count, 1))
         let coverages = unique.map { Double(alertSampleCount[$0.id] ?? 0) / n }
-        let normalized = unique.isEmpty ? 0
-            : HazardFeedScores.two(unique.map { $0.severityScore }, coverages) { flows_hazard_corridor_noisy_or($0, $1) }
+        let normalized =
+            unique.isEmpty
+            ? 0
+            : HazardFeedScores.two(unique.map { $0.severityScore }, coverages) {
+                flows_hazard_corridor_noisy_or($0, $1)
+            }
 
         var eventSeen = Set<String>()
         let events = unique.compactMap { eventSeen.insert($0.event).inserted ? $0.event : nil }
@@ -342,12 +358,15 @@ final class WeatherAlertService: ObservableObject {
         let polygons: [AlertPolygon] = unique.flatMap { h -> [AlertPolygon] in
             var rings = (h.polygon?.count ?? 0) >= 3 ? [h.polygon!] : []
             rings += h.extraRings.filter { $0.count >= 3 }
-            return rings.map { AlertPolygon(coordinates: $0, severity: h.severityScore, event: h.event,
-                                            expires: h.expires) }
+            return rings.map {
+                AlertPolygon(
+                    coordinates: $0, severity: h.severityScore, event: h.event,
+                    expires: h.expires)
+            }
         }
         // Worst first, so the cap cuts the mildest shapes, not whichever came last.
         .sorted { $0.severity > $1.severity }
-        .prefix(40).map { $0 }   // was 12 — clipped visible weather on long routes
+        .prefix(40).map { $0 }  // was 12 — clipped visible weather on long routes
 
         if fetchFailures > 0 {
             FlowsDiag.logThrottled(
@@ -357,7 +376,8 @@ final class WeatherAlertService: ObservableObject {
         return CorridorScore(
             risk: normalized,
             worstSeverity: unique.first?.severityScore ?? 0,
-            coverage: riskSamples.isEmpty ? 0
+            coverage: riskSamples.isEmpty
+                ? 0
                 : riskSamples.map { $0.risk }.lent { flows_hazard_corridor_coverage($0) },
             headlines: unique.map(\.headline),
             events: events,
@@ -367,9 +387,10 @@ final class WeatherAlertService: ObservableObject {
             alertsByID: Dictionary(uniqueKeysWithValues: unique.map { ($0.id, $0) }),
             // Only the between-points the lists answered: one they could
             // not answer must not read as "looked, found nothing".
-            looked: samples + along.enumerated().compactMap { k, spot in
-                betweenHits[Self.betweenKeyPrefix + String(k)] == nil ? nil : spot.point
-            })
+            looked: samples
+                + along.enumerated().compactMap { k, spot in
+                    betweenHits[Self.betweenKeyPrefix + String(k)] == nil ? nil : spot.point
+                })
     }
 
     /// 0.25° cell key (~28 km): matches NWS zone scale without merging
@@ -416,16 +437,20 @@ final class WeatherAlertService: ObservableObject {
         let step = stepMeters
         var out: [(sample: Int, point: CLLocationCoordinate2D)] = []
         for g in 0..<gaps where lengths[g] > step {
-            var walked = 0.0, nextAt = step
+            var walked = 0.0
+            var nextAt = step
             for (a, b) in zip(between[g], between[g].dropFirst()) {
                 let hop = POIRanking.meters(a, b)
                 guard hop > 0 else { continue }
                 while nextAt < walked + hop, nextAt < lengths[g] {
                     let t = (nextAt - walked) / hop
-                    out.append((sample: nextAt < lengths[g] / 2 ? g : g + 1,
-                                point: CLLocationCoordinate2D(
-                                    latitude: a.latitude + (b.latitude - a.latitude) * t,
-                                    longitude: a.longitude + (b.longitude - a.longitude) * t)))
+                    out.append(
+                        (
+                            sample: nextAt < lengths[g] / 2 ? g : g + 1,
+                            point: CLLocationCoordinate2D(
+                                latitude: a.latitude + (b.latitude - a.latitude) * t,
+                                longitude: a.longitude + (b.longitude - a.longitude) * t)
+                        ))
                     if out.count >= cap { return out }
                     nextAt += step
                 }
@@ -450,17 +475,25 @@ final class WeatherAlertService: ObservableObject {
         // The cells' alerts as one flat list the Rust indexes into; a cell's
         // hits are its indices into it.
         var all: [NWSAlert] = []
-        var keys: [String] = [], counts: [Int64] = [], indices: [Int64] = []
+        var keys: [String] = []
+        var counts: [Int64] = []
+        var indices: [Int64] = []
         for key in cellAlerts.keys.sorted() {
             let hits = cellAlerts[key] ?? []
-            keys.append(key); counts.append(Int64(hits.count))
-            for h in hits { indices.append(Int64(all.count)); all.append(h) }
+            keys.append(key)
+            counts.append(Int64(hits.count))
+            for h in hits {
+                indices.append(Int64(all.count))
+                all.append(h)
+            }
         }
         let severities = all.isEmpty ? [0.0] : all.map { $0.severityScore }
         let expires = all.isEmpty ? [0.0] : all.map { $0.expires?.timeIntervalSinceReferenceDate ?? 0 }
         let hasExpires: [Int64] = all.isEmpty ? [0] : all.map { $0.expires == nil ? 0 : 1 }
-        let countsOrOne = counts.isEmpty ? [0] : counts, indicesOrOne = indices.isEmpty ? [0] : indices
-        let offsets = arrivalOffsets ?? [], offsetsOrOne = offsets.isEmpty ? [0.0] : offsets
+        let countsOrOne = counts.isEmpty ? [0] : counts
+        let indicesOrOne = indices.isEmpty ? [0] : indices
+        let offsets = arrivalOffsets ?? []
+        let offsetsOrOne = offsets.isEmpty ? [0.0] : offsets
         let flat = HazardFeedScores.two(samples.map { $0.latitude }, samples.map { $0.longitude }) { la, lo in
             HazardFeedScores.two(severities, expires) { sev, exp in
                 hasExpires.lent { he in
@@ -526,8 +559,9 @@ final class WeatherAlertService: ObservableObject {
         zoneRings: [String: [[CLLocationCoordinate2D]]]
     ) -> [NWSAlert] {
         guard !alerts.isEmpty else { return [] }
-        return alertsCovering(point, alerts: alerts,
-                              prepared: PreparedAlertRings(alerts: alerts, zoneRings: zoneRings))
+        return alertsCovering(
+            point, alerts: alerts,
+            prepared: PreparedAlertRings(alerts: alerts, zoneRings: zoneRings))
     }
 
     /// The alerts' rings and zone names and the zone geometry, laid out once
@@ -547,14 +581,18 @@ final class WeatherAlertService: ObservableObject {
         let zoneLons: [Double]
 
         init(alerts: [NWSAlert], zoneRings: [String: [[CLLocationCoordinate2D]]]) {
-            var ringCounts: [Int64] = [], zoneCounts: [Int64] = [], alertRings: [[CLLocationCoordinate2D]] = []
+            var ringCounts: [Int64] = []
+            var zoneCounts: [Int64] = []
+            var alertRings: [[CLLocationCoordinate2D]] = []
             var names: [String] = []
             for a in alerts {
                 var rings: [[CLLocationCoordinate2D]] = []
                 if let p = a.polygon { rings.append(p) }
                 rings += a.extraRings
-                ringCounts.append(Int64(rings.count)); alertRings += rings
-                zoneCounts.append(Int64(a.affectedZones.count)); names += a.affectedZones
+                ringCounts.append(Int64(rings.count))
+                alertRings += rings
+                zoneCounts.append(Int64(a.affectedZones.count))
+                names += a.affectedZones
             }
             let flat = HazardFeedScores.flatten(alertRings)
             let keys = zoneRings.keys.sorted()
@@ -581,13 +619,23 @@ final class WeatherAlertService: ObservableObject {
         prepared p: PreparedAlertRings
     ) -> [NWSAlert] {
         guard !alerts.isEmpty else { return [] }
-        let indices = p.ringCounts.lent { rc in p.zoneCounts.lent { zc in
-            p.ringLens.lent { lens in HazardFeedScores.two(p.lats, p.lons) { la, lo in
-                p.zoneRingCounts.lent { zrc in p.zoneRingLens.lent { zlens in
-                    HazardFeedScores.two(p.zoneLats, p.zoneLons) { zla, zlo in
-                        flows_hazard_alerts_covering(point.latitude, point.longitude, rc, zc, lens, la, lo,
-                                                     p.zoneNames, p.zoneKeys, zrc, zlens, zla, zlo)
-                    } } } } } } }
+        let indices = p.ringCounts.lent { rc in
+            p.zoneCounts.lent { zc in
+                p.ringLens.lent { lens in
+                    HazardFeedScores.two(p.lats, p.lons) { la, lo in
+                        p.zoneRingCounts.lent { zrc in
+                            p.zoneRingLens.lent { zlens in
+                                HazardFeedScores.two(p.zoneLats, p.zoneLons) { zla, zlo in
+                                    flows_hazard_alerts_covering(
+                                        point.latitude, point.longitude, rc, zc, lens, la, lo,
+                                        p.zoneNames, p.zoneKeys, zrc, zlens, zla, zlo)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
         return indices.compactMap { Int($0) < alerts.count && $0 >= 0 ? alerts[Int($0)] : nil }
     }
 
@@ -602,13 +650,23 @@ final class WeatherAlertService: ObservableObject {
     ) -> [[NWSAlert]] {
         guard !alerts.isEmpty, !points.isEmpty else { return points.map { _ in [] } }
         let flat = HazardFeedScores.two(points.map(\.latitude), points.map(\.longitude)) { pla, plo in
-            p.ringCounts.lent { rc in p.zoneCounts.lent { zc in
-                p.ringLens.lent { lens in HazardFeedScores.two(p.lats, p.lons) { la, lo in
-                    p.zoneRingCounts.lent { zrc in p.zoneRingLens.lent { zlens in
-                        HazardFeedScores.two(p.zoneLats, p.zoneLons) { zla, zlo in
-                            flows_hazard_alerts_covering_many(pla, plo, rc, zc, lens, la, lo,
-                                                              p.zoneNames, p.zoneKeys, zrc, zlens, zla, zlo)
-                        } } } } } } }
+            p.ringCounts.lent { rc in
+                p.zoneCounts.lent { zc in
+                    p.ringLens.lent { lens in
+                        HazardFeedScores.two(p.lats, p.lons) { la, lo in
+                            p.zoneRingCounts.lent { zrc in
+                                p.zoneRingLens.lent { zlens in
+                                    HazardFeedScores.two(p.zoneLats, p.zoneLons) { zla, zlo in
+                                        flows_hazard_alerts_covering_many(
+                                            pla, plo, rc, zc, lens, la, lo,
+                                            p.zoneNames, p.zoneKeys, zrc, zlens, zla, zlo)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
         // Per point: a count, then that many indices.
         var out: [[NWSAlert]] = []
@@ -618,10 +676,11 @@ final class WeatherAlertService: ObservableObject {
             let n = Int(flat[at])
             at += 1
             guard n >= 0, at + n <= flat.len() else { break }
-            out.append((at..<(at + n)).compactMap { k in
-                let i = Int(flat[k])
-                return i >= 0 && i < alerts.count ? alerts[i] : nil
-            })
+            out.append(
+                (at..<(at + n)).compactMap { k in
+                    let i = Int(flat[k])
+                    return i >= 0 && i < alerts.count ? alerts[i] : nil
+                })
             at += n
         }
         // A short answer (Rust contained a panic): the rest one at a time.
@@ -679,8 +738,10 @@ final class WeatherAlertService: ObservableObject {
             // Tijuana and Juárez were joined against US lists only, read
             // "no alerts", and their own country's service was never asked.
             // The per-point path asks it.
-            if states.isEmpty || RiskAdvice.mayBeAcrossTheBorder(
-                latitude: pt.latitude, longitude: pt.longitude) {
+            if states.isEmpty
+                || RiskAdvice.mayBeAcrossTheBorder(
+                    latitude: pt.latitude, longitude: pt.longitude)
+            {
                 fallback.append((key, pt))
             } else {
                 // Cells near water require their marine region lists too —
@@ -730,9 +791,10 @@ final class WeatherAlertService: ObservableObject {
             }
         }
         // Zone geometries for the alerts that ship with no polygon at all.
-        let zoneURLs = Set(union
-            .filter { ($0.polygon?.count ?? 0) < 3 && !$0.extraRings.contains { $0.count >= 3 } }
-            .flatMap(\.affectedZones))
+        let zoneURLs = Set(
+            union
+                .filter { ($0.polygon?.count ?? 0) < 3 && !$0.extraRings.contains { $0.count >= 3 } }
+                .flatMap(\.affectedZones))
         guard zoneURLs.count <= Self.zoneFetchCap else {
             FlowsDiag.logThrottled(
                 key: "alerts.zoneCap", .info, "alerts",
@@ -878,8 +940,11 @@ final class WeatherAlertService: ObservableObject {
         watchTask = Task { [weak self] in
             while !Task.isCancelled {
                 guard let self else { return }
-                let w = window?() ?? (along: 0, lookahead: Double.greatestFiniteMagnitude,
-                                      cadence: 240)
+                let w =
+                    window?() ?? (
+                        along: 0, lookahead: Double.greatestFiniteMagnitude,
+                        cadence: 240
+                    )
                 // Sample i sits ~i*spacing along the route; slice the window.
                 // Clamp in Double first — review finding: Int(4.5e303)
                 // traps when lookahead is .greatestFiniteMagnitude.
@@ -1050,14 +1115,14 @@ final class WeatherAlertService: ObservableObject {
             point.longitude - 0.02, point.latitude - 0.02,
             point.longitude + 0.02, point.latitude + 0.02)
         guard let u = URL(string: url),
-              let (data, resp) = try? await ThrottledNet.fetch(u),
-              (resp as? HTTPURLResponse)?.statusCode == 200,
-              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let features = json["features"] as? [[String: Any]]
+            let (data, resp) = try? await ThrottledNet.fetch(u),
+            (resp as? HTTPURLResponse)?.statusCode == 200,
+            let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+            let features = json["features"] as? [[String: Any]]
         else { return nil }
         if let matched = json["numberMatched"] as? Int, matched > features.count { return nil }
         return Self.parseECCCFeatures(features).filter { alert in
-            guard let polygon = alert.polygon else { return true }   // no shape: kept
+            guard let polygon = alert.polygon else { return true }  // no shape: kept
             return ([polygon] + alert.extraRings).contains { RiskAreaFallback.contains($0, point) }
         }
     }
@@ -1074,14 +1139,17 @@ final class WeatherAlertService: ObservableObject {
             guard status != "ended", status != "cancelled" else { return nil }
             // Title case, the way the US names them ("Frost Advisory"), so
             // one event vocabulary serves both feeds.
-            let event = ((props["alert_name_en"] as? String)
+            let event =
+                ((props["alert_name_en"] as? String)
                 ?? (props["alert_short_name_en"] as? String)
-                ?? (props["alert_type"] as? String) ?? "weather alert").capitalized
+                    ?? (props["alert_type"] as? String) ?? "weather alert")
+                .capitalized
             let area = props["feature_name_en"] as? String
             let headline = area.map { "\(event) for \($0)" } ?? event
-            let score = Self.severityScore(Self.ecccSeverity(
-                colour: props["risk_colour_en"] as? String,
-                type: props["alert_type"] as? String))
+            let score = Self.severityScore(
+                Self.ecccSeverity(
+                    colour: props["risk_colour_en"] as? String,
+                    type: props["alert_type"] as? String))
             let id = (feature["id"] as? String) ?? "\(event)-\(area ?? "")"
             let expires = (props["expiration_datetime"] as? String).flatMap(Self.ecccDate)
             let onset = ["validity_datetime", "publication_datetime"]
@@ -1139,8 +1207,8 @@ final class WeatherAlertService: ObservableObject {
         // foreign feed. Any other non-200 = transient failure → .failed.
         if status == 400 || status == 404 { return .offRegion }
         guard status == 200,
-              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let features = json["features"] as? [[String: Any]]
+            let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+            let features = json["features"] as? [[String: Any]]
         else { return .failed }
         Self.learnLengths(from: features)
         return .alerts(Self.parseAlertFeatures(features))
@@ -1148,11 +1216,14 @@ final class WeatherAlertService: ObservableObject {
 
     /// Every alert that states its own end teaches how long its kind runs
     /// here (AlertLengthMemory); called on each fresh list, before parsing.
-    nonisolated static func learnLengths(from features: [[String: Any]],
-                                         into memory: AlertLengthMemory = .shared) {
-        memory.record(AlertLengthLearning.samples(from: features) {
-            Self.alertDateParser.date(from: $0)
-        })
+    nonisolated static func learnLengths(
+        from features: [[String: Any]],
+        into memory: AlertLengthMemory = .shared
+    ) {
+        memory.record(
+            AlertLengthLearning.samples(from: features) {
+                Self.alertDateParser.date(from: $0)
+            })
     }
 
     /// One parser for every api.weather.gov alert list — the per-point
@@ -1164,8 +1235,8 @@ final class WeatherAlertService: ObservableObject {
     ) -> [NWSAlert] {
         features.compactMap { feature in
             guard let props = feature["properties"] as? [String: Any],
-                  let id = props["id"] as? String ?? feature["id"] as? String,
-                  let headline = (props["headline"] as? String) ?? (props["event"] as? String)
+                let id = props["id"] as? String ?? feature["id"] as? String,
+                let headline = (props["headline"] as? String) ?? (props["event"] as? String)
             else { return nil }
             // A Cancel message says the hazard is over. It stays in the active
             // list until it lapses, and was drawn and scored as a live warning.
@@ -1195,7 +1266,8 @@ final class WeatherAlertService: ObservableObject {
                 .compactMap { Self.alertDateParser.date(from: $0) }
                 .first
             let event = (props["event"] as? String) ?? headline
-            let expires = ends.map { max($0, message ?? $0) }
+            let expires =
+                ends.map { max($0, message ?? $0) }
                 ?? message.map {
                     RiskTiming.unknownEnd(
                         event: event, severityScore: score,
@@ -1249,11 +1321,21 @@ final class WeatherAlertService: ObservableObject {
         // The decimation and the (lat, lon) reading are Rust's; the JSON shape
         // above is the platform's. Coordinates cross as number lists.
         let ringCoordCounts = raws.map { Int64($0.count) }
-        var coordLens: [Int64] = [], values: [Double] = []
-        for ring in raws { for c in ring { coordLens.append(Int64(c.count)); values += c } }
-        let lensOrOne = coordLens.isEmpty ? [0] : coordLens, valuesOrOne = values.isEmpty ? [0.0] : values
-        let flat = ringCoordCounts.lent { rc in lensOrOne.lent { cl in
-            valuesOrOne.lent { flows_hazard_all_rings(rc, cl, $0, Int64(maxPoints)) } } }
+        var coordLens: [Int64] = []
+        var values: [Double] = []
+        for ring in raws {
+            for c in ring {
+                coordLens.append(Int64(c.count))
+                values += c
+            }
+        }
+        let lensOrOne = coordLens.isEmpty ? [0] : coordLens
+        let valuesOrOne = values.isEmpty ? [0.0] : values
+        let flat = ringCoordCounts.lent { rc in
+            lensOrOne.lent { cl in
+                valuesOrOne.lent { flows_hazard_all_rings(rc, cl, $0, Int64(maxPoints)) }
+            }
+        }
         return LiveHazardSnapshot.decodeRings(Array(flat))
     }
 }
@@ -1297,9 +1379,12 @@ actor AlertZoneCache {
     /// the same cell spawned its own NWS fetch through the actor's reentrancy
     /// window. At most one live fetch per cell; failures stay uncached (the
     /// poisoned-cache contract) so the retry pass gets a real attempt.
-    func fetch(_ key: String,
-               make: @escaping @Sendable () async -> [WeatherAlertService.NWSAlert]?)
-        async -> [WeatherAlertService.NWSAlert]? {
+    func fetch(
+        _ key: String,
+        make: @escaping @Sendable () async -> [WeatherAlertService.NWSAlert]?
+    )
+        async -> [WeatherAlertService.NWSAlert]?
+    {
         if let hit = get(key) { return hit }
         if let running = inFlight[key] { return await running.value }
         let task = Task { await make() }
@@ -1353,11 +1438,13 @@ actor BackupWarningsCache {
         }()
         return features.compactMap { f in
             guard let props = f["properties"] as? [String: Any],
-                  let event = props["ps"] as? String,
-                  let phenomena = props["phenomena"] as? String else { return nil }
+                let event = props["ps"] as? String,
+                let phenomena = props["phenomena"] as? String
+            else { return nil }
             let rings = WeatherAlertService.allRings(of: f["geometry"] as? [String: Any])
-            guard let first = rings.first else { return nil }   // polygon feed: no ring, no area
-            let id = (props["product_id"] as? String)
+            guard let first = rings.first else { return nil }  // polygon feed: no ring, no area
+            let id =
+                (props["product_id"] as? String)
                 ?? "\(phenomena)-\(props["wfo"] as? String ?? "")-\(props["eventid"] as? Int ?? 0)"
             return WeatherAlertService.NWSAlert(
                 id: id, event: event, headline: event,
@@ -1373,10 +1460,10 @@ actor BackupWarningsCache {
 
     private static func fetch() async -> [WeatherAlertService.NWSAlert]? {
         guard let url = URL(string: "https://mesonet.agron.iastate.edu/geojson/sbw.geojson"),
-              let (data, resp) = try? await ThrottledNet.fetch(url),
-              (resp as? HTTPURLResponse)?.statusCode == 200,
-              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let features = json["features"] as? [[String: Any]]
+            let (data, resp) = try? await ThrottledNet.fetch(url),
+            (resp as? HTTPURLResponse)?.statusCode == 200,
+            let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+            let features = json["features"] as? [[String: Any]]
         else { return nil }
         return parse(features)
     }
@@ -1395,7 +1482,8 @@ actor StateAlertCache {
 
     func alerts(area: String) async -> [WeatherAlertService.NWSAlert]? {
         if let hit = store[area],
-           Date().timeIntervalSince(hit.fetched) < AlertZoneCache.alertSeconds {   // as the cell cache
+            Date().timeIntervalSince(hit.fetched) < AlertZoneCache.alertSeconds
+        {  // as the cell cache
             return hit.alerts
         }
         if let running = inFlight[area] { return await running.value }
@@ -1416,10 +1504,10 @@ actor StateAlertCache {
         let param = isMarine ? "region" : "area"
         let code = isMarine ? String(area.dropFirst("marine:".count)) : area
         guard let url = URL(string: "https://api.weather.gov/alerts/active?\(param)=\(code)"),
-              let (data, resp) = try? await ThrottledNet.fetch(url),
-              (resp as? HTTPURLResponse)?.statusCode == 200,
-              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let features = json["features"] as? [[String: Any]]
+            let (data, resp) = try? await ThrottledNet.fetch(url),
+            (resp as? HTTPURLResponse)?.statusCode == 200,
+            let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+            let features = json["features"] as? [[String: Any]]
         else { return nil }
         WeatherAlertService.learnLengths(from: features)
         return WeatherAlertService.parseAlertFeatures(features)
@@ -1454,10 +1542,10 @@ actor ZoneGeometryCache {
 
     private static func fetch(zoneURL: String) async -> [[CLLocationCoordinate2D]]? {
         guard let url = URL(string: zoneURL),
-              url.host == "api.weather.gov",   // zone refs come from alert payloads
-              let (data, resp) = try? await ThrottledNet.fetch(url),
-              (resp as? HTTPURLResponse)?.statusCode == 200,
-              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+            url.host == "api.weather.gov",  // zone refs come from alert payloads
+            let (data, resp) = try? await ThrottledNet.fetch(url),
+            (resp as? HTTPURLResponse)?.statusCode == 200,
+            let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
         else { return nil }
         let rings = WeatherAlertService.allRings(
             of: json["geometry"] as? [String: Any], maxPoints: 1_500)
@@ -1472,18 +1560,21 @@ actor ZoneGeometryCache {
 /// polygon.
 actor WMOAlertCache {
     static let shared = WMOAlertCache()
-    private struct Entry { let fetched: Date; let alerts: [WeatherAlertService.NWSAlert] }
+    private struct Entry {
+        let fetched: Date
+        let alerts: [WeatherAlertService.NWSAlert]
+    }
     private var byCode: [String: Entry] = [:]
     private var inFlight: [String: Task<[WeatherAlertService.NWSAlert]?, Never>] = [:]
 
-    // ISO8601DateFormatter is thread-safe (post-iOS 10) so the concurrent CAP
-    // tasks can share it; the RFC822 parser is used only in the serial filter.
-    private static let capDate: ISO8601DateFormatter = {
-        let f = ISO8601DateFormatter(); f.formatOptions = [.withInternetDateTime]; return f
-    }()
+    // The concurrent CAP tasks share the ISO parser (SharedISO8601Parser, in
+    // the islands); the RFC822 parser is used only in the serial filter.
+    private static let capDate = SharedISO8601Parser([.withInternetDateTime])
     private static let rfc822: DateFormatter = {
-        let f = DateFormatter(); f.locale = Locale(identifier: "en_US_POSIX")
-        f.dateFormat = "EEE, dd MMM yyyy HH:mm:ss Z"; return f
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.dateFormat = "EEE, dd MMM yyyy HH:mm:ss Z"
+        return f
     }()
 
     /// nil = the RSS index fetch/parse failed (unknown); [] = a genuine
@@ -1508,9 +1599,10 @@ actor WMOAlertCache {
         code: String
     ) async -> [WeatherAlertService.NWSAlert]? {
         guard let index = WMOAlertParsing.indexURL(code: code),
-              let (data, resp) = try? await ThrottledNet.fetch(index),
-              (resp as? HTTPURLResponse)?.statusCode == 200,
-              let xml = String(data: data, encoding: .utf8) else { return nil }
+            let (data, resp) = try? await ThrottledNet.fetch(index),
+            (resp as? HTTPURLResponse)?.statusCode == 200,
+            let xml = String(data: data, encoding: .utf8)
+        else { return nil }
         let now = Date()
         func stamp(_ s: String) -> Date? { capDate.date(from: s) ?? rfc822.date(from: s) }
         var strayLink = false
@@ -1529,7 +1621,10 @@ actor WMOAlertCache {
             }
             // Only the service's own files are followed. A recent item that
             // points somewhere else cannot be read here: unknown, not skipped.
-            if u.host != index.host { strayLink = true; return false }
+            if u.host != index.host {
+                strayLink = true
+                return false
+            }
             return true
         }
         if strayLink { return nil }
@@ -1547,10 +1642,11 @@ actor WMOAlertCache {
                         return (item.link, held)
                     }
                     guard let u = URL(string: item.link),
-                          let (d, r) = try? await ThrottledNet.fetch(u),
-                          (r as? HTTPURLResponse)?.statusCode == 200,
-                          let capXML = String(data: d, encoding: .utf8),
-                          let cap = WMOAlertParsing.parseCAP(capXML) else { return nil }
+                        let (d, r) = try? await ThrottledNet.fetch(u),
+                        (r as? HTTPURLResponse)?.statusCode == 200,
+                        let capXML = String(data: d, encoding: .utf8),
+                        let cap = WMOAlertParsing.parseCAP(capXML)
+                    else { return nil }
                     await CAPFileCache.shared.keep(cap, for: item.link)
                     return (item.link, cap)
                 }
@@ -1575,8 +1671,9 @@ actor WMOAlertCache {
                 id: link,
                 // The risk rules read US names; the headline keeps the
                 // service's own.
-                event: WMOAlertParsing.eventInRiskWords(cap.event, severity: cap.severity,
-                                                        detail: cap.description),
+                event: WMOAlertParsing.eventInRiskWords(
+                    cap.event, severity: cap.severity,
+                    detail: cap.description),
                 headline: cap.event + (cap.areaDesc.map { " — \($0)" } ?? ""),
                 severityScore: WeatherAlertService.severityScore(cap.severity),
                 polygon: cap.polygons.first,

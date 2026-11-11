@@ -33,8 +33,11 @@ final class VoiceAnnouncer: NSObject, AVSpeechSynthesizerDelegate {
     private var queue = SpeechLineQueue<String>()
     /// The line the synthesizer holds, its place in the queue, when it was
     /// handed over, and whether its first word has been reported.
-    private var playing: (serial: Int, utterance: AVSpeechUtterance,
-                          since: ContinuousClock.Instant, began: Bool)?
+    private var playing:
+        (
+            serial: Int, utterance: AVSpeechUtterance,
+            since: ContinuousClock.Instant, began: Bool
+        )?
 
     /// `isSpeaking` turns true only some milliseconds after `speak()` (12 to
     /// over 100 measured), so a line just handed over is not a lost one:
@@ -69,7 +72,8 @@ final class VoiceAnnouncer: NSObject, AVSpeechSynthesizerDelegate {
     nonisolated static func installedVoices() -> [VoiceChoice] {
         AVSpeechSynthesisVoice.speechVoices().compactMap { voice in
             guard !voice.voiceTraits.contains(.isNoveltyVoice),
-                  !voice.voiceTraits.contains(.isPersonalVoice) else { return nil }
+                !voice.voiceTraits.contains(.isPersonalVoice)
+            else { return nil }
             let quality: VoiceChoice.Quality
             switch voice.quality {
             case .premium: quality = .premium
@@ -82,8 +86,9 @@ final class VoiceAnnouncer: NSObject, AVSpeechSynthesizerDelegate {
             case .male: gender = .masculine
             default: gender = .unspecified
             }
-            return VoiceChoice(id: voice.identifier, name: voice.name,
-                               language: voice.language, quality: quality, gender: gender)
+            return VoiceChoice(
+                id: voice.identifier, name: voice.name,
+                language: voice.language, quality: quality, gender: gender)
         }
     }
 
@@ -97,8 +102,12 @@ final class VoiceAnnouncer: NSObject, AVSpeechSynthesizerDelegate {
         AVSpeechSynthesizer.availableVoicesDidChangeNotification
     }
 
-    private func isLost(_ line: (serial: Int, utterance: AVSpeechUtterance,
-                                 since: ContinuousClock.Instant, began: Bool)) -> Bool {
+    private func isLost(
+        _ line: (
+            serial: Int, utterance: AVSpeechUtterance,
+            since: ContinuousClock.Instant, began: Bool
+        )
+    ) -> Bool {
         SpeechVoiceRules.lineIsLost(
             speaking: synthesizer.isSpeaking, age: ContinuousClock.now - line.since,
             pickedVoice: line.utterance.voice != nil, began: line.began,
@@ -111,12 +120,12 @@ final class VoiceAnnouncer: NSObject, AVSpeechSynthesizerDelegate {
     }
 
     #if os(iOS)
-    /// The user's own Personal Voice (Settings → Accessibility), used for
-    /// FLOWS's speech when the toggle is on and the system granted access.
-    /// nil = the default system voice. DriveVoice's advisories are spoken here too.
-    private(set) var personalVoice: AVSpeechSynthesisVoice?
-    /// A pending hand-back of the audio session (releaseSessionWhenQuiet).
-    private var releaseTask: Task<Void, Never>?
+        /// The user's own Personal Voice (Settings → Accessibility), used for
+        /// FLOWS's speech when the toggle is on and the system granted access.
+        /// nil = the default system voice. DriveVoice's advisories are spoken here too.
+        private(set) var personalVoice: AVSpeechSynthesisVoice?
+        /// A pending hand-back of the audio session (releaseSessionWhenQuiet).
+        private var releaseTask: Task<Void, Never>?
     #endif
 
     /// Set by AppModel: the crash check-in holds the audio session — it
@@ -161,17 +170,17 @@ final class VoiceAnnouncer: NSObject, AVSpeechSynthesizerDelegate {
     /// (or no Personal Voice exists), the default voice keeps speaking.
     func setPersonalVoiceEnabled(_ enabled: Bool) {
         #if os(iOS)
-        guard enabled else {
-            personalVoice = nil
-            return
-        }
-        AVSpeechSynthesizer.requestPersonalVoiceAuthorization { [weak self] status in
-            Task { @MainActor in
-                guard status == .authorized else { return }
-                self?.personalVoice = AVSpeechSynthesisVoice.speechVoices()
-                    .first { $0.voiceTraits.contains(.isPersonalVoice) }
+            guard enabled else {
+                personalVoice = nil
+                return
             }
-        }
+            AVSpeechSynthesizer.requestPersonalVoiceAuthorization { [weak self] status in
+                Task { @MainActor in
+                    guard status == .authorized else { return }
+                    self?.personalVoice = AVSpeechSynthesisVoice.speechVoices()
+                        .first { $0.voiceTraits.contains(.isPersonalVoice) }
+                }
+            }
         #endif
     }
 
@@ -194,9 +203,9 @@ final class VoiceAnnouncer: NSObject, AVSpeechSynthesizerDelegate {
         // listen lost the driver's yes (or their "I need help"). Both
         // sessions play out loud, so the line is still heard.
         #if os(iOS)
-        let listening = checkInHoldsSession() || VoiceReply.shared.isListening
+            let listening = checkInHoldsSession() || VoiceReply.shared.isListening
         #else
-        let listening = checkInHoldsSession()
+            let listening = checkInHoldsSession()
         #endif
         if !listening { activateSpokenSession() }
         // A line whose finish report never came must not hold up every
@@ -238,8 +247,10 @@ final class VoiceAnnouncer: NSObject, AVSpeechSynthesizerDelegate {
             synthesizer.stopSpeaking(at: .immediate)
         }
         if result.stopCurrent || result.removed > 0 {
-            FlowsDiag.log(.info, "voice", "cancel \(topic): playing=\(result.stopCurrent) "
-                          + "queued=\(result.removed)")
+            FlowsDiag.log(
+                .info, "voice",
+                "cancel \(topic): playing=\(result.stopCurrent) "
+                    + "queued=\(result.removed)")
         }
     }
 
@@ -255,9 +266,9 @@ final class VoiceAnnouncer: NSObject, AVSpeechSynthesizerDelegate {
     /// listen), with the driver's music and radio ducked under it.
     func activateSpokenSession() {
         #if os(iOS)
-        try? AVAudioSession.sharedInstance().setCategory(
-            .playback, mode: .spokenAudio, options: [.duckOthers])
-        try? AVAudioSession.sharedInstance().setActive(true)
+            try? AVAudioSession.sharedInstance().setCategory(
+                .playback, mode: .spokenAudio, options: [.duckOthers])
+            try? AVAudioSession.sharedInstance().setActive(true)
         #endif
     }
 
@@ -268,17 +279,18 @@ final class VoiceAnnouncer: NSObject, AVSpeechSynthesizerDelegate {
     /// under FLOWS's own sound or the crash check-in, which still need it.
     func releaseSessionWhenQuiet() {
         #if os(iOS)
-        releaseTask?.cancel()
-        releaseTask = Task { [weak self] in
-            // A beat for the synthesizer to let go of the output, and for a
-            // line queued right behind this one to start.
-            try? await Task.sleep(for: .milliseconds(300))
-            guard let self, !Task.isCancelled, !self.isSpeaking,
-                  !VoiceReply.shared.isListening,
-                  !self.checkInHoldsSession(), !self.ownAudioPlaying() else { return }
-            try? AVAudioSession.sharedInstance().setActive(
-                false, options: .notifyOthersOnDeactivation)
-        }
+            releaseTask?.cancel()
+            releaseTask = Task { [weak self] in
+                // A beat for the synthesizer to let go of the output, and for a
+                // line queued right behind this one to start.
+                try? await Task.sleep(for: .milliseconds(300))
+                guard let self, !Task.isCancelled, !self.isSpeaking,
+                    !VoiceReply.shared.isListening,
+                    !self.checkInHoldsSession(), !self.ownAudioPlaying()
+                else { return }
+                try? AVAudioSession.sharedInstance().setActive(
+                    false, options: .notifyOthersOnDeactivation)
+            }
         #endif
     }
 
@@ -287,7 +299,7 @@ final class VoiceAnnouncer: NSObject, AVSpeechSynthesizerDelegate {
         utterance.rate = spokenRate
         utterance.voice = spokenVoice
         #if os(iOS)
-        if let personalVoice { utterance.voice = personalVoice }
+            if let personalVoice { utterance.voice = personalVoice }
         #endif
         playing = (entry.serial, utterance, .now, false)
         duckOwnAudio(true)
@@ -306,7 +318,8 @@ final class VoiceAnnouncer: NSObject, AVSpeechSynthesizerDelegate {
             while !Task.isCancelled {
                 try? await Task.sleep(for: Self.lostLineGrace)
                 guard let self, !Task.isCancelled,
-                      let current = self.playing, current.serial == serial else { return }
+                    let current = self.playing, current.serial == serial
+                else { return }
                 if self.isLost(current) {
                     self.lineEnded(ObjectIdentifier(current.utterance))
                     return
@@ -328,8 +341,10 @@ final class VoiceAnnouncer: NSObject, AVSpeechSynthesizerDelegate {
         }
     }
 
-    nonisolated func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer,
-                                       didStart utterance: AVSpeechUtterance) {
+    nonisolated func speechSynthesizer(
+        _ synthesizer: AVSpeechSynthesizer,
+        didStart utterance: AVSpeechUtterance
+    ) {
         let id = ObjectIdentifier(utterance)
         Task { @MainActor in
             if let current = self.playing, ObjectIdentifier(current.utterance) == id {
@@ -338,14 +353,18 @@ final class VoiceAnnouncer: NSObject, AVSpeechSynthesizerDelegate {
         }
     }
 
-    nonisolated func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer,
-                                       didFinish utterance: AVSpeechUtterance) {
+    nonisolated func speechSynthesizer(
+        _ synthesizer: AVSpeechSynthesizer,
+        didFinish utterance: AVSpeechUtterance
+    ) {
         let id = ObjectIdentifier(utterance)
         Task { @MainActor in self.lineEnded(id) }
     }
 
-    nonisolated func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer,
-                                       didCancel utterance: AVSpeechUtterance) {
+    nonisolated func speechSynthesizer(
+        _ synthesizer: AVSpeechSynthesizer,
+        didCancel utterance: AVSpeechUtterance
+    ) {
         let id = ObjectIdentifier(utterance)
         Task { @MainActor in self.lineEnded(id) }
     }

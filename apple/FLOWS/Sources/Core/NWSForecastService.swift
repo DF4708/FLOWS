@@ -77,7 +77,7 @@ actor NWSForecastFetcher {
     }
 
     private var cache: [String: Entry] = [:]
-    private let ttl: TimeInterval = 1800   // forecasts change hourly-ish
+    private let ttl: TimeInterval = 1800  // forecasts change hourly-ish
     /// Coalesce concurrent misses: a viewport sweep fans out up to 36 grid
     /// points and at metro zoom many round into the same 0.1° cell — without
     /// this, every one of them runs its own full provider chain (2 NWS
@@ -164,8 +164,10 @@ actor NWSForecastFetcher {
         if let hit = gridURLCache[k], Date().timeIntervalSince(hit.fetched) < 86_400 {
             return hit.url
         }
-        guard let pointURL = URL(string: String(
-            format: "https://api.weather.gov/points/%.4f,%.4f", c.latitude, c.longitude)),
+        guard
+            let pointURL = URL(
+                string: String(
+                    format: "https://api.weather.gov/points/%.4f,%.4f", c.latitude, c.longitude)),
             let (pd, pr) = try? await ThrottledNet.fetch(pointURL),
             (pr as? HTTPURLResponse)?.statusCode == 200,
             let pjson = try? JSONSerialization.jsonObject(with: pd) as? [String: Any],
@@ -190,9 +192,10 @@ actor NWSForecastFetcher {
         // The hour that is running now. The list is made ahead of time and can
         // be hours old, so its first hour may already be over.
         let stamp = ISO8601DateFormatter()
-        let now = periods.first { p in
-            (p["endTime"] as? String).flatMap { stamp.date(from: $0) }.map { $0 > Date() } ?? false
-        } ?? first
+        let now =
+            periods.first { p in
+                (p["endTime"] as? String).flatMap { stamp.date(from: $0) }.map { $0 > Date() } ?? false
+            } ?? first
 
         var out = ForecastConditions()
         if let t = now["temperature"] as? Double {
@@ -217,7 +220,8 @@ actor NWSForecastFetcher {
         var sawQPF = false
         for period in periods.prefix(6) {
             guard let qp = period["quantitativePrecipitation"] as? [String: Any],
-                  let v = qp["value"] as? Double else { continue }
+                let v = qp["value"] as? Double
+            else { continue }
             sawQPF = true
             let unit = (qp["unitCode"] as? String) ?? "wmoUnit:mm"
             qpfMM += unit.hasSuffix(":in") ? v * 25.4 : v
@@ -254,9 +258,9 @@ actor NWSForecastFetcher {
                 + "&hourly=precipitation&forecast_days=2&precipitation_unit=inch&timezone=GMT",
             c.latitude, c.longitude)
         guard let u = URL(string: url),
-              let (data, resp) = try? await ThrottledNet.fetch(u),
-              (resp as? HTTPURLResponse)?.statusCode == 200,
-              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+            let (data, resp) = try? await ThrottledNet.fetch(u),
+            (resp as? HTTPURLResponse)?.statusCode == 200,
+            let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
         else { return nil }
         return Self.parseOpenMeteoRain(
             json, hourUTC: Self.utcCalendar.component(.hour, from: Date()))
@@ -266,8 +270,9 @@ actor NWSForecastFetcher {
     /// series that starts at 00:00 UTC; nil with no usable amount.
     nonisolated static func parseOpenMeteoRain(_ json: [String: Any], hourUTC: Int) -> Double? {
         guard let hourly = json["hourly"] as? [String: Any],
-              let series = (hourly["precipitation"] as? [Any])?.map({ ($0 as? Double) ?? .nan }),
-              !series.isEmpty else { return nil }
+            let series = (hourly["precipitation"] as? [Any])?.map({ ($0 as? Double) ?? .nan }),
+            !series.isEmpty
+        else { return nil }
         let idx = min(max(hourUTC, 0), series.count - 1)
         let coming = series[idx..<min(idx + 6, series.count)].filter(\.isFinite)
         return coming.isEmpty ? nil : coming.reduce(0, +)
@@ -281,9 +286,9 @@ actor NWSForecastFetcher {
                 + "&precipitation_unit=inch&timezone=GMT",
             c.latitude, c.longitude)
         guard let u = URL(string: url),
-              let (data, resp) = try? await ThrottledNet.fetch(u),
-              (resp as? HTTPURLResponse)?.statusCode == 200,
-              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+            let (data, resp) = try? await ThrottledNet.fetch(u),
+            (resp as? HTTPURLResponse)?.statusCode == 200,
+            let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
         else { return nil }
         return Self.parseOpenMeteoConditions(
             json, hourUTC: Self.utcCalendar.component(.hour, from: Date()))
@@ -327,18 +332,19 @@ actor NWSForecastFetcher {
                 + "?bbox=%.3f,%.3f,%.3f,%.3f&limit=20&f=json",
             c.longitude - 0.4, c.latitude - 0.4, c.longitude + 0.4, c.latitude + 0.4)
         guard let u = URL(string: url),
-              let (d, r) = try? await ThrottledNet.fetch(u),
-              (r as? HTTPURLResponse)?.statusCode == 200,
-              let json = try? JSONSerialization.jsonObject(with: d) as? [String: Any],
-              let features = json["features"] as? [[String: Any]], !features.isEmpty
+            let (d, r) = try? await ThrottledNet.fetch(u),
+            (r as? HTTPURLResponse)?.statusCode == 200,
+            let json = try? JSONSerialization.jsonObject(with: d) as? [String: Any],
+            let features = json["features"] as? [[String: Any]], !features.isEmpty
         else { return nil }
         for feature in features {
             guard let props = feature["properties"] as? [String: Any],
-                  let tempF = IntlWeatherParsing.ecccAirTempF(props) else { continue }
+                let tempF = IntlWeatherParsing.ecccAirTempF(props)
+            else { continue }
             var out = ForecastConditions()
             out.temperatureF = tempF
             out.windMph = IntlWeatherParsing.ecccWindMph(props)
-            out.popPercent = nil   // SWOB is observations; PoP needs forecast layers
+            out.popPercent = nil  // SWOB is observations; PoP needs forecast layers
             return out
         }
         return nil
@@ -355,12 +361,16 @@ actor NWSForecastFetcher {
     // 0.55°/cos search radius, so any municipio within the cutoff sits in the
     // query cell's 3×3 neighborhood (the CONUS path already has such an index;
     // the Mexico path did not).
-    private struct SMNCell: Hashable { let x: Int; let y: Int }
+    private struct SMNCell: Hashable {
+        let x: Int
+        let y: Int
+    }
     private static let smnCellDeg = 0.7
     private var smnGrid: [SMNCell: [Int]] = [:]
     private static func smnCell(_ lat: Double, _ lon: Double) -> SMNCell {
-        SMNCell(x: Int((lon / smnCellDeg).rounded(.down)),
-                y: Int((lat / smnCellDeg).rounded(.down)))
+        SMNCell(
+            x: Int((lon / smnCellDeg).rounded(.down)),
+            y: Int((lat / smnCellDeg).rounded(.down)))
     }
 
     /// Fetch/refresh the national SMN table exactly once, no matter how many
@@ -376,10 +386,10 @@ actor NWSForecastFetcher {
         if smnRefresh == nil {
             smnRefresh = Task {
                 guard let u = URL(string: "https://smn.conagua.gob.mx/tools/GUI/webservices/?method=1"),
-                      let (d, r) = try? await ThrottledNet.fetch(u),
-                      (r as? HTTPURLResponse)?.statusCode == 200,
-                      let plain = IntlWeatherParsing.gunzip(d) ?? Optional(d),
-                      let array = try? JSONSerialization.jsonObject(with: plain) as? [[String: Any]]
+                    let (d, r) = try? await ThrottledNet.fetch(u),
+                    (r as? HTTPURLResponse)?.statusCode == 200,
+                    let plain = IntlWeatherParsing.gunzip(d) ?? Optional(d),
+                    let array = try? JSONSerialization.jsonObject(with: plain) as? [[String: Any]]
                 else { return [] }
                 return array.compactMap(IntlWeatherParsing.smnRow)
             }
@@ -436,8 +446,9 @@ actor NWSForecastFetcher {
     /// banner compass reads from.
     nonisolated static func degrees(fromCompass word: String?) -> Double? {
         guard let word = word?.trimmingCharacters(in: .whitespaces).uppercased(),
-              !word.isEmpty,
-              let idx = CompassReading.points.firstIndex(of: word) else { return nil }
+            !word.isEmpty,
+            let idx = CompassReading.points.firstIndex(of: word)
+        else { return nil }
         return Double(idx) * 22.5
     }
 }

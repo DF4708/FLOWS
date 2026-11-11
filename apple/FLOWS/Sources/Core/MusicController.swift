@@ -8,11 +8,12 @@
 
 import Combine
 import Foundation
+
 #if os(iOS)
-import MediaPlayer
-import UIKit
+    import MediaPlayer
+    import UIKit
 #elseif os(macOS)
-import AppKit
+    import AppKit
 #endif
 
 /// Hands-free music while driving: play/pause, skip, shuffle — surfaced as
@@ -31,7 +32,8 @@ final class MusicController: ObservableObject {
     @Published private(set) var isPlaying = false
     @Published private(set) var shuffleOn = false
     /// Cycled play order: shuffle → in order → loop-all.
-    enum PlayOrder: String { case shuffle, ordered, loop
+    enum PlayOrder: String {
+        case shuffle, ordered, loop
         var symbol: String {
             switch self {
             case .shuffle: return "shuffle"
@@ -48,8 +50,10 @@ final class MusicController: ObservableObject {
     /// The kinds offered as one-tap rows. Drawn from BroadcastRadio.Kind so
     /// the words on the button are the same words the station filing uses —
     /// a row that says Rock cannot quietly mean something else.
-    static let genreKinds: [BroadcastRadio.Kind] = [.country, .rock, .pop,
-                                                    .hipHop, .jazz]
+    static let genreKinds: [BroadcastRadio.Kind] = [
+        .country, .rock, .pop,
+        .hipHop, .jazz,
+    ]
     static let genreRows = genreKinds.map(\.title)
 
     // MARK: radio as the music service (all platforms)
@@ -98,688 +102,717 @@ final class MusicController: ObservableObject {
     }
 
     #if os(iOS)
-    private let player = MPMusicPlayerController.systemMusicPlayer
+        private let player = MPMusicPlayerController.systemMusicPlayer
 
-    static let isAvailable = true
+        static let isAvailable = true
 
-    /// Which service the transport buttons drive (set from the user's
-    /// provider pick). Apple Music rides MPMusicPlayerController; Spotify —
-    /// when the user added a token in Settings — rides SpotifyRemote's
-    /// Web API calls. Everything else deep-links, so never reaches here.
-    /// Seeded from the stored pick, not hard-wired to Apple Music: Siri and
-    /// CarPlay can call in before the SwiftUI scene (and AppModel) exist.
-    /// With no pick yet it is the radio, the same default AppModel uses.
-    /// Published so CarPlay can redraw its buttons when the pick changes.
-    @Published var provider: MusicProvider = MusicProvider(
-        rawValue: UserDefaults.standard.string(forKey: "flows.musicProvider") ?? ""
-    ) ?? .radio {
-        didSet {
-            guard provider != oldValue else { return }
-            // The system player's album art and state are Apple Music's
-            // alone: the Spotify and radio tiles showed the last album.
-            if radioActive || spotifyActive {
-                artwork = nil
-            } else if activated {
-                refresh()
-                readNowPlayingFields()
+        /// Which service the transport buttons drive (set from the user's
+        /// provider pick). Apple Music rides MPMusicPlayerController; Spotify —
+        /// when the user added a token in Settings — rides SpotifyRemote's
+        /// Web API calls. Everything else deep-links, so never reaches here.
+        /// Seeded from the stored pick, not hard-wired to Apple Music: Siri and
+        /// CarPlay can call in before the SwiftUI scene (and AppModel) exist.
+        /// With no pick yet it is the radio, the same default AppModel uses.
+        /// Published so CarPlay can redraw its buttons when the pick changes.
+        @Published var provider: MusicProvider =
+            MusicProvider(
+                rawValue: UserDefaults.standard.string(forKey: "flows.musicProvider") ?? ""
+            ) ?? .radio
+        {
+            didSet {
+                guard provider != oldValue else { return }
+                // The system player's album art and state are Apple Music's
+                // alone: the Spotify and radio tiles showed the last album.
+                if radioActive || spotifyActive {
+                    artwork = nil
+                } else if activated {
+                    refresh()
+                    readNowPlayingFields()
+                }
             }
         }
-    }
 
-    /// True when the transport calls drive the PICKED service rather than
-    /// falling through to Apple Music — the one gate every surface checks
-    /// (HUD mini player, Siri intents, CarPlay). Truth table + per-service
-    /// survey: MusicProvider.controllable(onMac:spotifyLinked:).
-    var controlsInPlace: Bool {
-        provider.controllable(onMac: false,
-                              spotifyLinked: SpotifyRemote.shared.linked)
-    }
+        /// True when the transport calls drive the PICKED service rather than
+        /// falling through to Apple Music — the one gate every surface checks
+        /// (HUD mini player, Siri intents, CarPlay). Truth table + per-service
+        /// survey: MusicProvider.controllable(onMac:spotifyLinked:).
+        var controlsInPlace: Bool {
+            provider.controllable(
+                onMac: false,
+                spotifyLinked: SpotifyRemote.shared.linked)
+        }
 
-    /// True when Apple Music is the picked service and the driver (or the
-    /// phone's restrictions) said no to FLOWS reaching it. The system player
-    /// then ignores play without a word, so the button looked broken.
-    var appleMusicRefused: Bool {
-        guard provider == .appleMusic else { return false }
-        let status = MPMediaLibrary.authorizationStatus()
-        return status == .denied || status == .restricted
-    }
+        /// True when Apple Music is the picked service and the driver (or the
+        /// phone's restrictions) said no to FLOWS reaching it. The system player
+        /// then ignores play without a word, so the button looked broken.
+        var appleMusicRefused: Bool {
+            guard provider == .appleMusic else { return false }
+            let status = MPMediaLibrary.authorizationStatus()
+            return status == .denied || status == .restricted
+        }
 
-    /// Now-playing artwork thumbnail. Stored + published: a computed read of
-    /// nowPlayingItem never invalidates SwiftUI, so the mini-player would
-    /// keep the placeholder forever.
-    @Published private(set) var artwork: CGImage?
+        /// Now-playing artwork thumbnail. Stored + published: a computed read of
+        /// nowPlayingItem never invalidates SwiftUI, so the mini-player would
+        /// keep the placeholder forever.
+        @Published private(set) var artwork: CGImage?
 
-    private var spotifySync: AnyCancellable?
+        private var spotifySync: AnyCancellable?
 
-    /// The transport buttons drive Spotify's Web API instead of the system
-    /// Music player.
-    private var spotifyActive: Bool {
-        provider == .spotify && SpotifyRemote.shared.linked
-    }
+        /// The transport buttons drive Spotify's Web API instead of the system
+        /// Music player.
+        private var spotifyActive: Bool {
+            provider == .spotify && SpotifyRemote.shared.linked
+        }
 
-    /// Touching the system player triggers the media-library permission
-    /// dialog — so nothing touches it until the driver actually uses music.
-    /// A fresh install's first launch must not ask for the music library.
-    private var activated = false
+        /// Touching the system player triggers the media-library permission
+        /// dialog — so nothing touches it until the driver actually uses music.
+        /// A fresh install's first launch must not ask for the music library.
+        private var activated = false
 
-    init() {
-        // The HUD watches THIS object — mirror the Spotify remote's state
-        // in so play/pause icons and the track tooltip stay live.
-        // (objectWillChange fires before the value lands; the task hop
-        // reads it after.)
-        spotifySync = SpotifyRemote.shared.objectWillChange
-            .sink { [weak self] _ in
-                Task { @MainActor in self?.syncFromSpotify() }
+        init() {
+            // The HUD watches THIS object — mirror the Spotify remote's state
+            // in so play/pause icons and the track tooltip stay live.
+            // (objectWillChange fires before the value lands; the task hop
+            // reads it after.)
+            spotifySync = SpotifyRemote.shared.objectWillChange
+                .sink { [weak self] _ in
+                    Task { @MainActor in self?.syncFromSpotify() }
+                }
+            // A driver who already picked a music service has been through the
+            // permission ask — reconnect to the system player right away so
+            // now-playing state is live at launch, exactly as before.
+            if UserDefaults.standard.string(forKey: "flows.musicProvider") != nil {
+                activateIfNeeded()
             }
-        // A driver who already picked a music service has been through the
-        // permission ask — reconnect to the system player right away so
-        // now-playing state is live at launch, exactly as before.
-        if UserDefaults.standard.string(forKey: "flows.musicProvider") != nil {
-            activateIfNeeded()
         }
-    }
 
-    private func activateIfNeeded() {
-        guard !activated else { return }
-        activated = true
-        refresh()
-        updateNowPlaying()
-        NotificationCenter.default.addObserver(
-            forName: .MPMusicPlayerControllerPlaybackStateDidChange,
-            object: player, queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor in self?.refresh() }
+        private func activateIfNeeded() {
+            guard !activated else { return }
+            activated = true
+            refresh()
+            updateNowPlaying()
+            NotificationCenter.default.addObserver(
+                forName: .MPMusicPlayerControllerPlaybackStateDidChange,
+                object: player, queue: .main
+            ) { [weak self] _ in
+                Task { @MainActor in self?.refresh() }
+            }
+            NotificationCenter.default.addObserver(
+                forName: .MPMusicPlayerControllerNowPlayingItemDidChange,
+                object: player, queue: .main
+            ) { [weak self] _ in
+                Task { @MainActor in self?.updateNowPlaying() }
+            }
+            player.beginGeneratingPlaybackNotifications()
         }
-        NotificationCenter.default.addObserver(
-            forName: .MPMusicPlayerControllerNowPlayingItemDidChange,
-            object: player, queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor in self?.updateNowPlaying() }
+
+        private func syncFromSpotify() {
+            guard spotifyActive else { return }
+            isPlaying = SpotifyRemote.shared.isPlaying
+            trackName = SpotifyRemote.shared.trackName
+            playOrder = SpotifyRemote.shared.playOrder
+            shuffleOn = playOrder == .shuffle
         }
-        player.beginGeneratingPlaybackNotifications()
-    }
 
-    private func syncFromSpotify() {
-        guard spotifyActive else { return }
-        isPlaying = SpotifyRemote.shared.isPlaying
-        trackName = SpotifyRemote.shared.trackName
-        playOrder = SpotifyRemote.shared.playOrder
-        shuffleOn = playOrder == .shuffle
-    }
+        /// Fired when playback stops for a reason the DRIVER didn't choose —
+        /// `.interrupted`, which is what a cloud track starved of buffer
+        /// looks like. A deliberate `.paused` deliberately does NOT fire it,
+        /// so pausing while offline never triggers a handoff.
+        var onPlaybackStopped: (() -> Void)?
 
-    /// Fired when playback stops for a reason the DRIVER didn't choose —
-    /// `.interrupted`, which is what a cloud track starved of buffer
-    /// looks like. A deliberate `.paused` deliberately does NOT fire it,
-    /// so pausing while offline never triggers a handoff.
-    var onPlaybackStopped: (() -> Void)?
-
-    private func refresh() {
-        // Music.app's state is not ours while Spotify or the radio is the
-        // service: its notifications overwrote the radio's play/pause and
-        // track name (syncFromRadio) until the next transport press.
-        guard !spotifyActive, !radioActive else { return }
-        let wasPlaying = isPlaying
-        isPlaying = player.playbackState == .playing
-        shuffleOn = player.shuffleMode != .off
-        if wasPlaying, player.playbackState == .interrupted {
-            onPlaybackStopped?()
+        private func refresh() {
+            // Music.app's state is not ours while Spotify or the radio is the
+            // service: its notifications overwrote the radio's play/pause and
+            // track name (syncFromRadio) until the next transport press.
+            guard !spotifyActive, !radioActive else { return }
+            let wasPlaying = isPlaying
+            isPlaying = player.playbackState == .playing
+            shuffleOn = player.shuffleMode != .off
+            if wasPlaying, player.playbackState == .interrupted {
+                onPlaybackStopped?()
+            }
         }
-    }
 
-    private func updateNowPlaying() {
-        // Fire the one-shot boundary hook even for Spotify (the track
-        // change is the seam a switch-back should land on).
-        if let action = trackBoundaryAction {
-            trackBoundaryAction = nil
-            action()
+        private func updateNowPlaying() {
+            // Fire the one-shot boundary hook even for Spotify (the track
+            // change is the seam a switch-back should land on).
+            if let action = trackBoundaryAction {
+                trackBoundaryAction = nil
+                action()
+            }
+            guard !spotifyActive, !radioActive else { return }
+            readNowPlayingFields()
         }
-        guard !spotifyActive, !radioActive else { return }
-        readNowPlayingFields()
-    }
 
-    /// The system player's title and artwork, into the published fields.
-    private func readNowPlayingFields() {
-        trackName = player.nowPlayingItem?.title ?? ""
-        artwork = player.nowPlayingItem?.artwork?
-            .image(at: CGSize(width: 64, height: 64))?.cgImage
-    }
-
-    private var trackBoundaryAction: (() -> Void)?
-
-    /// Run `action` when the current song ENDS — the seam where switching
-    /// back to a streaming service goes unnoticed, instead of cutting a
-    /// song off mid-chorus. Runs immediately when nothing is playing, so
-    /// a paused or silent player never strands the caller.
-    func atNextTrackBoundary(_ action: @escaping () -> Void) {
-        // Not while the radio is the service: its `isPlaying` is the station's,
-        // Music is paused behind it and never changes track — the switch-back
-        // waited for a boundary that could not come.
-        guard isPlaying, !radioActive, player.nowPlayingItem != nil else {
-            action()
-            return
+        /// The system player's title and artwork, into the published fields.
+        private func readNowPlayingFields() {
+            trackName = player.nowPlayingItem?.title ?? ""
+            artwork =
+                player.nowPlayingItem?.artwork?
+                .image(at: CGSize(width: 64, height: 64))?.cgImage
         }
-        trackBoundaryAction = action
-    }
 
-    /// Disarm a pending boundary hook. A switch-back armed on "signal is
-    /// back" must not fire after the signal has dropped AGAIN — it would
-    /// hand playback to a streaming service that cannot stream.
-    func cancelTrackBoundaryAction() { trackBoundaryAction = nil }
+        private var trackBoundaryAction: (() -> Void)?
 
-    func playPause() {
-        if radioTransport({ $0.pauseOrResume() }) { return }
-        if spotifyActive {
-            if !SpotifyRemote.shared.isPlaying { stopRadioForMusic() }
-            SpotifyRemote.shared.playPause()
-            syncFromSpotify()   // Siri reads isPlaying right back — no hop
-            return
+        /// Run `action` when the current song ENDS — the seam where switching
+        /// back to a streaming service goes unnoticed, instead of cutting a
+        /// song off mid-chorus. Runs immediately when nothing is playing, so
+        /// a paused or silent player never strands the caller.
+        func atNextTrackBoundary(_ action: @escaping () -> Void) {
+            // Not while the radio is the service: its `isPlaying` is the station's,
+            // Music is paused behind it and never changes track — the switch-back
+            // waited for a boundary that could not come.
+            guard isPlaying, !radioActive, player.nowPlayingItem != nil else {
+                action()
+                return
+            }
+            trackBoundaryAction = action
         }
-        activateIfNeeded()
-        if player.playbackState == .playing {
-            player.pause()
-        } else if player.nowPlayingItem == nil {
-            // Cold start (Music app not running, nothing queued): a bare
-            // play() stays silent — queue the shuffled library instead.
-            playLibraryShuffled()
-        } else {
-            // prepareToPlay launches the Music service in the background
-            // when the app isn't running; play() alone can be dropped.
-            stopRadioForMusic()
-            player.prepareToPlay()
-            player.play()
-        }
-        refresh()
-    }
 
-    /// The radio is about to come on: Apple Music or Spotify pauses if it is
-    /// playing. Nothing when the radio is the picked service.
-    func pauseForRadio() {
-        guard !radioActive else { return }
-        if spotifyActive {
-            if SpotifyRemote.shared.isPlaying {
+        /// Disarm a pending boundary hook. A switch-back armed on "signal is
+        /// back" must not fire after the signal has dropped AGAIN — it would
+        /// hand playback to a streaming service that cannot stream.
+        func cancelTrackBoundaryAction() { trackBoundaryAction = nil }
+
+        func playPause() {
+            if radioTransport({ $0.pauseOrResume() }) { return }
+            if spotifyActive {
+                if !SpotifyRemote.shared.isPlaying { stopRadioForMusic() }
                 SpotifyRemote.shared.playPause()
-                syncFromSpotify()
+                syncFromSpotify()  // Siri reads isPlaying right back — no hop
+                return
             }
-            return
-        }
-        if player.playbackState == .playing {
-            player.pause()
+            activateIfNeeded()
+            if player.playbackState == .playing {
+                player.pause()
+            } else if player.nowPlayingItem == nil {
+                // Cold start (Music app not running, nothing queued): a bare
+                // play() stays silent — queue the shuffled library instead.
+                playLibraryShuffled()
+            } else {
+                // prepareToPlay launches the Music service in the background
+                // when the app isn't running; play() alone can be dropped.
+                stopRadioForMusic()
+                player.prepareToPlay()
+                player.play()
+            }
             refresh()
         }
-    }
 
-    /// Songs that live ON THIS DEVICE — cloud items excluded, because a
-    /// cloud item is exactly what STOPS working when the signal drops.
-    private static func deviceSongsQuery() -> MPMediaQuery {
-        let query = MPMediaQuery.songs()
-        query.addFilterPredicate(MPMediaPropertyPredicate(
-            value: false, forProperty: MPMediaItemPropertyIsCloudItem))
-        return query
-    }
-
-    /// Is there downloaded/synced music to fall back on? Checked WITHOUT
-    /// triggering the media-library prompt — an un-granted library reads
-    /// as "nothing local", which sends the handoff to radio instead.
-    var hasLocalMusic: Bool {
-        guard MPMediaLibrary.authorizationStatus() == .authorized else { return false }
-        // Kept five minutes: the weak-signal check asks on every GPS fix,
-        // and each answer built the whole local-songs list on the main
-        // thread. A library changes far slower than that.
-        if let checked = localMusicChecked, Date().timeIntervalSince(checked.at) < 300 {
-            return checked.has
+        /// The radio is about to come on: Apple Music or Spotify pauses if it is
+        /// playing. Nothing when the radio is the picked service.
+        func pauseForRadio() {
+            guard !radioActive else { return }
+            if spotifyActive {
+                if SpotifyRemote.shared.isPlaying {
+                    SpotifyRemote.shared.playPause()
+                    syncFromSpotify()
+                }
+                return
+            }
+            if player.playbackState == .playing {
+                player.pause()
+                refresh()
+            }
         }
-        let has = Self.deviceSongsQuery().items?.isEmpty == false
-        localMusicChecked = (Date(), has)
-        return has
-    }
-    private var localMusicChecked: (at: Date, has: Bool)?
 
-    /// Does what's playing right now depend on the network? Drives the
-    /// offline handoff — local files keep playing and must not be yanked.
-    var currentPlaybackNeedsNetwork: Bool {
-        if radioActive { return true }             // every station is a stream
-        if spotifyActive { return true }           // Web API + Spotify's own stream
-        return player.nowPlayingItem?.isCloudItem ?? false
-    }
-
-    /// The offline fallback: shuffle what's actually on the device.
-    func playLocalLibrary() {
-        stopRadioForMusic()
-        activateIfNeeded()
-        player.setQueue(with: Self.deviceSongsQuery())
-        player.shuffleMode = .songs
-        playOrder = .shuffle
-        player.prepareToPlay()
-        player.play()
-        refresh()
-    }
-
-    /// The guaranteed-resolvable queue: the whole library, shuffled.
-    private func playLibraryShuffled() {
-        stopRadioForMusic()
-        player.setQueue(with: MPMediaQuery.songs())
-        player.shuffleMode = .songs
-        playOrder = .shuffle
-        player.prepareToPlay()
-        player.play()
-    }
-
-    /// Resume the system player's existing queue (it survives app exits);
-    /// shuffled library when there is none. Spotify: resume its last queue.
-    func resumeRecent() {
-        if radioTransport({ $0.pauseOrResume() }) { return }
-        stopRadioForMusic()
-        if spotifyActive {
-            SpotifyRemote.shared.resume()
-            syncFromSpotify()
-            return
+        /// Songs that live ON THIS DEVICE — cloud items excluded, because a
+        /// cloud item is exactly what STOPS working when the signal drops.
+        private static func deviceSongsQuery() -> MPMediaQuery {
+            let query = MPMediaQuery.songs()
+            query.addFilterPredicate(
+                MPMediaPropertyPredicate(
+                    value: false, forProperty: MPMediaItemPropertyIsCloudItem))
+            return query
         }
-        activateIfNeeded()
-        if player.nowPlayingItem == nil {
-            playLibraryShuffled()
-        } else {
-            player.prepareToPlay()
-            player.play()
-        }
-        refresh()
-    }
 
-    /// The user's personal Apple Music station needs a MusicKit developer
-    /// token to resolve — the shuffled library is the on-device stand-in.
-    func playMyStation() {
-        stopRadioForMusic()
-        if spotifyActive {
-            SpotifyRemote.shared.resume()   // stations are an Apple Music idea
-            return
+        /// Is there downloaded/synced music to fall back on? Checked WITHOUT
+        /// triggering the media-library prompt — an un-granted library reads
+        /// as "nothing local", which sends the handoff to radio instead.
+        var hasLocalMusic: Bool {
+            guard MPMediaLibrary.authorizationStatus() == .authorized else { return false }
+            // Kept five minutes: the weak-signal check asks on every GPS fix,
+            // and each answer built the whole local-songs list on the main
+            // thread. A library changes far slower than that.
+            if let checked = localMusicChecked, Date().timeIntervalSince(checked.at) < 300 {
+                return checked.has
+            }
+            let has = Self.deviceSongsQuery().items?.isEmpty == false
+            localMusicChecked = (Date(), has)
+            return has
         }
-        activateIfNeeded()
-        playLibraryShuffled()
-        refresh()
-    }
+        private var localMusicChecked: (at: Date, has: Bool)?
 
-    /// One-tap genre play from the library; when the library carries no
-    /// matching track, deep-link into Music's search instead of silence.
-    /// (The genre rows are hidden for Spotify — its Web API has no library
-    /// genre query — so this path stays Apple Music's.)
-    func playGenre(_ genre: String) {
-        stopRadioForMusic()
-        activateIfNeeded()
-        let query = MPMediaQuery.songs()
-        query.addFilterPredicate(MPMediaPropertyPredicate(
-            value: genre, forProperty: MPMediaItemPropertyGenre,
-            comparisonType: .contains))
-        if query.items?.isEmpty == false {
-            player.setQueue(with: query)
+        /// Does what's playing right now depend on the network? Drives the
+        /// offline handoff — local files keep playing and must not be yanked.
+        var currentPlaybackNeedsNetwork: Bool {
+            if radioActive { return true }  // every station is a stream
+            if spotifyActive { return true }  // Web API + Spotify's own stream
+            return player.nowPlayingItem?.isCloudItem ?? false
+        }
+
+        /// The offline fallback: shuffle what's actually on the device.
+        func playLocalLibrary() {
+            stopRadioForMusic()
+            activateIfNeeded()
+            player.setQueue(with: Self.deviceSongsQuery())
             player.shuffleMode = .songs
             playOrder = .shuffle
             player.prepareToPlay()
             player.play()
             refresh()
-        } else {
-            // Strict encoding: the "&" in "R&B" split the query, and Music
-            // searched for "R" (MusicProvider.searchURL does the same).
-            var allowed = CharacterSet.urlQueryAllowed
-            allowed.remove(charactersIn: "&=+?#")
-            if let url = URL(string: "music://music.apple.com/search?term="
-                + (genre.addingPercentEncoding(withAllowedCharacters: allowed) ?? genre)) {
-                UIApplication.shared.open(url)
+        }
+
+        /// The guaranteed-resolvable queue: the whole library, shuffled.
+        private func playLibraryShuffled() {
+            stopRadioForMusic()
+            player.setQueue(with: MPMediaQuery.songs())
+            player.shuffleMode = .songs
+            playOrder = .shuffle
+            player.prepareToPlay()
+            player.play()
+        }
+
+        /// Resume the system player's existing queue (it survives app exits);
+        /// shuffled library when there is none. Spotify: resume its last queue.
+        func resumeRecent() {
+            if radioTransport({ $0.pauseOrResume() }) { return }
+            stopRadioForMusic()
+            if spotifyActive {
+                SpotifyRemote.shared.resume()
+                syncFromSpotify()
+                return
+            }
+            activateIfNeeded()
+            if player.nowPlayingItem == nil {
+                playLibraryShuffled()
+            } else {
+                player.prepareToPlay()
+                player.play()
+            }
+            refresh()
+        }
+
+        /// The user's personal Apple Music station needs a MusicKit developer
+        /// token to resolve — the shuffled library is the on-device stand-in.
+        func playMyStation() {
+            stopRadioForMusic()
+            if spotifyActive {
+                SpotifyRemote.shared.resume()  // stations are an Apple Music idea
+                return
+            }
+            activateIfNeeded()
+            playLibraryShuffled()
+            refresh()
+        }
+
+        /// One-tap genre play from the library; when the library carries no
+        /// matching track, deep-link into Music's search instead of silence.
+        /// (The genre rows are hidden for Spotify — its Web API has no library
+        /// genre query — so this path stays Apple Music's.)
+        func playGenre(_ genre: String) {
+            stopRadioForMusic()
+            activateIfNeeded()
+            let query = MPMediaQuery.songs()
+            query.addFilterPredicate(
+                MPMediaPropertyPredicate(
+                    value: genre, forProperty: MPMediaItemPropertyGenre,
+                    comparisonType: .contains))
+            if query.items?.isEmpty == false {
+                player.setQueue(with: query)
+                player.shuffleMode = .songs
+                playOrder = .shuffle
+                player.prepareToPlay()
+                player.play()
+                refresh()
+            } else {
+                // Strict encoding: the "&" in "R&B" split the query, and Music
+                // searched for "R" (MusicProvider.searchURL does the same).
+                var allowed = CharacterSet.urlQueryAllowed
+                allowed.remove(charactersIn: "&=+?#")
+                if let url = URL(
+                    string: "music://music.apple.com/search?term="
+                        + (genre.addingPercentEncoding(withAllowedCharacters: allowed) ?? genre))
+                {
+                    UIApplication.shared.open(url)
+                }
             }
         }
-    }
 
-    /// A spoken/tapped music ask: the FULL Apple Music catalog first
-    /// (MusicKit — plays on the same system player the transport buttons
-    /// drive), the on-device library genre path when the catalog can't
-    /// serve (no portal token, no subscription, offline).
-    func playSearchOrGenre(_ term: String) {
-        stopRadioForMusic()
-        activateIfNeeded()
-        Task { [weak self] in
-            if await MusicKitCatalog.playSearch(term) { return }
-            await MainActor.run { self?.playGenre(term) }
+        /// A spoken/tapped music ask: the FULL Apple Music catalog first
+        /// (MusicKit — plays on the same system player the transport buttons
+        /// drive), the on-device library genre path when the catalog can't
+        /// serve (no portal token, no subscription, offline).
+        func playSearchOrGenre(_ term: String) {
+            stopRadioForMusic()
+            activateIfNeeded()
+            Task { [weak self] in
+                if await MusicKitCatalog.playSearch(term) { return }
+                await MainActor.run { self?.playGenre(term) }
+            }
         }
-    }
 
-    func skip() {
-        // Radio: the next station of the same genre.
-        if radioTransport({ $0.nextStation() }) { return }
-        if spotifyActive {
-            SpotifyRemote.shared.skip()
-            return
+        func skip() {
+            // Radio: the next station of the same genre.
+            if radioTransport({ $0.nextStation() }) { return }
+            if spotifyActive {
+                SpotifyRemote.shared.skip()
+                return
+            }
+            activateIfNeeded()
+            player.skipToNextItem()
         }
-        activateIfNeeded()
-        player.skipToNextItem()
-    }
 
-    func back() {
-        if radioTransport({ $0.previousStation() }) { return }
-        if spotifyActive {
-            SpotifyRemote.shared.back()
-            return
+        func back() {
+            if radioTransport({ $0.previousStation() }) { return }
+            if spotifyActive {
+                SpotifyRemote.shared.back()
+                return
+            }
+            activateIfNeeded()
+            player.skipToPreviousItem()
         }
-        activateIfNeeded()
-        player.skipToPreviousItem()
-    }
 
-    /// shuffle → ordered → loop → shuffle.
-    func cyclePlayOrder() {
-        // Live radio has no play order — the button is hidden for it.
-        if radioActive { return }
-        if spotifyActive {
-            let next: PlayOrder
+        /// shuffle → ordered → loop → shuffle.
+        func cyclePlayOrder() {
+            // Live radio has no play order — the button is hidden for it.
+            if radioActive { return }
+            if spotifyActive {
+                let next: PlayOrder
+                switch playOrder {
+                case .ordered: next = .shuffle
+                case .shuffle: next = .loop
+                case .loop: next = .ordered
+                }
+                playOrder = next
+                shuffleOn = next == .shuffle
+                SpotifyRemote.shared.setOrder(next)
+                return
+            }
+            activateIfNeeded()
             switch playOrder {
-            case .ordered: next = .shuffle
-            case .shuffle: next = .loop
-            case .loop: next = .ordered
+            case .ordered:
+                player.shuffleMode = .songs
+                player.repeatMode = .none
+                playOrder = .shuffle
+            case .shuffle:
+                player.shuffleMode = .off
+                player.repeatMode = .all
+                playOrder = .loop
+            case .loop:
+                player.shuffleMode = .off
+                player.repeatMode = .none
+                playOrder = .ordered
+            }
+        }
+
+        /// Siri's "shuffle": shuffle on, or back to in order — never on to
+        /// repeat the way the play-order button cycles. Both fields land in the
+        /// same step, so the reply reads the new state rather than the old one
+        /// (the player's own notice comes later, if at all).
+        func toggleShuffle() {
+            if radioActive { return }  // live radio has no play order
+            let next: PlayOrder = playOrder == .shuffle ? .ordered : .shuffle
+            if spotifyActive {
+                SpotifyRemote.shared.setOrder(next)
+            } else {
+                activateIfNeeded()
+                player.shuffleMode = next == .shuffle ? .songs : .off
+                player.repeatMode = .none
             }
             playOrder = next
             shuffleOn = next == .shuffle
-            SpotifyRemote.shared.setOrder(next)
-            return
         }
-        activateIfNeeded()
-        switch playOrder {
-        case .ordered:
-            player.shuffleMode = .songs
-            player.repeatMode = .none
-            playOrder = .shuffle
-        case .shuffle:
-            player.shuffleMode = .off
-            player.repeatMode = .all
-            playOrder = .loop
-        case .loop:
-            player.shuffleMode = .off
-            player.repeatMode = .none
-            playOrder = .ordered
-        }
-    }
-
-    /// Siri's "shuffle": shuffle on, or back to in order — never on to
-    /// repeat the way the play-order button cycles. Both fields land in the
-    /// same step, so the reply reads the new state rather than the old one
-    /// (the player's own notice comes later, if at all).
-    func toggleShuffle() {
-        if radioActive { return }   // live radio has no play order
-        let next: PlayOrder = playOrder == .shuffle ? .ordered : .shuffle
-        if spotifyActive {
-            SpotifyRemote.shared.setOrder(next)
-        } else {
-            activateIfNeeded()
-            player.shuffleMode = next == .shuffle ? .songs : .off
-            player.repeatMode = .none
-        }
-        playOrder = next
-        shuffleOn = next == .shuffle
-    }
 
     #elseif os(macOS)
-    static let isAvailable = true
+        static let isAvailable = true
 
-    // No state query at init — an Apple Events round-trip would LAUNCH
-    // Music.app on FLOWS startup. State refreshes after each user press.
-    init() {}
+        // No state query at init — an Apple Events round-trip would LAUNCH
+        // Music.app on FLOWS startup. State refreshes after each user press.
+        init() {}
 
-    @discardableResult
-    private func run(_ source: String) -> NSAppleEventDescriptor? {
-        var error: NSDictionary?
-        let result = NSAppleScript(source: source)?.executeAndReturnError(&error)
-        return error == nil ? result : nil
-    }
-
-    /// The app the transport scripts: Spotify when it is the pick, else Music.
-    private var scriptedApp: String { provider == .spotify ? "Spotify" : "Music" }
-
-    /// Siri's "play" and "pause" decide from the play state, and here it is
-    /// only as fresh as FLOWS's own last press: music started in the app
-    /// itself read as stopped, so "play" paused it. Never launches the app.
-    func refreshStateForAsk() { refresh() }
-
-    private func refresh() {
-        // The radio's state is mirrored (syncFromRadio); reading Music for it
-        // showed Music's play state beside the station.
-        guard !radioActive else { return }
-        let app = scriptedApp
-        // Asked of the app that was picked, and never launching it to ask:
-        // a Music.app read launched Music on every press with Spotify picked.
-        guard run("application \"\(app)\" is running")?.booleanValue == true else {
-            isPlaying = false
-            return
+        @discardableResult
+        private func run(_ source: String) -> NSAppleEventDescriptor? {
+            var error: NSDictionary?
+            let result = NSAppleScript(source: source)?.executeAndReturnError(&error)
+            return error == nil ? result : nil
         }
-        isPlaying = run("tell application \"\(app)\" to player state is playing")?
-            .booleanValue ?? false
-        shuffleOn = run(provider == .spotify
+
+        /// The app the transport scripts: Spotify when it is the pick, else Music.
+        private var scriptedApp: String { provider == .spotify ? "Spotify" : "Music" }
+
+        /// Siri's "play" and "pause" decide from the play state, and here it is
+        /// only as fresh as FLOWS's own last press: music started in the app
+        /// itself read as stopped, so "play" paused it. Never launches the app.
+        func refreshStateForAsk() { refresh() }
+
+        private func refresh() {
+            // The radio's state is mirrored (syncFromRadio); reading Music for it
+            // showed Music's play state beside the station.
+            guard !radioActive else { return }
+            let app = scriptedApp
+            // Asked of the app that was picked, and never launching it to ask:
+            // a Music.app read launched Music on every press with Spotify picked.
+            guard run("application \"\(app)\" is running")?.booleanValue == true else {
+                isPlaying = false
+                return
+            }
+            isPlaying =
+                run("tell application \"\(app)\" to player state is playing")?
+                .booleanValue ?? false
+            shuffleOn =
+                run(
+                    provider == .spotify
                         ? "tell application \"Spotify\" to shuffling"
                         : "tell application \"Music\" to shuffle enabled")?
-            .booleanValue ?? false
-    }
-
-    /// The picked app updates its player state a beat AFTER the command
-    /// lands — refreshing immediately read the OLD state (the "flipped icon"
-    /// bug).
-    private func refreshSoon() {
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self] in
-            guard let self, !self.radioActive else { return }
-            self.refresh()
-            guard self.isPlaying else { return }
-            self.trackName = self.run(
-                "tell application \"\(self.scriptedApp)\" to get name of current track")?
-                .stringValue ?? ""
+                .booleanValue ?? false
         }
-    }
 
-    /// Runs a play command (the Apple Events round-trip launches Music.app
-    /// when it isn't running), then falls back to the shuffled library when
-    /// the player is STILL stopped — a cold launch with an empty queue
-    /// swallows play/playpause silently.
-    private func playWithLibraryFallback(_ source: String) {
-        run(source)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
-            guard let self else { return }
-            if self.run("tell application \"Music\" to player state is stopped")?
-                .booleanValue == true {
-                self.playLibraryShuffled()
+        /// The picked app updates its player state a beat AFTER the command
+        /// lands — refreshing immediately read the OLD state (the "flipped icon"
+        /// bug).
+        private func refreshSoon() {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self] in
+                guard let self, !self.radioActive else { return }
+                self.refresh()
+                guard self.isPlaying else { return }
+                self.trackName =
+                    self.run(
+                        "tell application \"\(self.scriptedApp)\" to get name of current track")?
+                    .stringValue ?? ""
             }
         }
-        refreshSoon()
-    }
 
-    /// The guaranteed queue: the whole library, shuffled.
-    private func playLibraryShuffled() {
-        stopRadioForMusic()
-        run("tell application \"Music\" to set shuffle enabled to true")
-        run("tell application \"Music\" to play library playlist 1")
-        playOrder = .shuffle
-        refreshSoon()
-    }
-
-    /// Which service the transport buttons drive (set from the user's
-    /// provider pick, seeded from the stored value — the radio when there
-    /// is none, as in AppModel). macOS can script Spotify as well as Music.
-    var provider: MusicProvider = MusicProvider(
-        rawValue: UserDefaults.standard.string(forKey: "flows.musicProvider") ?? ""
-    ) ?? .radio
-
-    /// Same gate as iOS: Apple Music and Spotify script in place here;
-    /// no other service exposes a way in (see MusicProvider.controllable).
-    var controlsInPlace: Bool {
-        provider.controllable(onMac: true, spotifyLinked: false)
-    }
-
-    /// The Mac scripts the Music app; there is no library permission to refuse.
-    var appleMusicRefused: Bool { false }
-
-    func playPause() {
-        if radioTransport({ $0.pauseOrResume() }) { return }
-        if !isPlaying { stopRadioForMusic() }
-        if provider == .spotify {
-            run("tell application \"Spotify\" to playpause")
+        /// Runs a play command (the Apple Events round-trip launches Music.app
+        /// when it isn't running), then falls back to the shuffled library when
+        /// the player is STILL stopped — a cold launch with an empty queue
+        /// swallows play/playpause silently.
+        private func playWithLibraryFallback(_ source: String) {
+            run(source)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
+                guard let self else { return }
+                if self.run("tell application \"Music\" to player state is stopped")?
+                    .booleanValue == true
+                {
+                    self.playLibraryShuffled()
+                }
+            }
             refreshSoon()
-            return
         }
-        playWithLibraryFallback("tell application \"Music\" to playpause")
-    }
 
-    /// The radio is about to come on: Music or Spotify — whichever is the
-    /// picked service — pauses if it is running. Never launches either one
-    /// just to pause it. Nothing when the radio is the picked service.
-    func pauseForRadio() {
-        guard !radioActive else { return }
-        let app = provider == .spotify ? "Spotify" : "Music"
-        run("if application \"\(app)\" is running then tell application \"\(app)\" to pause")
-        refreshSoon()
-    }
-
-    /// Resume whatever Music last had queued; shuffled library when empty.
-    /// Spotify: resume its own queue (same Apple Events path as playPause).
-    func resumeRecent() {
-        if radioTransport({ $0.pauseOrResume() }) { return }
-        stopRadioForMusic()
-        if provider == .spotify {
-            run("tell application \"Spotify\" to play")
+        /// The guaranteed queue: the whole library, shuffled.
+        private func playLibraryShuffled() {
+            stopRadioForMusic()
+            run("tell application \"Music\" to set shuffle enabled to true")
+            run("tell application \"Music\" to play library playlist 1")
+            playOrder = .shuffle
             refreshSoon()
-            return
         }
-        playWithLibraryFallback("tell application \"Music\" to play")
-    }
 
-    /// Personal Apple Music stations aren't scriptable via Apple Events —
-    /// the shuffled library is the stand-in. Spotify has no library to
-    /// script: its own queue resumes instead of launching Music beside it.
-    func playMyStation() {
-        if provider == .spotify { resumeRecent(); return }
-        playLibraryShuffled()
-    }
+        /// Which service the transport buttons drive (set from the user's
+        /// provider pick, seeded from the stored value — the radio when there
+        /// is none, as in AppModel). macOS can script Spotify as well as Music.
+        var provider: MusicProvider =
+            MusicProvider(
+                rawValue: UserDefaults.standard.string(forKey: "flows.musicProvider") ?? ""
+            ) ?? .radio
 
-    /// macOS has no MusicKit system-player path — a music ask goes
-    /// straight to the scripted library-genre play.
-    func playSearchOrGenre(_ term: String) { playGenre(term) }
+        /// Same gate as iOS: Apple Music and Spotify script in place here;
+        /// no other service exposes a way in (see MusicProvider.controllable).
+        var controlsInPlace: Bool {
+            provider.controllable(onMac: true, spotifyLinked: false)
+        }
 
-    /// Apple Events can't tell a downloaded track from a cloud one, so
-    /// macOS reports no offline library and the handoff prefers radio.
-    /// (The in-car offline case is the phone's, not the desktop's.)
-    var hasLocalMusic: Bool { false }
+        /// The Mac scripts the Music app; there is no library permission to refuse.
+        var appleMusicRefused: Bool { false }
 
-    var currentPlaybackNeedsNetwork: Bool { radioActive || provider == .spotify }
+        func playPause() {
+            if radioTransport({ $0.pauseOrResume() }) { return }
+            if !isPlaying { stopRadioForMusic() }
+            if provider == .spotify {
+                run("tell application \"Spotify\" to playpause")
+                refreshSoon()
+                return
+            }
+            playWithLibraryFallback("tell application \"Music\" to playpause")
+        }
 
-    func playLocalLibrary() { playLibraryShuffled() }
+        /// The radio is about to come on: Music or Spotify — whichever is the
+        /// picked service — pauses if it is running. Never launches either one
+        /// just to pause it. Nothing when the radio is the picked service.
+        func pauseForRadio() {
+            guard !radioActive else { return }
+            let app = provider == .spotify ? "Spotify" : "Music"
+            run("if application \"\(app)\" is running then tell application \"\(app)\" to pause")
+            refreshSoon()
+        }
 
-    /// macOS can't observe Music.app track boundaries over Apple Events —
-    /// switch back right away rather than never.
-    func atNextTrackBoundary(_ action: @escaping () -> Void) { action() }
-    /// Nothing is ever armed here — the hook above runs at once.
-    func cancelTrackBoundaryAction() {}
+        /// Resume whatever Music last had queued; shuffled library when empty.
+        /// Spotify: resume its own queue (same Apple Events path as playPause).
+        func resumeRecent() {
+            if radioTransport({ $0.pauseOrResume() }) { return }
+            stopRadioForMusic()
+            if provider == .spotify {
+                run("tell application \"Spotify\" to play")
+                refreshSoon()
+                return
+            }
+            playWithLibraryFallback("tell application \"Music\" to play")
+        }
 
-    /// No equivalent Apple Events signal — the grace window is the only
-    /// trigger on macOS.
-    var onPlaybackStopped: (() -> Void)?
-
-    /// One-tap genre play from the library; shuffled library when no track
-    /// carries the genre. The genre can be free text (playSearchOrGenre, a
-    /// spoken ask), so it is escaped for the AppleScript string: a quote in
-    /// it broke the script and the whole library played instead.
-    func playGenre(_ genre: String) {
-        // Spotify cannot be asked for a genre over Apple Events: its own
-        // queue resumes, rather than Music launching beside it.
-        if provider == .spotify { resumeRecent(); return }
-        stopRadioForMusic()
-        let quoted = genre
-            .replacingOccurrences(of: "\\", with: "\\\\")
-            .replacingOccurrences(of: "\"", with: "\\\"")
-        run("tell application \"Music\" to set shuffle enabled to true")
-        if run("tell application \"Music\" to play (some track of library playlist 1 "
-               + "whose genre contains \"\(quoted)\")") == nil {
+        /// Personal Apple Music stations aren't scriptable via Apple Events —
+        /// the shuffled library is the stand-in. Spotify has no library to
+        /// script: its own queue resumes instead of launching Music beside it.
+        func playMyStation() {
+            if provider == .spotify {
+                resumeRecent()
+                return
+            }
             playLibraryShuffled()
-        } else {
-            playOrder = .shuffle
-            refreshSoon()
         }
-    }
 
-    func skip() {
-        if radioTransport({ $0.nextStation() }) { return }
-        run(provider == .spotify
-            ? "tell application \"Spotify\" to next track"
-            : "tell application \"Music\" to next track")
-        refreshSoon()
-    }
+        /// macOS has no MusicKit system-player path — a music ask goes
+        /// straight to the scripted library-genre play.
+        func playSearchOrGenre(_ term: String) { playGenre(term) }
 
-    func back() {
-        if radioTransport({ $0.previousStation() }) { return }
-        run(provider == .spotify
-            ? "tell application \"Spotify\" to previous track"
-            : "tell application \"Music\" to previous track")
-        refreshSoon()
-    }
+        /// Apple Events can't tell a downloaded track from a cloud one, so
+        /// macOS reports no offline library and the handoff prefers radio.
+        /// (The in-car offline case is the phone's, not the desktop's.)
+        var hasLocalMusic: Bool { false }
 
-    var artwork: CGImage? { nil }   // Music.app artwork needs raw AppleEvent data
+        var currentPlaybackNeedsNetwork: Bool { radioActive || provider == .spotify }
 
-    func cyclePlayOrder() {
-        if radioActive { return }   // live radio has no play order
-        let spotify = provider == .spotify   // its own words for the same three
-        switch playOrder {
-        case .ordered:
-            run(spotify ? "tell application \"Spotify\" to set shuffling to true"
-                        : "tell application \"Music\" to set shuffle enabled to true")
-            playOrder = .shuffle
-        case .shuffle:
-            if spotify {
-                run("tell application \"Spotify\" to set shuffling to false")
-                run("tell application \"Spotify\" to set repeating to true")
-            } else {
-                run("tell application \"Music\" to set shuffle enabled to false")
-                run("tell application \"Music\" to set song repeat to all")
+        func playLocalLibrary() { playLibraryShuffled() }
+
+        /// macOS can't observe Music.app track boundaries over Apple Events —
+        /// switch back right away rather than never.
+        func atNextTrackBoundary(_ action: @escaping () -> Void) { action() }
+        /// Nothing is ever armed here — the hook above runs at once.
+        func cancelTrackBoundaryAction() {}
+
+        /// No equivalent Apple Events signal — the grace window is the only
+        /// trigger on macOS.
+        var onPlaybackStopped: (() -> Void)?
+
+        /// One-tap genre play from the library; shuffled library when no track
+        /// carries the genre. The genre can be free text (playSearchOrGenre, a
+        /// spoken ask), so it is escaped for the AppleScript string: a quote in
+        /// it broke the script and the whole library played instead.
+        func playGenre(_ genre: String) {
+            // Spotify cannot be asked for a genre over Apple Events: its own
+            // queue resumes, rather than Music launching beside it.
+            if provider == .spotify {
+                resumeRecent()
+                return
             }
-            playOrder = .loop
-        case .loop:
-            run(spotify ? "tell application \"Spotify\" to set repeating to false"
-                        : "tell application \"Music\" to set song repeat to off")
-            playOrder = .ordered
+            stopRadioForMusic()
+            let quoted =
+                genre
+                .replacingOccurrences(of: "\\", with: "\\\\")
+                .replacingOccurrences(of: "\"", with: "\\\"")
+            run("tell application \"Music\" to set shuffle enabled to true")
+            if run(
+                "tell application \"Music\" to play (some track of library playlist 1 "
+                    + "whose genre contains \"\(quoted)\")") == nil
+            {
+                playLibraryShuffled()
+            } else {
+                playOrder = .shuffle
+                refreshSoon()
+            }
         }
-        refreshSoon()
-    }
 
-    /// Siri's "shuffle": shuffle on, or back to in order — never on to
-    /// repeat the way the play-order button cycles. Both fields land in the
-    /// same step, so the reply reads the new state rather than the old one.
-    func toggleShuffle() {
-        if radioActive { return }   // live radio has no play order
-        let next: PlayOrder = playOrder == .shuffle ? .ordered : .shuffle
-        let on = next == .shuffle
-        if provider == .spotify {
-            run("tell application \"Spotify\" to set shuffling to \(on)")
-            run("tell application \"Spotify\" to set repeating to false")
-        } else {
-            run("tell application \"Music\" to set shuffle enabled to \(on)")
-            run("tell application \"Music\" to set song repeat to off")
+        func skip() {
+            if radioTransport({ $0.nextStation() }) { return }
+            run(
+                provider == .spotify
+                    ? "tell application \"Spotify\" to next track"
+                    : "tell application \"Music\" to next track")
             refreshSoon()
         }
-        playOrder = next
-        shuffleOn = on
-    }
+
+        func back() {
+            if radioTransport({ $0.previousStation() }) { return }
+            run(
+                provider == .spotify
+                    ? "tell application \"Spotify\" to previous track"
+                    : "tell application \"Music\" to previous track")
+            refreshSoon()
+        }
+
+        var artwork: CGImage? { nil }  // Music.app artwork needs raw AppleEvent data
+
+        func cyclePlayOrder() {
+            if radioActive { return }  // live radio has no play order
+            let spotify = provider == .spotify  // its own words for the same three
+            switch playOrder {
+            case .ordered:
+                run(
+                    spotify
+                        ? "tell application \"Spotify\" to set shuffling to true"
+                        : "tell application \"Music\" to set shuffle enabled to true")
+                playOrder = .shuffle
+            case .shuffle:
+                if spotify {
+                    run("tell application \"Spotify\" to set shuffling to false")
+                    run("tell application \"Spotify\" to set repeating to true")
+                } else {
+                    run("tell application \"Music\" to set shuffle enabled to false")
+                    run("tell application \"Music\" to set song repeat to all")
+                }
+                playOrder = .loop
+            case .loop:
+                run(
+                    spotify
+                        ? "tell application \"Spotify\" to set repeating to false"
+                        : "tell application \"Music\" to set song repeat to off")
+                playOrder = .ordered
+            }
+            refreshSoon()
+        }
+
+        /// Siri's "shuffle": shuffle on, or back to in order — never on to
+        /// repeat the way the play-order button cycles. Both fields land in the
+        /// same step, so the reply reads the new state rather than the old one.
+        func toggleShuffle() {
+            if radioActive { return }  // live radio has no play order
+            let next: PlayOrder = playOrder == .shuffle ? .ordered : .shuffle
+            let on = next == .shuffle
+            if provider == .spotify {
+                run("tell application \"Spotify\" to set shuffling to \(on)")
+                run("tell application \"Spotify\" to set repeating to false")
+            } else {
+                run("tell application \"Music\" to set shuffle enabled to \(on)")
+                run("tell application \"Music\" to set song repeat to off")
+                refreshSoon()
+            }
+            playOrder = next
+            shuffleOn = on
+        }
 
     #else
-    static let isAvailable = false
-    var provider: MusicProvider = .appleMusic
-    var controlsInPlace: Bool { false }
-    var appleMusicRefused: Bool { false }
-    init() {}
-    func playPause() {}
-    func pauseForRadio() {}
-    func skip() {}
-    func back() {}
-    func cyclePlayOrder() {}
-    func toggleShuffle() {}
-    func resumeRecent() {}
-    func playMyStation() {}
-    func playGenre(_ genre: String) {}
-    func playSearchOrGenre(_ term: String) {}
-    var hasLocalMusic: Bool { false }
-    var currentPlaybackNeedsNetwork: Bool { false }
-    func playLocalLibrary() {}
-    func atNextTrackBoundary(_ action: @escaping () -> Void) { action() }
-    /// Nothing is ever armed here — the hook above runs at once.
-    func cancelTrackBoundaryAction() {}
-    var onPlaybackStopped: (() -> Void)?
-    var artwork: CGImage? { nil }
+        static let isAvailable = false
+        var provider: MusicProvider = .appleMusic
+        var controlsInPlace: Bool { false }
+        var appleMusicRefused: Bool { false }
+        init() {}
+        func playPause() {}
+        func pauseForRadio() {}
+        func skip() {}
+        func back() {}
+        func cyclePlayOrder() {}
+        func toggleShuffle() {}
+        func resumeRecent() {}
+        func playMyStation() {}
+        func playGenre(_ genre: String) {}
+        func playSearchOrGenre(_ term: String) {}
+        var hasLocalMusic: Bool { false }
+        var currentPlaybackNeedsNetwork: Bool { false }
+        func playLocalLibrary() {}
+        func atNextTrackBoundary(_ action: @escaping () -> Void) { action() }
+        /// Nothing is ever armed here — the hook above runs at once.
+        func cancelTrackBoundaryAction() {}
+        var onPlaybackStopped: (() -> Void)?
+        var artwork: CGImage? { nil }
     #endif
 }

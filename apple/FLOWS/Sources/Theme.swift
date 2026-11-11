@@ -19,15 +19,19 @@ enum Theme {
     /// each view having to ask what time it is.
     static func adaptive(light: Color, dark: Color) -> Color {
         #if os(iOS) || os(tvOS)
-        return Color(UIColor { $0.userInterfaceStyle == .dark
-            ? UIColor(dark) : UIColor(light) })
+            return Color(
+                UIColor {
+                    $0.userInterfaceStyle == .dark
+                        ? UIColor(dark) : UIColor(light)
+                })
         #elseif os(macOS)
-        return Color(NSColor(name: nil) { appearance in
-            appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
-                ? NSColor(dark) : NSColor(light)
-        })
+            return Color(
+                NSColor(name: nil) { appearance in
+                    appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+                        ? NSColor(dark) : NSColor(light)
+                })
         #else
-        return light
+            return light
         #endif
     }
 
@@ -39,31 +43,37 @@ enum Theme {
         light: Color(red: 0x11 / 255.0, green: 0x11 / 255.0, blue: 0x11 / 255.0),
         dark: Color(red: 0xEC / 255.0, green: 0xED / 255.0, blue: 0xEF / 255.0))
     /// Lettering ON a CTA pill — the inverse of whatever the pill is.
-    static let onCTA = adaptive(light: .white,
-                                dark: Color(red: 0x0B / 255.0, green: 0x0E / 255.0,
-                                            blue: 0x12 / 255.0))
+    static let onCTA = adaptive(
+        light: .white,
+        dark: Color(
+            red: 0x0B / 255.0, green: 0x0E / 255.0,
+            blue: 0x12 / 255.0))
     // styles.css: rgba(255,255,255,0.95) floating cards. At night the same
     // card is near-black at the same opacity, so the map still reads through
     // it and the text on it is light-on-dark rather than a white slab in a
     // dark car.
     static let cardBackground = adaptive(
         light: Color.white.opacity(0.95),
-        dark: Color(red: 0x14 / 255.0, green: 0x17 / 255.0,
-                    blue: 0x1C / 255.0).opacity(0.95))
+        dark: Color(
+            red: 0x14 / 255.0, green: 0x17 / 255.0,
+            blue: 0x1C / 255.0
+        ).opacity(0.95))
     /// The same card with nothing reading through it, for the drive
     /// screen's card column (`solidCards`).
     static let cardBackgroundSolid = adaptive(
         light: Color.white,
         dark: Color(red: 0x14 / 255.0, green: 0x17 / 255.0, blue: 0x1C / 255.0))
-    static let cardShadow = adaptive(light: Color.black.opacity(0.14),
-                                     dark: Color.black.opacity(0.5))
+    static let cardShadow = adaptive(
+        light: Color.black.opacity(0.14),
+        dark: Color.black.opacity(0.5))
 
     /// The faint wash behind a chip, a row, or a bar track. It must be a
     /// TINT OF THE OPPOSITE ink: black at 6% is invisible on a dark card,
     /// which is how a dark mode ends up as a field of unmarked rectangles.
     static func fill(_ level: Double) -> Color {
-        adaptive(light: Color.black.opacity(level),
-                 dark: Color.white.opacity(min(level * 2.2, 0.5)))
+        adaptive(
+            light: Color.black.opacity(level),
+            dark: Color.white.opacity(min(level * 2.2, 0.5)))
     }
 
     /// A surface that is deliberately dark in BOTH appearances — the
@@ -72,8 +82,9 @@ enum Theme {
     /// …and its opposite: lettering on a surface that stays WHITE in both
     /// appearances, such as a pill sitting on a saturated alert banner.
     /// Fixed on purpose — an adaptive ink here turns white-on-white at dusk.
-    static let onLight = Color(red: 0x11 / 255.0, green: 0x11 / 255.0,
-                               blue: 0x11 / 255.0)
+    static let onLight = Color(
+        red: 0x11 / 255.0, green: 0x11 / 255.0,
+        blue: 0x11 / 255.0)
     // R/risk_constants.R + rust risk.rs palette
     static let riskGreen = Color(red: 0x2e / 255.0, green: 0xcc / 255.0, blue: 0x71 / 255.0)
     /// The Clear band: a pale green, the quiet end of the same scale. It was
@@ -86,7 +97,7 @@ enum Theme {
     static let chrome = Color(red: 0x0b / 255.0, green: 0x0e / 255.0, blue: 0x12 / 255.0)
 
     static let cardRadius: CGFloat = 16
-    static let tapMinimum: CGFloat = 44   // Apple HIG minimum hit target
+    static let tapMinimum: CGFloat = 44  // Apple HIG minimum hit target
     /// The golden ratio — every window-proportional size below derives from
     /// it, so chrome keeps the same visual proportions on any screen, shape,
     /// or orientation.
@@ -369,8 +380,10 @@ private struct ScaledFont: ViewModifier {
     private let weight: Font.Weight
     private let design: Font.Design
 
-    init(size: CGFloat, weight: Font.Weight, design: Font.Design,
-         relativeTo style: Font.TextStyle) {
+    init(
+        size: CGFloat, weight: Font.Weight, design: Font.Design,
+        relativeTo style: Font.TextStyle
+    ) {
         _size = ScaledMetric(wrappedValue: size, relativeTo: style)
         base = size
         self.weight = weight
@@ -379,13 +392,13 @@ private struct ScaledFont: ViewModifier {
 
     func body(content: Content) -> some View {
         #if os(macOS)
-        // No Dynamic Type on the Mac: @ScaledMetric never moves, so the
-        // slider's pinned step (the root clamps the environment to it) is
-        // applied by hand. Before this, the text-size setting changed
-        // nothing on a Mac.
-        let points = base * TextScale.factor(typeSize)
+            // No Dynamic Type on the Mac: @ScaledMetric never moves, so the
+            // slider's pinned step (the root clamps the environment to it) is
+            // applied by hand. Before this, the text-size setting changed
+            // nothing on a Mac.
+            let points = base * TextScale.factor(typeSize)
         #else
-        let points = size
+            let points = size
         #endif
         content.font(.system(size: points, weight: weight, design: design))
     }
@@ -402,11 +415,15 @@ extension View {
     }
 
     /// Drop-in replacement for `.font(.system(size:weight:))` that scales.
-    func scaledFont(size: CGFloat, weight: Font.Weight = .regular,
-                    design: Font.Design = .default,
-                    relativeTo style: Font.TextStyle = .body) -> some View {
-        modifier(ScaledFont(size: size, weight: weight, design: design,
-                            relativeTo: style))
+    func scaledFont(
+        size: CGFloat, weight: Font.Weight = .regular,
+        design: Font.Design = .default,
+        relativeTo style: Font.TextStyle = .body
+    ) -> some View {
+        modifier(
+            ScaledFont(
+                size: size, weight: weight, design: design,
+                relativeTo: style))
     }
 }
 
@@ -426,8 +443,10 @@ extension RiskBand {
 /// Frames of every registered piece of floating chrome, by id.
 struct ChromeFramesKey: PreferenceKey {
     static var defaultValue: [String: Anchor<CGRect>] { [:] }
-    static func reduce(value: inout [String: Anchor<CGRect>],
-                       nextValue: () -> [String: Anchor<CGRect>]) {
+    static func reduce(
+        value: inout [String: Anchor<CGRect>],
+        nextValue: () -> [String: Anchor<CGRect>]
+    ) {
         value.merge(nextValue()) { first, _ in first }
     }
 }
@@ -450,8 +469,10 @@ extension View {
 struct EqualWidthHStack: Layout {
     var spacing: CGFloat = 6
 
-    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews,
-                      cache: inout ()) -> CGSize {
+    func sizeThatFits(
+        proposal: ProposedViewSize, subviews: Subviews,
+        cache: inout ()
+    ) -> CGSize {
         guard !subviews.isEmpty else { return .zero }
         let ideal = subviews.map { $0.sizeThatFits(.unspecified) }
         let widest = ideal.map(\.width).max() ?? 0
@@ -465,15 +486,18 @@ struct EqualWidthHStack: Layout {
         return CGSize(width: natural, height: tallest)
     }
 
-    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize,
-                       subviews: Subviews, cache: inout ()) {
+    func placeSubviews(
+        in bounds: CGRect, proposal: ProposedViewSize,
+        subviews: Subviews, cache: inout ()
+    ) {
         guard !subviews.isEmpty else { return }
         let n = CGFloat(subviews.count)
         let width = (bounds.width - spacing * (n - 1)) / n
         var x = bounds.minX
         for subview in subviews {
-            subview.place(at: CGPoint(x: x, y: bounds.minY), anchor: .topLeading,
-                          proposal: ProposedViewSize(width: width, height: bounds.height))
+            subview.place(
+                at: CGPoint(x: x, y: bounds.minY), anchor: .topLeading,
+                proposal: ProposedViewSize(width: width, height: bounds.height))
             x += width + spacing
         }
     }
@@ -499,10 +523,13 @@ struct BalancedRowsLayout: Layout {
         (width - spacing * CGFloat(count - 1)) / CGFloat(count)
     }
 
-    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews,
-                      cache: inout ()) -> CGSize {
+    func sizeThatFits(
+        proposal: ProposedViewSize, subviews: Subviews,
+        cache: inout ()
+    ) -> CGSize {
         guard !subviews.isEmpty else { return .zero }
-        let natural = itemWidth(subviews) * CGFloat(subviews.count)
+        let natural =
+            itemWidth(subviews) * CGFloat(subviews.count)
             + spacing * CGFloat(subviews.count - 1)
         let width = proposal.width.flatMap { $0.isFinite ? $0 : nil } ?? natural
         var height: CGFloat = 0
@@ -510,7 +537,8 @@ struct BalancedRowsLayout: Layout {
         let counts = rows(width: width, subviews: subviews)
         for count in counts {
             let w = rowWidth(count, width: width)
-            let tallest = subviews[start..<(start + count)]
+            let tallest =
+                subviews[start..<(start + count)]
                 .map { $0.sizeThatFits(ProposedViewSize(width: w, height: nil)).height }
                 .max() ?? 0
             height += tallest
@@ -520,20 +548,24 @@ struct BalancedRowsLayout: Layout {
         return CGSize(width: width, height: height)
     }
 
-    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize,
-                       subviews: Subviews, cache: inout ()) {
+    func placeSubviews(
+        in bounds: CGRect, proposal: ProposedViewSize,
+        subviews: Subviews, cache: inout ()
+    ) {
         guard !subviews.isEmpty else { return }
         var y = bounds.minY
         var start = 0
         for count in rows(width: bounds.width, subviews: subviews) {
             let w = rowWidth(count, width: bounds.width)
             let row = subviews[start..<(start + count)]
-            let tallest = row.map { $0.sizeThatFits(ProposedViewSize(width: w, height: nil)).height }
+            let tallest =
+                row.map { $0.sizeThatFits(ProposedViewSize(width: w, height: nil)).height }
                 .max() ?? 0
             var x = bounds.minX
             for subview in row {
-                subview.place(at: CGPoint(x: x, y: y), anchor: .topLeading,
-                              proposal: ProposedViewSize(width: w, height: tallest))
+                subview.place(
+                    at: CGPoint(x: x, y: y), anchor: .topLeading,
+                    proposal: ProposedViewSize(width: w, height: tallest))
                 x += w + spacing
             }
             y += tallest + spacing

@@ -30,11 +30,14 @@ final class RustLoansTests: XCTestCase {
     /// Slots start filled, take writes by index, and drop a write outside
     /// their range instead of writing past the end.
     func testSlotsAreFilledAndBounded() {
-        let seen = RustLoans.slots(4, startingAt: -1, fill: { set in
-            set(2, 9)
-            set(4, 100)
-            set(-1, 100)
-        }) { Array($0) }
+        let seen = RustLoans.slots(
+            4, startingAt: -1,
+            fill: { set in
+                set(2, 9)
+                set(4, 100)
+                set(-1, 100)
+            }
+        ) { Array($0) }
         XCTAssertEqual(seen, [-1, -1, 9, -1])
         XCTAssertEqual(RustLoans.slots(0, startingAt: 0, fill: { $0(0, 1) }) { $0.count }, 0)
     }

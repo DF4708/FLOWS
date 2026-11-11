@@ -42,8 +42,9 @@ enum SecureStore {
         // delete the old item first and add after, so an add the Keychain
         // refused (a device locked before its first unlock) had already
         // cost the secret it was replacing.
-        let updated = SecItemUpdate(base as CFDictionary,
-                                    [kSecValueData as String: data] as CFDictionary)
+        let updated = SecItemUpdate(
+            base as CFDictionary,
+            [kSecValueData as String: data] as CFDictionary)
         if updated == errSecSuccess { return true }
         var add = base
         if updated == errSecItemNotFound {
@@ -51,12 +52,14 @@ enum SecureStore {
             add[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
             let added = SecItemAdd(add as CFDictionary, nil)
             if added == errSecSuccess { return true }
-            FlowsDiag.logThrottled(key: "keychain.set", .warn, "privacy",
-                                   "the Keychain refused a write (\(added))")
+            FlowsDiag.logThrottled(
+                key: "keychain.set", .warn, "privacy",
+                "the Keychain refused a write (\(added))")
             return false
         }
-        FlowsDiag.logThrottled(key: "keychain.set", .warn, "privacy",
-                               "the Keychain refused an update (\(updated))")
+        FlowsDiag.logThrottled(
+            key: "keychain.set", .warn, "privacy",
+            "the Keychain refused an update (\(updated))")
         return false
     }
 
@@ -71,15 +74,18 @@ enum SecureStore {
         ]
         var out: AnyObject?
         guard SecItemCopyMatching(query as CFDictionary, &out) == errSecSuccess,
-              let data = out as? Data else { return nil }
+            let data = out as? Data
+        else { return nil }
         return String(data: data, encoding: .utf8)
     }
 
     /// One-time migration of a value that used to live in UserDefaults: move it
     /// into the Keychain and scrub the plaintext copy. Returns the resolved
     /// value (Keychain first, else the migrated default).
-    static func migrateFromDefaults(key: String, defaultsKey: String,
-                                    defaults: UserDefaults = .standard) -> String {
+    static func migrateFromDefaults(
+        key: String, defaultsKey: String,
+        defaults: UserDefaults = .standard
+    ) -> String {
         if let secure = get(key) { return secure }
         let legacy = defaults.string(forKey: defaultsKey) ?? ""
         if !legacy.isEmpty {
@@ -108,8 +114,10 @@ enum FreshInstall {
     /// Application Support. Builds from before the marker left the other
     /// two behind (every launch stamps `flows.lastUsed`), so an update never
     /// wipes; anything unclear keeps the Keychain as it is.
-    static func isFresh(markerPresent: Bool, preferenceKeys: [String],
-                        supportFileCount: Int) -> Bool {
+    static func isFresh(
+        markerPresent: Bool, preferenceKeys: [String],
+        supportFileCount: Int
+    ) -> Bool {
         !markerPresent && supportFileCount == 0
             && !preferenceKeys.contains { $0.hasPrefix("flows.") }
     }
@@ -120,22 +128,25 @@ enum FreshInstall {
     static func clearLeftoversIfFresh(defaults: UserDefaults = .standard) {
         guard defaults.object(forKey: markerKey) == nil else { return }
         #if os(iOS)
-        let keys = Bundle.main.bundleIdentifier
-            .flatMap { defaults.persistentDomain(forName: $0) }
-            .map { Array($0.keys) } ?? []
-        let files = FileManager.default
-            .urls(for: .applicationSupportDirectory, in: .userDomainMask).first
-            .flatMap { try? FileManager.default.contentsOfDirectory(atPath: $0.path) }?
-            .count ?? 0
-        if isFresh(markerPresent: false, preferenceKeys: keys, supportFileCount: files) {
-            for service in keychainServices {
-                SecItemDelete([
-                    kSecClass as String: kSecClassGenericPassword,
-                    kSecAttrService as String: service,
-                ] as CFDictionary)
+            let keys =
+                Bundle.main.bundleIdentifier
+                .flatMap { defaults.persistentDomain(forName: $0) }
+                .map { Array($0.keys) } ?? []
+            let files =
+                FileManager.default
+                .urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+                .flatMap { try? FileManager.default.contentsOfDirectory(atPath: $0.path) }?
+                .count ?? 0
+            if isFresh(markerPresent: false, preferenceKeys: keys, supportFileCount: files) {
+                for service in keychainServices {
+                    SecItemDelete(
+                        [
+                            kSecClass as String: kSecClassGenericPassword,
+                            kSecAttrService as String: service,
+                        ] as CFDictionary)
+                }
+                FlowsDiag.log(.info, "privacy", "fresh install: cleared Keychain items an earlier install left")
             }
-            FlowsDiag.log(.info, "privacy", "fresh install: cleared Keychain items an earlier install left")
-        }
         #endif
         defaults.set(true, forKey: markerKey)
     }

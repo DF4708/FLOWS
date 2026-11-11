@@ -25,7 +25,7 @@ final class BreadcrumbTrail: ObservableObject {
     @Published var showTrail = false
 
     nonisolated static let minStepMeters: CLLocationDistance = flows_modes_min_step_meters()
-    static let maxPoints = Int(flows_modes_max_points())   // ≈150 km of 25 m steps
+    static let maxPoints = Int(flows_modes_max_points())  // ≈150 km of 25 m steps
     // Persist every ~200 m (8 × 25 m steps), not every ~1 km. This is a
     // retrace-to-safety trail with zero signal — the most likely failure is
     // the phone's battery dying, which no graceful-shutdown hook can catch,
@@ -38,12 +38,14 @@ final class BreadcrumbTrail: ObservableObject {
     private let monitor = NWPathMonitor()
 
     init() {
-        let dir = (try? FileManager.default.url(
-            for: .applicationSupportDirectory, in: .userDomainMask,
-            appropriateFor: nil, create: true)) ?? URL(fileURLWithPath: NSTemporaryDirectory())
+        let dir =
+            (try? FileManager.default.url(
+                for: .applicationSupportDirectory, in: .userDomainMask,
+                appropriateFor: nil, create: true)) ?? URL(fileURLWithPath: NSTemporaryDirectory())
         url = dir.appendingPathComponent("flows_breadcrumbs.json")
         if let data = SecureBehaviorStore.readMigrating(url),
-           let raw = try? JSONDecoder().decode([[Double]].self, from: data) {
+            let raw = try? JSONDecoder().decode([[Double]].self, from: data)
+        {
             points = raw.compactMap {
                 $0.count >= 2 ? CLLocationCoordinate2D(latitude: $0[0], longitude: $0[1]) : nil
             }
@@ -67,11 +69,13 @@ final class BreadcrumbTrail: ObservableObject {
     }
 
     nonisolated static func shouldRecord(
-        _ c: CLLocationCoordinate2D, after last: CLLocationCoordinate2D?) -> Bool {
+        _ c: CLLocationCoordinate2D, after last: CLLocationCoordinate2D?
+    ) -> Bool {
         // A finite fix off (0, 0), at least minStepMeters from the last crumb
         // (rust/flows-core travel_modes.rs).
-        flows_modes_should_record(c.latitude, c.longitude, last?.latitude ?? 0,
-                                  last?.longitude ?? 0, last != nil)
+        flows_modes_should_record(
+            c.latitude, c.longitude, last?.latitude ?? 0,
+            last?.longitude ?? 0, last != nil)
     }
 
     /// The way back: the recorded trail NEWEST-FIRST from the current position
@@ -79,7 +83,8 @@ final class BreadcrumbTrail: ObservableObject {
     func wayBack() -> (path: [CLLocationCoordinate2D], meters: CLLocationDistance) {
         let reversed = Array(points.reversed())
         guard points.count >= 2 else { return (reversed, 0) }
-        let lats = points.map(\.latitude), lons = points.map(\.longitude)
+        let lats = points.map(\.latitude)
+        let lons = points.map(\.longitude)
         let meters = lats.lent { la in
             lons.lent { lo in flows_modes_way_back_meters(la, lo) }
         }

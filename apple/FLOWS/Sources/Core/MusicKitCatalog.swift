@@ -7,8 +7,9 @@
 // -----------------------------------------------------------------------------
 
 import Foundation
+
 #if os(iOS) && canImport(MusicKit)
-import MusicKit
+    import MusicKit
 #endif
 
 /// Full-catalog Apple Music discovery (MusicKit, a system framework — no
@@ -25,27 +26,27 @@ import MusicKit
 enum MusicKitCatalog {
     static func playSearch(_ term: String) async -> Bool {
         #if os(iOS) && canImport(MusicKit)
-        guard await MusicAuthorization.request() == .authorized else { return false }
-        var request = MusicCatalogSearchRequest(
-            term: term, types: [Playlist.self, Song.self])
-        request.limit = 5
-        // A thrown error here is the portal gate (no developer token), no
-        // subscription, or no network — all mean "fall back", not "fail".
-        guard let response = try? await request.response() else { return false }
-        let player = SystemMusicPlayer.shared
-        // Playlists first: a genre/mood ask wants a running mix, not one
-        // three-minute song followed by silence.
-        if let playlist = response.playlists.first {
-            player.queue = SystemMusicPlayer.Queue(for: [playlist])
-        } else if let song = response.songs.first {
-            player.queue = SystemMusicPlayer.Queue(for: [song])
-        } else {
-            return false
-        }
-        guard (try? await player.play()) != nil else { return false }
-        return true
+            guard await MusicAuthorization.request() == .authorized else { return false }
+            var request = MusicCatalogSearchRequest(
+                term: term, types: [Playlist.self, Song.self])
+            request.limit = 5
+            // A thrown error here is the portal gate (no developer token), no
+            // subscription, or no network — all mean "fall back", not "fail".
+            guard let response = try? await request.response() else { return false }
+            let player = SystemMusicPlayer.shared
+            // Playlists first: a genre/mood ask wants a running mix, not one
+            // three-minute song followed by silence.
+            if let playlist = response.playlists.first {
+                player.queue = SystemMusicPlayer.Queue(for: [playlist])
+            } else if let song = response.songs.first {
+                player.queue = SystemMusicPlayer.Queue(for: [song])
+            } else {
+                return false
+            }
+            guard (try? await player.play()) != nil else { return false }
+            return true
         #else
-        return false
+            return false
         #endif
     }
 }

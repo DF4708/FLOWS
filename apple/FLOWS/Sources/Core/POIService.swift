@@ -54,13 +54,17 @@ final class POIService: ObservableObject {
         }
 
         /// The bottom-bar button sets per mode.
-        static let standardKinds: [Kind] = [.gas, .food, .stores, .rest, .parking,
-                                            .hotel, .gyms, .medical, .shelter]
+        static let standardKinds: [Kind] = [
+            .gas, .food, .stores, .rest, .parking,
+            .hotel, .gyms, .medical, .shelter,
+        ]
         // Stores sits before hotel/food so it never scrolls out of first view
         // on the wider trucker bar (it was technically present but off-screen).
-        static let truckerKinds: [Kind] = [.gas, .shower, .truckParking, .weighStation,
-                                           .stores, .rest, .hotel, .food, .medical,
-                                           .shelter]
+        static let truckerKinds: [Kind] = [
+            .gas, .shower, .truckParking, .weighStation,
+            .stores, .rest, .hotel, .food, .medical,
+            .shelter,
+        ]
     }
 
     /// Category constraint per kind — review finding: the natural-language
@@ -110,10 +114,9 @@ final class POIService: ObservableObject {
     /// Kind → offline shard group byte(s) (PlacesStore stays Kind-agnostic).
     static func shardGroups(for kind: Kind) -> Set<UInt8>? {
         let bits = kind.policy.shard_groups
-        guard bits != 0 else { return nil }   // not in the dataset
+        guard bits != 0 else { return nil }  // not in the dataset
         return Set((0..<32).filter { bits & (1 << $0) != 0 }.map { UInt8($0) })
     }
-
 
     /// Kind → everyday-cache category. nil = not remembered: tourist stops
     /// and the trucker-specific kinds aren't everyday habits near home.
@@ -331,7 +334,7 @@ final class POIService: ObservableObject {
             if let fuel = fuelType {
                 await search(kind, queries: fuelQueries(fuel), fuel: fuel, aheadOf: position)
             } else {
-                pendingFuelChoice = true   // first run only; persisted after
+                pendingFuelChoice = true  // first run only; persisted after
             }
         case .rest:
             // State/county rest areas AND commercial stops: MKLocalSearch
@@ -339,8 +342,9 @@ final class POIService: ObservableObject {
             // plaza" depending on the state — search all three.
             // (Trucker parking/scales have their own buttons — mixing
             // "truck parking" here surfaced CAT Scales as rest areas.)
-            await search(kind, queries: ["rest area", "welcome center", "service plaza"],
-                         aheadOf: position)
+            await search(
+                kind, queries: ["rest area", "welcome center", "service plaza"],
+                aheadOf: position)
         case .hotel:
             // Plain lodging queries — the category filter guarantees hotels;
             // truck-friendliness comes from ranking bias, not the query (the
@@ -350,8 +354,9 @@ final class POIService: ObservableObject {
         case .medical:
             // Emergencies don't care about direction of travel: the list
             // leads with the ABSOLUTE nearest ER, wide radius.
-            await search(kind, queries: ["emergency room hospital", "urgent care"],
-                         aheadOf: position)
+            await search(
+                kind, queries: ["emergency room hospital", "urgent care"],
+                aheadOf: position)
         case .shelter:
             // Government-recognized public refuge only: the alert-specific
             // Whatever the hazard actually calls for (ShelterPolicy), each
@@ -362,20 +367,26 @@ final class POIService: ObservableObject {
         case .gyms:
             await search(kind, queries: ["gym", "fitness center"], aheadOf: position)
         case .shower:
-            await search(kind, queries: ["truck stop", "travel center",
-                                         "Love's Travel Stop", "Pilot Travel Center",
-                                         "Flying J", "TA Travel Center", "Petro"],
-                         aheadOf: position)
+            await search(
+                kind,
+                queries: [
+                    "truck stop", "travel center",
+                    "Love's Travel Stop", "Pilot Travel Center",
+                    "Flying J", "TA Travel Center", "Petro",
+                ],
+                aheadOf: position)
         case .truckParking:
             // Legal overnight parking: truck stops, official rest areas, and
             // the signed ramp/weigh-station lots states allow.
-            await search(kind, queries: ["truck parking", "rest area truck parking"],
-                         aheadOf: position)
+            await search(
+                kind, queries: ["truck parking", "rest area truck parking"],
+                aheadOf: position)
         case .parking:
             await search(kind, queries: ["parking", "free parking"], aheadOf: position)
         case .weighStation:
-            await search(kind, queries: ["weigh station", "truck scales CAT scale"],
-                         aheadOf: position)
+            await search(
+                kind, queries: ["weigh station", "truck scales CAT scale"],
+                aheadOf: position)
         }
     }
 
@@ -392,10 +403,12 @@ final class POIService: ObservableObject {
     /// parks and playgrounds share the park category).
     static func isAttraction(_ item: MKMapItem) -> Bool {
         let name = (item.name ?? "").lowercased()
-        let namedAttraction = ["state park", "state forest", "state natural area",
-                               "national", "historic", "monument", "museum", "zoo",
-                               "aquarium", "landmark", "memorial"]
-            .contains { name.contains($0) }
+        let namedAttraction = [
+            "state park", "state forest", "state natural area",
+            "national", "historic", "monument", "museum", "zoo",
+            "aquarium", "landmark", "memorial",
+        ]
+        .contains { name.contains($0) }
         guard let category = item.pointOfInterestCategory else { return namedAttraction }
         switch category {
         case .museum, .zoo, .aquarium, .amusementPark, .nationalPark:
@@ -421,7 +434,8 @@ final class POIService: ObservableObject {
     /// that route in the tourist order.
     func touristCount(along route: PlannedRoute) async -> Int? {
         let samples = RouteService.corridorPartition(
-            of: route.route.polyline, everyMeters: 30_000).samples
+            of: route.route.polyline, everyMeters: 30_000
+        ).samples
         let centerCap = Int(flows_places_search_center_cap(Int64(Self.touristQueries.count)))
         // Start, middle and END, like the button: the even spread stopped at
         // the midpoint, so a route with its parks in the last third counted 0.
@@ -448,7 +462,8 @@ final class POIService: ObservableObject {
         if let groups = Self.shardGroups(for: .tourist) {
             for center in centers {
                 for p in await PlacesStore.shared.places(
-                    near: center, groups: groups, radiusMeters: policy.region_meters) {
+                    near: center, groups: groups, radiusMeters: policy.region_meters)
+                {
                     let item = MKMapItem(placemark: MKPlacemark(coordinate: p.coordinate))
                     item.name = p.name
                     found.append(item)
@@ -470,12 +485,15 @@ final class POIService: ObservableObject {
     /// "Yellowstone"), returning candidates nearest-first WITHOUT touching
     /// the results card — Siri adds the best match directly, so no
     /// published state may change under a live search.
-    func namedStops(_ term: String,
-                    aheadOf position: CLLocationCoordinate2D?) async -> [MKMapItem] {
+    func namedStops(
+        _ term: String,
+        aheadOf position: CLLocationCoordinate2D?
+    ) async -> [MKMapItem] {
         var centers: [CLLocationCoordinate2D] = position.map { [$0] } ?? []
         let ahead = corridorAhead(of: position)
-        centers.append(contentsOf: POIRanking.centerPicks(count: ahead.count, cap: SearchLimits.namedCenters)
-            .map { ahead[$0] })
+        centers.append(
+            contentsOf: POIRanking.centerPicks(count: ahead.count, cap: SearchLimits.namedCenters)
+                .map { ahead[$0] })
         var found: [MKMapItem] = []
         for center in centers.prefix(SearchLimits.namedCenters) {
             let request = MKLocalSearch.Request()
@@ -588,11 +606,12 @@ final class POIService: ObservableObject {
         let category = Self.everydayCategory(for: kind)
         // Truck parking shares the parking habit store with car parking: a
         // remembered campus garage must not be pinned into a trucker's list.
-        let everyday: [RankedPOI] = category.map { cat in
-            EverydayPlaces.shared.instantResults(in: cat, near: position)
-                .filter { kind != .truckParking || Self.truckCanPark(named: $0.name) }
-                .prefix(SearchLimits.instantRows).map { Self.instantRow(for: $0, from: position) }
-        } ?? []
+        let everyday: [RankedPOI] =
+            category.map { cat in
+                EverydayPlaces.shared.instantResults(in: cat, near: position)
+                    .filter { kind != .truckParking || Self.truckCanPark(named: $0.name) }
+                    .prefix(SearchLimits.instantRows).map { Self.instantRow(for: $0, from: position) }
+            } ?? []
         if !everyday.isEmpty {
             results = everyday
             selected = everyday.first
@@ -616,7 +635,8 @@ final class POIService: ObservableObject {
         let ahead = corridorAhead(of: position)
         // Tourist stops reach the END too: the even spread stopped a stride
         // short of it, and Madison to Milwaukee never searched Milwaukee.
-        let picks = wholeCorridor
+        let picks =
+            wholeCorridor
             ? POIRanking.endToEndPicks(count: ahead.count, cap: centerCap)
             : POIRanking.centerPicks(count: ahead.count, cap: centerCap)
         centers.append(contentsOf: picks.map { ahead[$0] })
@@ -626,7 +646,8 @@ final class POIService: ObservableObject {
         // box size; the same policy names the fallbacks and decorations below.
         let policy = kind.policy
         let regionMeters = policy.region_meters
-        var asked = 0, unanswered = 0
+        var asked = 0
+        var unanswered = 0
         searchLoop: for center in centers.prefix(centerCap) {
             for query in queries {
                 let request = MKLocalSearch.Request()
@@ -647,7 +668,7 @@ final class POIService: ObservableObject {
                 // raw hits means later centers only add far-away duplicates
                 // (not for tourist stops, where later centers are the point).
                 if !wholeCorridor, found.count >= SearchLimits.enoughHits { break searchLoop }
-                if gen != searchGeneration { return }   // superseded mid-sweep
+                if gen != searchGeneration { return }  // superseded mid-sweep
             }
         }
         // OFFLINE-FIRST supplement: FLOWS's own FSQ OS Places shards (7.5M US
@@ -657,7 +678,8 @@ final class POIService: ObservableObject {
         if let groups = Self.shardGroups(for: kind) {
             for center in centers.prefix(centerCap) {
                 for p in await PlacesStore.shared.places(
-                    near: center, groups: groups, radiusMeters: regionMeters) {
+                    near: center, groups: groups, radiusMeters: regionMeters)
+                {
                     let placemark = MKPlacemark(
                         coordinate: p.coordinate,
                         addressDictionary: [
@@ -688,9 +710,11 @@ final class POIService: ObservableObject {
             // Eight rows over the whole drive: soonest-first alone listed
             // only the starting city's museums.
             if let routePath {
-                unique = routePath.spreadAlong(unique.map(\.placemark.coordinate),
-                                               kind: kind.rustCode, trucker: truckerMode,
-                                               from: position).map { unique[$0] }
+                unique = routePath.spreadAlong(
+                    unique.map(\.placemark.coordinate),
+                    kind: kind.rustCode, trucker: truckerMode,
+                    from: position
+                ).map { unique[$0] }
             }
         }
         // Truck parking: a "truck parking" search also finds every car park
@@ -723,11 +747,13 @@ final class POIService: ObservableObject {
                 let c = item.placemark.coordinate
                 // Provider ladder: Google Places (bigger free quota) → Yelp.
                 if let info = await RatingsProvider.info(
-                    name: item.name ?? "", latitude: c.latitude, longitude: c.longitude) {
+                    name: item.name ?? "", latitude: c.latitude, longitude: c.longitude)
+                {
                     r.append(info.rating)
-                    t.append(info.price.map {
-                        RatingsAndCost.costTier(yelpPrice: $0, rating: info.rating)
-                    })
+                    t.append(
+                        info.price.map {
+                            RatingsAndCost.costTier(yelpPrice: $0, rating: info.rating)
+                        })
                     open.append(info.isOpenNow)
                     urls.append(info.url)
                     credit.append(RatingsProvider.credit(for: info))
@@ -744,7 +770,8 @@ final class POIService: ObservableObject {
             openFlags = open
             businessURLs = urls
             credits = credit
-            prices = kind == .hotel
+            prices =
+                kind == .hotel
                 ? unique.map { self.hotelInfoProvider($0).nightly }
                 : unique.map { _ in nil }
         } else {
@@ -759,22 +786,19 @@ final class POIService: ObservableObject {
             // a round trip per station before it showed.
             var live: [Int: Double] = [:]
             if let fuel {
-                await withTaskGroup(of: (Int, Double?).self) { group in
-                    for (i, item) in unique.enumerated() {
-                        let at = item.placemark.coordinate
-                        group.addTask { @MainActor in
-                            (i, await self.livePriceProvider(at, fuel))
-                        }
-                    }
-                    for await (i, price) in group {
-                        if let price { live[i] = price }
-                    }
+                // One task per station, all started before any is awaited.
+                let asks = unique.map { item in
+                    let at = item.placemark.coordinate
+                    return Task { @MainActor in await self.livePriceProvider(at, fuel) }
+                }
+                for (i, ask) in asks.enumerated() {
+                    if let price = await ask.value { live[i] = price }
                 }
             }
             for (i, item) in unique.enumerated() {
                 var value = pricingFuel.flatMap { self.priceProvider(item, $0) }
                 if let real = live[i] {
-                    value = real   // real station price wins over the estimate
+                    value = real  // real station price wins over the estimate
                     liveIDs.insert(ObjectIdentifier(item))
                 }
                 p.append(value)
@@ -782,19 +806,37 @@ final class POIService: ObservableObject {
             prices = p
             ratings = unique.map { _ in nil }
         }
-        var ranked = await Self.rank(
-            unique, kind: kind, prices: prices, ratings: ratings, fuel: fuel,
+        // The ranking runs off the main actor on plain values (points and
+        // names); the map items stay here and the rows are built back on
+        // this side.
+        let order = await Self.rank(
+            unique.map(\.placemark.coordinate), names: unique.map(\.name),
+            kind: kind, prices: prices, ratings: ratings, fuel: fuel,
             position: position, path: routePath, trucker: truckerMode)
+        var ranked = order.map { row in
+            row.straightLine
+                ? RankedPOI(
+                    item: unique[row.index], aheadMeters: row.aheadMeters, detourMeters: 0,
+                    pricePerUnit: nil, placement: .straightLine)
+                : RankedPOI(
+                    item: unique[row.index], aheadMeters: row.aheadMeters,
+                    detourMeters: row.detourMeters,
+                    pricePerUnit: prices[row.index], rating: ratings[row.index])
+        }
         // Attach cost tiers + shower availability (brand table: Love's /
         // Pilot / TA showers are brand standard unless disproven).
-        let tierByName = Dictionary(uniqueKeysWithValues:
-            zip(unique.map { ObjectIdentifier($0) }, costTiers))
-        let openByName = Dictionary(uniqueKeysWithValues:
-            zip(unique.map { ObjectIdentifier($0) }, openFlags))
-        let urlByName = Dictionary(uniqueKeysWithValues:
-            zip(unique.map { ObjectIdentifier($0) }, businessURLs))
-        let creditByName = Dictionary(uniqueKeysWithValues:
-            zip(unique.map { ObjectIdentifier($0) }, credits))
+        let tierByName = Dictionary(
+            uniqueKeysWithValues:
+                zip(unique.map { ObjectIdentifier($0) }, costTiers))
+        let openByName = Dictionary(
+            uniqueKeysWithValues:
+                zip(unique.map { ObjectIdentifier($0) }, openFlags))
+        let urlByName = Dictionary(
+            uniqueKeysWithValues:
+                zip(unique.map { ObjectIdentifier($0) }, businessURLs))
+        let creditByName = Dictionary(
+            uniqueKeysWithValues:
+                zip(unique.map { ObjectIdentifier($0) }, credits))
         ranked = ranked.map { row in
             var r = row
             r.costTier = tierByName[ObjectIdentifier(row.item)] ?? nil
@@ -852,9 +894,10 @@ final class POIService: ObservableObject {
                 if ShowerAvailability.isDisproved(lat: c.latitude, lon: c.longitude) {
                     r.showers = .disproven
                 } else if let table = brandTable,
-                          let count = table.showers(
-                            state: row.item.placemark.administrativeArea,
-                            city: row.item.placemark.locality) {
+                    let count = table.showers(
+                        state: row.item.placemark.administrativeArea,
+                        city: row.item.placemark.locality)
+                {
                     r.showers = count > 0 ? .standard : .none
                 } else {
                     r.showers = ShowerAvailability.forStop(
@@ -878,7 +921,7 @@ final class POIService: ObservableObject {
                 return r
             }
         }
-        guard gen == searchGeneration, activeKind == kind else { return }   // superseded
+        guard gen == searchGeneration, activeKind == kind else { return }  // superseded
         // Never offer a stop that's outside its operating hours (unknown
         // hours stay listed).
         var finalRanked = ranked.filter { $0.isOpenNow != false }
@@ -898,17 +941,23 @@ final class POIService: ObservableObject {
         // fallback once listed Love's stations 549 miles off an 80-mile trip.
         // They're labelled as off the route, never as miles ahead.
         if finalRanked.isEmpty, !unique.isEmpty, let anchor = position ?? centers.first,
-           policy.empty_fallback {
+            policy.empty_fallback
+        {
             let searched = Array(centers.prefix(centerCap))
             let nearby = unique.filter { item in
                 searched.contains {
                     POIRanking.meters($0, item.placemark.coordinate) <= regionMeters
                 }
             }
-            finalRanked = POIRanking.byDistance(nearby.map(\.placemark.coordinate), from: anchor,
-                                                limit: SearchLimits.fallbackRows)
-                .map { RankedPOI(item: nearby[$0.index], aheadMeters: $0.meters,
-                                 detourMeters: 0, pricePerUnit: nil, placement: .offRoute) }
+            finalRanked = POIRanking.byDistance(
+                nearby.map(\.placemark.coordinate), from: anchor,
+                limit: SearchLimits.fallbackRows
+            )
+            .map {
+                RankedPOI(
+                    item: nearby[$0.index], aheadMeters: $0.meters,
+                    detourMeters: 0, pricePerUnit: nil, placement: .offRoute)
+            }
         }
         // Medical rule: the ABSOLUTE nearest hospital/ER leads, regardless
         // of route direction — straight-line from the vehicle.
@@ -924,8 +973,9 @@ final class POIService: ObservableObject {
             if let i = POIRanking.firstNearest(pool.map(\.placemark.coordinate), to: position) {
                 let nearest = pool[i]
                 let d = POIRanking.meters(nearest.placemark.coordinate, position)
-                let top = RankedPOI(item: nearest, aheadMeters: d, detourMeters: 0,
-                                    pricePerUnit: nil, placement: .straightLine)
+                let top = RankedPOI(
+                    item: nearest, aheadMeters: d, detourMeters: 0,
+                    pricePerUnit: nil, placement: .straightLine)
                 finalRanked = [top] + finalRanked.filter { $0.item !== nearest }
             }
         }
@@ -937,9 +987,11 @@ final class POIService: ObservableObject {
             EverydayPlaces.shared.remember(
                 unique.map {
                     let c = $0.placemark.coordinate
-                    return (name: $0.name ?? "?", lat: c.latitude, lon: c.longitude,
-                            street: $0.placemark.thoroughfare ?? "",
-                            city: $0.placemark.locality ?? "")
+                    return (
+                        name: $0.name ?? "?", lat: c.latitude, lon: c.longitude,
+                        street: $0.placemark.thoroughfare ?? "",
+                        city: $0.placemark.locality ?? ""
+                    )
                 },
                 in: category)
         }
@@ -952,8 +1004,9 @@ final class POIService: ObservableObject {
         // Unconfirmed remembered stops drop off rather than sit above the
         // ranking with straight-line distances — on a long trip away from
         // home they could be hundreds of miles BEHIND the vehicle.
-        let pinned = Self.pinned(policy.habit_pins ? everyday : [], closedKeys: closedKeys,
-                                 rankedKeys: finalRanked.map(Self.rowKey))
+        let pinned = Self.pinned(
+            policy.habit_pins ? everyday : [], closedKeys: closedKeys,
+            rankedKeys: finalRanked.map(Self.rowKey))
         results = Self.merged(everyday: pinned, network: finalRanked)
         // 16: don't yank the camera a second time — keep the driver's current
         // selection when it survived the merge; only reseat when it vanished.
@@ -968,44 +1021,52 @@ final class POIService: ObservableObject {
         if results.isEmpty {
             // Fail closed: when no search got an answer (offline, throttled),
             // "none found" would say there is no shelter or ER ahead.
-            emptyResultMessage = asked > 0 && unanswered == asked
+            emptyResultMessage =
+                asked > 0 && unanswered == asked
                 ? "Couldn't search right now. Check the connection and try again."
                 : kind == .tourist
-                ? "No tourist stops found within a short detour of this route."
-                : "No \(kind.rawValue.lowercased()) found ahead on this route."
+                    ? "No tourist stops found within a short detour of this route."
+                    : "No \(kind.rawValue.lowercased()) found ahead on this route."
             activeKind = nil
         }
     }
 
     /// A list row for a remembered everyday stop — straight-line distance
     /// until the ranked network row (with real ahead/detour) replaces it.
-    private static func instantRow(for place: EverydayPlace,
-                                   from position: CLLocationCoordinate2D?) -> RankedPOI {
-        let coordinate = CLLocationCoordinate2D(latitude: place.latitude,
-                                                longitude: place.longitude)
+    private static func instantRow(
+        for place: EverydayPlace,
+        from position: CLLocationCoordinate2D?
+    ) -> RankedPOI {
+        let coordinate = CLLocationCoordinate2D(
+            latitude: place.latitude,
+            longitude: place.longitude)
         let placemark = MKPlacemark(
             coordinate: coordinate,
             addressDictionary: ["Street": place.street, "City": place.city])
         let item = MKMapItem(placemark: placemark)
         item.name = place.name
         let ahead = position.map { POIRanking.meters(coordinate, $0) } ?? 0
-        return RankedPOI(item: item, aheadMeters: ahead, detourMeters: 0,
-                         pricePerUnit: nil, placement: .straightLine)
+        return RankedPOI(
+            item: item, aheadMeters: ahead, detourMeters: 0,
+            pricePerUnit: nil, placement: .straightLine)
     }
 
     /// The everyday cache's stable identity for a result row (name + ~220 m
     /// cell) — the same attribute id the store keys entries by.
     private static func rowKey(_ row: RankedPOI) -> String {
         let c = row.item.placemark.coordinate
-        return EverydayPlace.attributeID(name: row.item.name ?? "?",
-                                         latitude: c.latitude, longitude: c.longitude)
+        return EverydayPlace.attributeID(
+            name: row.item.name ?? "?",
+            latitude: c.latitude, longitude: c.longitude)
     }
 
     /// Everyday-first merge: remembered stops lead in most-used order, but
     /// each takes the RICHER network row (price/rating/hours) when the fresh
     /// search found the same place; new finds follow in ranked order.
-    private static func merged(everyday: [RankedPOI],
-                               network: [RankedPOI]) -> [RankedPOI] {
+    private static func merged(
+        everyday: [RankedPOI],
+        network: [RankedPOI]
+    ) -> [RankedPOI] {
         guard !everyday.isEmpty else { return network }
         let keys = RustTextColumn(everyday.map(rowKey) + network.map(rowKey))
         let pairs = keys.with { joined, lens, _ in
@@ -1019,13 +1080,16 @@ final class POIService: ObservableObject {
     /// The remembered rows that keep their top pin: none a closed row names
     /// and, once ranked rows exist, only those the corridor search confirmed
     /// (keys compare as strings do; places.rs `pinned_rows`).
-    private static func pinned(_ everyday: [RankedPOI], closedKeys: [String],
-                               rankedKeys: [String]) -> [RankedPOI] {
+    private static func pinned(
+        _ everyday: [RankedPOI], closedKeys: [String],
+        rankedKeys: [String]
+    ) -> [RankedPOI] {
         guard !everyday.isEmpty else { return [] }
         let keys = RustTextColumn(everyday.map(rowKey) + closedKeys + rankedKeys)
         return keys.with { joined, lens, _ in
-            flows_places_pinned(joined, lens, Int64(everyday.count),
-                                Int64(closedKeys.count), Int64(rankedKeys.count))
+            flows_places_pinned(
+                joined, lens, Int64(everyday.count),
+                Int64(closedKeys.count), Int64(rankedKeys.count))
         }.map { everyday[Int($0)] }
     }
 
@@ -1066,41 +1130,56 @@ final class POIService: ObservableObject {
                 })
         }
         guard let kind = activeKind,
-              let category = Self.everydayCategory(for: kind) else { return }
+            let category = Self.everydayCategory(for: kind)
+        else { return }
         let c = ranked.item.placemark.coordinate
-        EverydayPlaces.shared.noteUse(name: ranked.item.name ?? "?",
-                                      lat: c.latitude, lon: c.longitude,
-                                      in: category, from: lastSearchPosition)
+        EverydayPlaces.shared.noteUse(
+            name: ranked.item.name ?? "?",
+            lat: c.latitude, lon: c.longitude,
+            in: category, from: lastSearchPosition)
     }
 
     /// Route-aware ranking: ahead-only, capped detour, ordered per kind.
     /// nonisolated + async → runs on the global concurrent executor, off the
     /// main actor.
+    /// One ranked place, by its index in the list that was ranked.
+    private struct RankRow: Sendable {
+        let index: Int
+        let aheadMeters: CLLocationDistance
+        let detourMeters: CLLocationDistance
+        /// No route was active: ranked by straight-line distance instead.
+        let straightLine: Bool
+    }
+
     private nonisolated static func rank(
-        _ items: [MKMapItem], kind: Kind, prices: [Double?], ratings: [Double?],
+        _ points: [CLLocationCoordinate2D], names itemNames: [String?],
+        kind: Kind, prices: [Double?], ratings: [Double?],
         fuel: FuelType?, position: CLLocationCoordinate2D?,
         path: POIRanking.RoutePath?, trucker: Bool
-    ) async -> [RankedPOI] {
+    ) async -> [RankRow] {
         guard let path else {
             // No active route (shouldn't happen in nav): fall back to
             // straight-line distance from the vehicle.
             guard let position else { return [] }
-            return POIRanking.byDistance(items.map(\.placemark.coordinate), from: position,
-                                         limit: SearchLimits.rankedRows)
-                .map { RankedPOI(item: items[$0.index], aheadMeters: $0.meters, detourMeters: 0,
-                                 pricePerUnit: nil, placement: .straightLine) }
+            return POIRanking.byDistance(points, from: position, limit: SearchLimits.rankedRows)
+                .map {
+                    RankRow(
+                        index: $0.index, aheadMeters: $0.meters, detourMeters: 0,
+                        straightLine: true)
+                }
         }
         // Each item pairs with its price and rating; a shorter list drops the
         // items past its end, as zipping them always did.
-        let n = min(items.count, prices.count, ratings.count)
+        let n = min(points.count, prices.count, ratings.count)
         guard n > 0 else { return [] }
-        let coords = items.prefix(n).map(\.placemark.coordinate)
-        let lats = coords.map(\.latitude), lons = coords.map(\.longitude)
+        let coords = points.prefix(n)
+        let lats = coords.map(\.latitude)
+        let lons = coords.map(\.longitude)
         let priceValues = prices.prefix(n).map { $0 ?? 0 }
         let hasPrice = prices.prefix(n).map { UInt8($0 == nil ? 0 : 1) }
         let ratingValues = ratings.prefix(n).map { $0 ?? 0 }
         let hasRating = ratings.prefix(n).map { UInt8($0 == nil ? 0 : 1) }
-        let names = RustTextColumn(items.prefix(n).map(\.name))
+        let names = RustTextColumn(Array(itemNames.prefix(n)))
         // The vehicle's place along the route, every item's route metrics,
         // the kind's detour cap (hotels, stores, ERs and tourist stops justify
         // longer detours; trucker mode widens them), the kind's ordering —
@@ -1127,9 +1206,9 @@ final class POIService: ObservableObject {
             }
         }
         return stride(from: 0, to: rows.count, by: 3).map { k in
-            let i = Int(rows[k])
-            return RankedPOI(item: items[i], aheadMeters: rows[k + 1], detourMeters: rows[k + 2],
-                             pricePerUnit: prices[i], rating: ratings[i])
+            RankRow(
+                index: Int(rows[k]), aheadMeters: rows[k + 1], detourMeters: rows[k + 2],
+                straightLine: false)
         }
     }
 
@@ -1141,8 +1220,8 @@ final class POIService: ObservableObject {
     }
 
     func clearResults() {
-        searchGeneration += 1   // invalidate any in-flight search
-        isSearching = false     // ...which no longer clears it (see request)
+        searchGeneration += 1  // invalidate any in-flight search
+        isSearching = false  // ...which no longer clears it (see request)
         results = []
         activeKind = nil
         activeFoodCategory = nil
@@ -1157,7 +1236,7 @@ final class POIService: ObservableObject {
 
     private func corridorAhead(of position: CLLocationCoordinate2D?) -> [CLLocationCoordinate2D] {
         guard let position,
-              let nearestIdx = POIRanking.firstNearest(corridor, to: position)
+            let nearestIdx = POIRanking.firstNearest(corridor, to: position)
         else { return corridor }
         return Array(corridor[nearestIdx...])
     }
@@ -1192,7 +1271,8 @@ private func dedupIndices(_ items: [MKMapItem], locationOnly: Bool) -> [Int] {
     guard !items.isEmpty else { return [] }
     let names = RustTextColumn(items.map(\.name))
     let coords = items.map(\.placemark.coordinate)
-    let lats = coords.map(\.latitude), lons = coords.map(\.longitude)
+    let lats = coords.map(\.latitude)
+    let lons = coords.map(\.longitude)
     return names.with { joined, lens, present in
         lats.lent { la in
             lons.lent { lo in

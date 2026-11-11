@@ -61,7 +61,7 @@ final class LatitudeBandsTests: XCTestCase {
         let northMost = LatitudeBands.profile(latitude: 70.0).band
         XCTAssertLessThan(southMost, -50)
         XCTAssertGreaterThan(northMost, 50)
-        XCTAssertGreaterThan(northMost - southMost, 100)   // ~119 bands
+        XCTAssertGreaterThan(northMost - southMost, 100)  // ~119 bands
     }
 
     func testElevationShiftIsClampedToOneBand() {
@@ -74,8 +74,9 @@ final class LatitudeBandsTests: XCTestCase {
         let belowSea = LatitudeBands.profile(latitude: 36.0, elevationMeters: -80)
         XCTAssertEqual(belowSea.band, LatitudeBands.profile(latitude: 36.0).band - 1)
         // Near-reference elevation: no shift.
-        XCTAssertEqual(LatitudeBands.profile(latitude: 43.0, elevationMeters: 310).band,
-                       LatitudeBands.profile(latitude: 43.0).band)
+        XCTAssertEqual(
+            LatitudeBands.profile(latitude: 43.0, elevationMeters: 310).band,
+            LatitudeBands.profile(latitude: 43.0).band)
     }
 
     func testPhysicalClampsBoundTheLongExtrapolation() {

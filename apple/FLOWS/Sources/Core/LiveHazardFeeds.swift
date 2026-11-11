@@ -90,7 +90,9 @@ enum HazardFeedScores {
         guard !perimeters.isEmpty else { return 0 }
         let flat = flatten(perimeters)
         return flat.lens.lent { lens in
-            two(flat.lats, flat.lons) { flows_hazard_fire_perimeter_score(lens, $0, $1, point.latitude, point.longitude) }
+            two(flat.lats, flat.lons) {
+                flows_hazard_fire_perimeter_score(lens, $0, $1, point.latitude, point.longitude)
+            }
         }
     }
 
@@ -175,13 +177,17 @@ enum HazardFeedScores {
     /// closed (hazard_feeds.rs `route_runs_along_closure`). Crossing a closed
     /// street, or the open carriageway beside a closed one, is not through
     /// it. FLOWS never offers such a route.
-    static func routeThroughClosure(_ route: [CLLocationCoordinate2D],
-                                    closures: [LiveHazardFeedFetcher.ClosedRoad]) -> Bool {
+    static func routeThroughClosure(
+        _ route: [CLLocationCoordinate2D],
+        closures: [LiveHazardFeedFetcher.ClosedRoad]
+    ) -> Bool {
         let roads = closures.filter { !$0.line.isEmpty }
         // swift-bridge must never see an empty buffer.
         guard !route.isEmpty, !roads.isEmpty else { return false }
-        let rLats = route.map(\.latitude), rLons = route.map(\.longitude)
-        let cLats = roads.flatMap { $0.line.map(\.lat) }, cLons = roads.flatMap { $0.line.map(\.lon) }
+        let rLats = route.map(\.latitude)
+        let rLons = route.map(\.longitude)
+        let cLats = roads.flatMap { $0.line.map(\.lat) }
+        let cLons = roads.flatMap { $0.line.map(\.lon) }
         let lens = roads.map { Int64($0.line.count) }
         let directed = roads.map { UInt8($0.directed ? 1 : 0) }
         return two(rLats, rLons) { ra, ro in
@@ -244,12 +250,15 @@ enum HazardFeedScores {
         at point: Point
     ) -> Double {
         guard !zones.isEmpty else { return 0 }
-        let counts = zones.map { Int64($0.rings.count) }, ratings = zones.map { Int64($0.rating) }
+        let counts = zones.map { Int64($0.rings.count) }
+        let ratings = zones.map { Int64($0.rating) }
         let flat = flatten(zones.flatMap { $0.rings })
         return counts.lent { zc in
             ratings.lent { rt in
                 flat.lens.lent { lens in
-                    two(flat.lats, flat.lons) { flows_hazard_avalanche_score(zc, rt, lens, $0, $1, point.latitude, point.longitude) }
+                    two(flat.lats, flat.lons) {
+                        flows_hazard_avalanche_score(zc, rt, lens, $0, $1, point.latitude, point.longitude)
+                    }
                 }
             }
         }
@@ -292,12 +301,15 @@ enum HazardFeedScores {
         at point: Point
     ) -> Double {
         guard !zones.isEmpty else { return 0 }
-        let counts = zones.map { Int64($0.rings.count) }, scores = zones.map { $0.score }
+        let counts = zones.map { Int64($0.rings.count) }
+        let scores = zones.map { $0.score }
         let flat = flatten(zones.flatMap { $0.rings })
         return counts.lent { zc in
             scores.lent { sc in
                 flat.lens.lent { lens in
-                    two(flat.lats, flat.lons) { flows_hazard_outlook_score(zc, sc, lens, $0, $1, point.latitude, point.longitude) }
+                    two(flat.lats, flat.lons) {
+                        flows_hazard_outlook_score(zc, sc, lens, $0, $1, point.latitude, point.longitude)
+                    }
                 }
             }
         }
@@ -318,24 +330,35 @@ enum HazardFeedScores {
     /// of lists. A ring list with no points at all carries one placeholder
     /// point the lengths never reach, because an empty buffer must not cross.
     static func flatten(_ rings: [[Point]]) -> (lens: [Int64], lats: [Double], lons: [Double]) {
-        var lats: [Double] = [], lons: [Double] = []
+        var lats: [Double] = []
+        var lons: [Double] = []
         for ring in rings {
-            for c in ring { lats.append(c.latitude); lons.append(c.longitude) }
+            for c in ring {
+                lats.append(c.latitude)
+                lons.append(c.longitude)
+            }
         }
-        if lats.isEmpty { lats = [0]; lons = [0] }
+        if lats.isEmpty {
+            lats = [0]
+            lons = [0]
+        }
         return (rings.isEmpty ? [0] : rings.map { Int64($0.count) }, lats, lons)
     }
 
     /// Text lists cross joined by U+001F.
     static func joined(_ texts: [String]) -> String { texts.joined(separator: "\u{1F}") }
 
-    static func two<R>(_ a: [Double], _ b: [Double],
-                       _ body: (RustLoan<Double>, RustLoan<Double>) -> R) -> R {
+    static func two<R>(
+        _ a: [Double], _ b: [Double],
+        _ body: (RustLoan<Double>, RustLoan<Double>) -> R
+    ) -> R {
         a.lent { x in b.lent { y in body(x, y) } }
     }
 
-    static func three<R>(_ a: [Double], _ b: [Double], _ c: [Double],
-                         _ body: (RustLoan<Double>, RustLoan<Double>, RustLoan<Double>) -> R) -> R {
+    static func three<R>(
+        _ a: [Double], _ b: [Double], _ c: [Double],
+        _ body: (RustLoan<Double>, RustLoan<Double>, RustLoan<Double>) -> R
+    ) -> R {
         a.lent { x in b.lent { y in c.lent { z in body(x, y, z) } } }
     }
 }
@@ -405,19 +428,22 @@ actor LiveHazardFeedFetcher {
             ymFmt.timeZone = TimeZone(identifier: "UTC")
             for (index, dayOffset) in [0.0, -86_400].enumerated() {
                 let day = Date().addingTimeInterval(dayOffset)
-                let url = "https://satepsanone.nesdis.noaa.gov/pub/FIRE/web/HMS/"
+                let url =
+                    "https://satepsanone.nesdis.noaa.gov/pub/FIRE/web/HMS/"
                     + "Fire_Points/Text/\(ymFmt.string(from: day))/hms_fire\(fmt.string(from: day)).txt"
                 guard let u = URL(string: url),
-                      let (data, resp) = try? await ThrottledNet.fetch(u),
-                      (resp as? HTTPURLResponse)?.statusCode == 200,
-                      let text = String(data: data, encoding: .utf8) else { continue }
+                    let (data, resp) = try? await ThrottledNet.fetch(u),
+                    (resp as? HTTPURLResponse)?.statusCode == 200,
+                    let text = String(data: data, encoding: .utf8)
+                else { continue }
                 var out: [(Double, Double, Double)] = []
                 for line in text.split(separator: "\n").dropFirst() {
                     let cols = line.split(separator: ",").map {
                         $0.trimmingCharacters(in: .whitespaces)
                     }
                     guard cols.count >= 8, let lon = Double(cols[0]),
-                          let lat = Double(cols[1]), let frp = Double(cols[7]) else { continue }
+                        let lat = Double(cols[1]), let frp = Double(cols[7])
+                    else { continue }
                     // Column 3 is the UTC time seen, HHMM. With today's file in
                     // hand, yesterday's rows older than 24 hours are left out.
                     if index == 1, gotToday, let seen = Int(cols[3]), seen < nowHHMM { continue }
@@ -432,8 +458,9 @@ actor LiveHazardFeedFetcher {
         let result = await task.value
         if !result.isEmpty || fireHotspots.isEmpty {
             fireHotspots = result
-            fireFetched = result.isEmpty
-                ? Date().addingTimeInterval(-1800 + 300) : Date()   // 5-min retry on failure
+            fireFetched =
+                result.isEmpty
+                ? Date().addingTimeInterval(-1800 + 300) : Date()  // 5-min retry on failure
         }
         fireInFlight = nil
         return fireHotspots
@@ -451,25 +478,28 @@ actor LiveHazardFeedFetcher {
 
     private func loadRecentQuakes() async -> [(lat: Double, lon: Double, magnitude: Double, ageHours: Double)] {
         if Date().timeIntervalSince(quakesFetched) < AdaptiveTuning.shared.ttl(300) { return quakes }
-        let url = "https://earthquake.usgs.gov/fdsnws/event/1/query?format=geojson"
+        let url =
+            "https://earthquake.usgs.gov/fdsnws/event/1/query?format=geojson"
             + "&starttime=\(ISO8601DateFormatter().string(from: Date().addingTimeInterval(-86_400)))"
             + "&minmagnitude=3&minlatitude=14&maxlatitude=72"
             + "&minlongitude=-170&maxlongitude=-50&limit=200"
         guard let u = URL(string: url),
-              let (data, resp) = try? await ThrottledNet.fetch(u),
-              (resp as? HTTPURLResponse)?.statusCode == 200,
-              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let features = json["features"] as? [[String: Any]] else {
+            let (data, resp) = try? await ThrottledNet.fetch(u),
+            (resp as? HTTPURLResponse)?.statusCode == 200,
+            let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+            let features = json["features"] as? [[String: Any]]
+        else {
             quakesFetched = Self.failedStamp(ttl: 300)
             return quakes
         }
         let now = Date().timeIntervalSince1970 * 1000
         quakes = features.compactMap { f in
             guard let geo = f["geometry"] as? [String: Any],
-                  let coords = geo["coordinates"] as? [Double], coords.count >= 2,
-                  let props = f["properties"] as? [String: Any],
-                  let mag = props["mag"] as? Double,
-                  let t = props["time"] as? Double else { return nil }
+                let coords = geo["coordinates"] as? [Double], coords.count >= 2,
+                let props = f["properties"] as? [String: Any],
+                let mag = props["mag"] as? Double,
+                let t = props["time"] as? Double
+            else { return nil }
             return (coords[1], coords[0], mag, (now - t) / 3_600_000)
         }
         quakesFetched = Date()
@@ -491,16 +521,18 @@ actor LiveHazardFeedFetcher {
     private func loadSpaceWeather() async -> (r: Int, s: Int, g: Int) {
         if Date().timeIntervalSince(spaceWxFetched) < AdaptiveTuning.shared.ttl(1800) { return spaceWx }
         guard let u = URL(string: "https://services.swpc.noaa.gov/products/noaa-scales.json"),
-              let (data, resp) = try? await ThrottledNet.fetch(u),
-              (resp as? HTTPURLResponse)?.statusCode == 200,
-              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let now = json["0"] as? [String: Any] else {
+            let (data, resp) = try? await ThrottledNet.fetch(u),
+            (resp as? HTTPURLResponse)?.statusCode == 200,
+            let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+            let now = json["0"] as? [String: Any]
+        else {
             spaceWxFetched = Self.failedStamp(ttl: 1800)
             return spaceWx
         }
         func scale(_ k: String) -> Int {
             guard let blk = now[k] as? [String: Any],
-                  let s = blk["Scale"] as? String, let v = Int(s) else { return 0 }
+                let s = blk["Scale"] as? String, let v = Int(s)
+            else { return 0 }
             return v
         }
         spaceWx = (scale("R"), scale("S"), scale("G"))
@@ -512,9 +544,12 @@ actor LiveHazardFeedFetcher {
 
     /// A box widened outward to the quarter-degree grid, with its cache key.
     static func gridBox(_ minLat: Double, _ minLon: Double, _ maxLat: Double, _ maxLon: Double)
-        -> (key: String, minLat: Double, minLon: Double, maxLat: Double, maxLon: Double) {
-        let a = (minLat * 4).rounded(.down), b = (minLon * 4).rounded(.down)
-        let c = (maxLat * 4).rounded(.up), d = (maxLon * 4).rounded(.up)
+        -> (key: String, minLat: Double, minLon: Double, maxLat: Double, maxLon: Double)
+    {
+        let a = (minLat * 4).rounded(.down)
+        let b = (minLon * 4).rounded(.down)
+        let c = (maxLat * 4).rounded(.up)
+        let d = (maxLon * 4).rounded(.up)
         return ("\(Int(a))|\(Int(b))|\(Int(c))|\(Int(d))", a / 4, b / 4, c / 4, d / 4)
     }
 
@@ -535,7 +570,8 @@ actor LiveHazardFeedFetcher {
         // does not vanish because one ArcGIS request timed out. Captured
         // before any eviction below.
         let stale = firePerimCache[key]?.1
-        let base = "https://services3.arcgis.com/T4QMspbfLg3qTGWY/arcgis/rest/services/"
+        let base =
+            "https://services3.arcgis.com/T4QMspbfLg3qTGWY/arcgis/rest/services/"
             + "WFIGS_Interagency_Perimeters_Current/FeatureServer/0/query"
         var comps = URLComponents(string: base)
         comps?.queryItems = [
@@ -554,22 +590,28 @@ actor LiveHazardFeedFetcher {
         ]
         var rings: [[CLLocationCoordinate2D]] = []
         if let u = comps?.url,
-           let (data, resp) = try? await ThrottledNet.fetch(u),
-           (resp as? HTTPURLResponse)?.statusCode == 200,
-           let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-           let features = json["features"] as? [[String: Any]] {
+            let (data, resp) = try? await ThrottledNet.fetch(u),
+            (resp as? HTTPURLResponse)?.statusCode == 200,
+            let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+            let features = json["features"] as? [[String: Any]]
+        {
             func ring(_ raw: [[Double]]) -> [CLLocationCoordinate2D] {
-                raw.compactMap { $0.count >= 2
-                    ? CLLocationCoordinate2D(latitude: $0[1], longitude: $0[0]) : nil }
+                raw.compactMap {
+                    $0.count >= 2
+                        ? CLLocationCoordinate2D(latitude: $0[1], longitude: $0[0]) : nil
+                }
             }
             for f in features {
                 guard let geo = f["geometry"] as? [String: Any],
-                      let type = geo["type"] as? String else { continue }
+                    let type = geo["type"] as? String
+                else { continue }
                 if type == "Polygon", let coords = geo["coordinates"] as? [[[Double]]],
-                   let outer = coords.first {
+                    let outer = coords.first
+                {
                     rings.append(ring(outer))
                 } else if type == "MultiPolygon",
-                          let polys = geo["coordinates"] as? [[[[Double]]]] {
+                    let polys = geo["coordinates"] as? [[[[Double]]]]
+                {
                     for poly in polys where poly.first != nil { rings.append(ring(poly[0])) }
                 }
             }
@@ -597,20 +639,23 @@ actor LiveHazardFeedFetcher {
         // A gauge at major flood stage is a Red-capable realized primary;
         // keep the last-known readings if this refresh fails.
         let stale = floodCache[key]?.1
-        let url = "https://api.water.noaa.gov/nwps/v1/gauges?bbox.xmin=\(minLon)"
+        let url =
+            "https://api.water.noaa.gov/nwps/v1/gauges?bbox.xmin=\(minLon)"
             + "&bbox.ymin=\(minLat)&bbox.xmax=\(maxLon)&bbox.ymax=\(maxLat)&srid=EPSG_4326"
         var out: [(lat: Double, lon: Double, category: String)] = []
         if let u = URL(string: url),
-           let (data, resp) = try? await ThrottledNet.fetch(u),
-           (resp as? HTTPURLResponse)?.statusCode == 200,
-           let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-           let gauges = json["gauges"] as? [[String: Any]] {
+            let (data, resp) = try? await ThrottledNet.fetch(u),
+            (resp as? HTTPURLResponse)?.statusCode == 200,
+            let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+            let gauges = json["gauges"] as? [[String: Any]]
+        {
             for g in gauges {
                 guard let lat = g["latitude"] as? Double,
-                      let lon = g["longitude"] as? Double,
-                      let status = g["status"] as? [String: Any],
-                      let obs = status["observed"] as? [String: Any],
-                      let cat = obs["floodCategory"] as? String else { continue }
+                    let lon = g["longitude"] as? Double,
+                    let status = g["status"] as? [String: Any],
+                    let obs = status["observed"] as? [String: Any],
+                    let cat = obs["floodCategory"] as? String
+                else { continue }
                 out.append((lat, lon, cat))
             }
             floodCache[key] = (Date(), out)
@@ -638,11 +683,12 @@ actor LiveHazardFeedFetcher {
     /// cache fills on later passes; missing evidence only means no flood BUMP,
     /// never missing safety data).
     func waterProximity(near points: [CLLocationCoordinate2D])
-        async -> [CLLocationCoordinate2D] {
+        async -> [CLLocationCoordinate2D]
+    {
         var out: [CLLocationCoordinate2D] = []
         var uncached: [(String, CLLocationCoordinate2D)] = []
         for p in points {
-            let key = "\(Int(p.latitude * 50))|\(Int(p.longitude * 50))"   // ~2 km cells
+            let key = "\(Int(p.latitude * 50))|\(Int(p.longitude * 50))"  // ~2 km cells
             if let c = waterCache[key], Date().timeIntervalSince(c.0) < 86_400 {
                 if c.1 { out.append(p) }
             } else {
@@ -663,9 +709,15 @@ actor LiveHazardFeedFetcher {
                 }
                 var done: [(String, CLLocationCoordinate2D, Bool?)] = []
                 for await r in group {
-                    guard let r else { group.cancelAll(); break }   // deadline
+                    guard let r else {
+                        group.cancelAll()
+                        break
+                    }  // deadline
                     done.append(r)
-                    if done.count == uncached.count { group.cancelAll(); break }
+                    if done.count == uncached.count {
+                        group.cancelAll()
+                        break
+                    }
                 }
                 return done
             }
@@ -689,20 +741,22 @@ actor LiveHazardFeedFetcher {
     private static func nhdWaterNear(_ p: CLLocationCoordinate2D) async -> Bool? {
         func count(layer: Int, meters: Int) async -> Int? {
             let base = "https://hydro.nationalmap.gov/arcgis/rest/services/nhd/MapServer/\(layer)/query"
-            let q = "?geometry=\(p.longitude),\(p.latitude)&geometryType=esriGeometryPoint"
+            let q =
+                "?geometry=\(p.longitude),\(p.latitude)&geometryType=esriGeometryPoint"
                 + "&inSR=4326&spatialRel=esriSpatialRelIntersects&distance=\(meters)"
                 + "&units=esriSRUnit_Meter&returnCountOnly=true&f=json"
             guard let u = URL(string: base + q),
-                  let (data, resp) = try? await ThrottledNet.fetch(u),
-                  (resp as? HTTPURLResponse)?.statusCode == 200,
-                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                  let n = json["count"] as? Int else { return nil }
+                let (data, resp) = try? await ThrottledNet.fetch(u),
+                (resp as? HTTPURLResponse)?.statusCode == 200,
+                let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                let n = json["count"] as? Int
+            else { return nil }
             return n
         }
         guard let rivers = await count(layer: 4, meters: 500) else { return nil }
-        if rivers > 0 { return true }                                // river/stream
+        if rivers > 0 { return true }  // river/stream
         guard let lakes = await count(layer: 10, meters: 800) else { return nil }
-        return lakes > 0                                             // lake/reservoir
+        return lakes > 0  // lake/reservoir
     }
 
     // MARK: volcanic — USGS HANS elevated volcanoes (US live status), 30-min TTL
@@ -738,11 +792,13 @@ actor LiveHazardFeedFetcher {
 
     private func loadElevatedVolcanoes() async -> [(lat: Double, lon: Double, level: String)] {
         if Date().timeIntervalSince(volcanoesFetched) < AdaptiveTuning.shared.ttl(1800) { return volcanoes }
-        guard let u = URL(string:
-            "https://volcanoes.usgs.gov/hans-public/api/volcano/getElevatedVolcanoes"),
-              let (data, resp) = try? await ThrottledNet.fetch(u),
-              (resp as? HTTPURLResponse)?.statusCode == 200,
-              let rows = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]]
+        guard
+            let u = URL(
+                string:
+                    "https://volcanoes.usgs.gov/hans-public/api/volcano/getElevatedVolcanoes"),
+            let (data, resp) = try? await ThrottledNet.fetch(u),
+            (resp as? HTTPURLResponse)?.statusCode == 200,
+            let rows = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]]
         else {
             volcanoesFetched = Self.failedStamp(ttl: 1800)
             return volcanoes
@@ -750,8 +806,9 @@ actor LiveHazardFeedFetcher {
         var out: [(lat: Double, lon: Double, level: String)] = []
         for row in rows {
             guard let name = (row["volcano_name"] as? String)?.lowercased(),
-                  let coord = Self.volcanoCoords[name],
-                  let level = row["alert_level"] as? String else { continue }
+                let coord = Self.volcanoCoords[name],
+                let level = row["alert_level"] as? String
+            else { continue }
             out.append((coord.0, coord.1, level))
         }
         volcanoes = out
@@ -781,25 +838,37 @@ actor LiveHazardFeedFetcher {
         var usOK = false
         // US — GeoJSON zones with danger_level 0…5.
         if let u = URL(string: "https://api.avalanche.org/v2/public/products/map-layer"),
-           let (data, resp) = try? await ThrottledNet.fetch(u),
-           (resp as? HTTPURLResponse)?.statusCode == 200,
-           let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-           let features = json["features"] as? [[String: Any]] {
+            let (data, resp) = try? await ThrottledNet.fetch(u),
+            (resp as? HTTPURLResponse)?.statusCode == 200,
+            let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+            let features = json["features"] as? [[String: Any]]
+        {
             for f in features {
                 let props = f["properties"] as? [String: Any]
-                let rating = (props?["danger_level"] as? Int)
+                let rating =
+                    (props?["danger_level"] as? Int)
                     ?? Int((props?["danger_level"] as? Double) ?? 0)
                 guard rating > 0, let geo = f["geometry"] as? [String: Any],
-                      let type = geo["type"] as? String else { continue }
+                    let type = geo["type"] as? String
+                else { continue }
                 var rings: [[CLLocationCoordinate2D]] = []
                 if type == "Polygon", let c = geo["coordinates"] as? [[[Double]]],
-                   let outer = c.first {
-                    rings = [outer.compactMap { $0.count >= 2
-                        ? CLLocationCoordinate2D(latitude: $0[1], longitude: $0[0]) : nil }]
+                    let outer = c.first
+                {
+                    rings = [
+                        outer.compactMap {
+                            $0.count >= 2
+                                ? CLLocationCoordinate2D(latitude: $0[1], longitude: $0[0]) : nil
+                        }
+                    ]
                 } else if type == "MultiPolygon",
-                          let polys = geo["coordinates"] as? [[[[Double]]]] {
-                    rings = polys.compactMap { $0.first?.compactMap { p in
-                        p.count >= 2 ? CLLocationCoordinate2D(latitude: p[1], longitude: p[0]) : nil } }
+                    let polys = geo["coordinates"] as? [[[[Double]]]]
+                {
+                    rings = polys.compactMap {
+                        $0.first?.compactMap { p in
+                            p.count >= 2 ? CLLocationCoordinate2D(latitude: p[1], longitude: p[0]) : nil
+                        }
+                    }
                 }
                 if !rings.isEmpty { zones.append((rings, rating)) }
             }
@@ -811,12 +880,14 @@ actor LiveHazardFeedFetcher {
         var caZones: [(rings: [[CLLocationCoordinate2D]], rating: Int)] = []
         var caOK = false
         if let u = URL(string: "https://api.avalanche.ca/forecasts/en/products"),
-           let (data, resp) = try? await ThrottledNet.fetch(u),
-           (resp as? HTTPURLResponse)?.statusCode == 200,
-           let products = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] {
+            let (data, resp) = try? await ThrottledNet.fetch(u),
+            (resp as? HTTPURLResponse)?.statusCode == 200,
+            let products = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]]
+        {
             for p in products {
                 guard let area = p["area"] as? [String: Any],
-                      let bbox = area["bbox"] as? [Double], bbox.count >= 4 else { continue }
+                    let bbox = area["bbox"] as? [Double], bbox.count >= 4
+                else { continue }
                 let report = p["report"] as? [String: Any]
                 let ratings = report?["dangerRatings"] as? [[String: Any]] ?? []
                 var maxRating = 0
@@ -824,9 +895,10 @@ actor LiveHazardFeedFetcher {
                     guard let r = day["ratings"] as? [String: Any] else { continue }
                     for band in r.values {
                         guard let bd = band as? [String: Any],
-                              let rate = bd["rating"] as? [String: Any],
-                              let v = rate["value"] as? String,
-                              let n = Int(v.prefix { $0.isNumber }) else { continue }
+                            let rate = bd["rating"] as? [String: Any],
+                            let v = rate["value"] as? String,
+                            let n = Int(v.prefix { $0.isNumber })
+                        else { continue }
                         maxRating = max(maxRating, n)
                     }
                 }
@@ -840,13 +912,20 @@ actor LiveHazardFeedFetcher {
                 // slots at indices 0/2 are the negative (longitude) ones.
                 let vals = Array(bbox.prefix(4))
                 guard vals.count == 4 else { continue }
-                let w, e, s, n: Double
-                if vals[0] < 0 && vals[2] < 0 {          // [lon, lat, lon, lat]
-                    w = min(vals[0], vals[2]); e = max(vals[0], vals[2])
-                    s = min(vals[1], vals[3]); n = max(vals[1], vals[3])
-                } else {                                  // [lat, lon, lat, lon]
-                    s = min(vals[0], vals[2]); n = max(vals[0], vals[2])
-                    w = min(vals[1], vals[3]); e = max(vals[1], vals[3])
+                let w: Double
+                let e: Double
+                let s: Double
+                let n: Double
+                if vals[0] < 0 && vals[2] < 0 {  // [lon, lat, lon, lat]
+                    w = min(vals[0], vals[2])
+                    e = max(vals[0], vals[2])
+                    s = min(vals[1], vals[3])
+                    n = max(vals[1], vals[3])
+                } else {  // [lat, lon, lat, lon]
+                    s = min(vals[0], vals[2])
+                    n = max(vals[0], vals[2])
+                    w = min(vals[1], vals[3])
+                    e = max(vals[1], vals[3])
                 }
                 guard w < e, s < n else { continue }
                 let ring = [
@@ -879,18 +958,21 @@ actor LiveHazardFeedFetcher {
     private func loadTropicalStorms() async -> [(lat: Double, lon: Double, maxWindKt: Double)] {
         if Date().timeIntervalSince(stormsFetched) < AdaptiveTuning.shared.ttl(1800) { return storms }
         guard let u = URL(string: "https://www.nhc.noaa.gov/CurrentStorms.json"),
-              let (data, resp) = try? await ThrottledNet.fetch(u),
-              (resp as? HTTPURLResponse)?.statusCode == 200,
-              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let active = json["activeStorms"] as? [[String: Any]] else {
+            let (data, resp) = try? await ThrottledNet.fetch(u),
+            (resp as? HTTPURLResponse)?.statusCode == 200,
+            let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+            let active = json["activeStorms"] as? [[String: Any]]
+        else {
             stormsFetched = Self.failedStamp(ttl: 1800)
             return storms
         }
         storms = active.compactMap { s in
             guard let lat = s["latitudeNumeric"] as? Double,
-                  let lon = s["longitudeNumeric"] as? Double else { return nil }
+                let lon = s["longitudeNumeric"] as? Double
+            else { return nil }
             // "intensity" is a kt string ("65"); default to tropical-storm force.
-            let kt = (s["intensity"] as? String).flatMap(Double.init)
+            let kt =
+                (s["intensity"] as? String).flatMap(Double.init)
                 ?? (s["intensity"] as? Double) ?? 35
             return (lat, lon, kt)
         }
@@ -916,12 +998,15 @@ actor LiveHazardFeedFetcher {
             return tsunamisByFeed.values.flatMap { $0 }
         }
         var anyFeedSucceeded = false
-        for feed in ["https://www.tsunami.gov/events/xml/PAAQAtom.xml",
-                     "https://www.tsunami.gov/events/xml/PHEBAtom.xml"] {
+        for feed in [
+            "https://www.tsunami.gov/events/xml/PAAQAtom.xml",
+            "https://www.tsunami.gov/events/xml/PHEBAtom.xml",
+        ] {
             guard let u = URL(string: feed),
-                  let (data, resp) = try? await ThrottledNet.fetch(u),
-                  (resp as? HTTPURLResponse)?.statusCode == 200,
-                  let xml = String(data: data, encoding: .utf8) else { continue }
+                let (data, resp) = try? await ThrottledNet.fetch(u),
+                (resp as? HTTPURLResponse)?.statusCode == 200,
+                let xml = String(data: data, encoding: .utf8)
+            else { continue }
             anyFeedSucceeded = true
             var out: [(lat: Double, lon: Double, level: String)] = []
             // The product level ("Tsunami Warning/Watch/Advisory") appears in
@@ -930,7 +1015,7 @@ actor LiveHazardFeedFetcher {
             // A cancellation still contains the word, so exclude it.
             func first(_ tag: String) -> String? {
                 guard let s = xml.range(of: "<\(tag)>"),
-                      let e = xml.range(of: "</\(tag)>", range: s.upperBound..<xml.endIndex)
+                    let e = xml.range(of: "</\(tag)>", range: s.upperBound..<xml.endIndex)
                 else { return nil }
                 return String(xml[s.upperBound..<e.lowerBound])
                     .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -942,19 +1027,25 @@ actor LiveHazardFeedFetcher {
                 let lower = entry.lowercased()
                 guard !lower.contains("cancel") else { continue }
                 let level: String
-                if lower.contains("tsunami warning") { level = "warning" }
-                else if lower.contains("tsunami advisory") { level = "advisory" }
-                else if lower.contains("tsunami watch") { level = "watch" }
-                else { continue }   // information/statement → no threat
+                if lower.contains("tsunami warning") {
+                    level = "warning"
+                } else if lower.contains("tsunami advisory") {
+                    level = "advisory"
+                } else if lower.contains("tsunami watch") {
+                    level = "watch"
+                } else {
+                    continue
+                }  // information/statement → no threat
                 func entryTag(_ tag: String) -> String? {
                     guard let s0 = entry.range(of: "<\(tag)>"),
-                          let e0 = entry.range(of: "</\(tag)>", range: s0.upperBound..<entry.endIndex)
+                        let e0 = entry.range(of: "</\(tag)>", range: s0.upperBound..<entry.endIndex)
                     else { return nil }
                     return String(entry[s0.upperBound..<e0.lowerBound])
                         .trimmingCharacters(in: .whitespacesAndNewlines)
                 }
                 guard let latS = entryTag("geo:lat"), let lonS = entryTag("geo:long"),
-                      let lat = Double(latS), let lon = Double(lonS) else { continue }
+                    let lat = Double(latS), let lon = Double(lonS)
+                else { continue }
                 out.append((lat, lon, level))
             }
             // This center's feed succeeded → replace ONLY its events (an
@@ -983,14 +1074,16 @@ actor LiveHazardFeedFetcher {
 
     private func loadConvectiveOutlook() async -> [(rings: [[CLLocationCoordinate2D]], score: Double)] {
         if Date().timeIntervalSince(spcFetched) < AdaptiveTuning.shared.ttl(3600) { return spcZones }
-        let url = "https://mapservices.weather.noaa.gov/vector/rest/services/outlooks/"
+        let url =
+            "https://mapservices.weather.noaa.gov/vector/rest/services/outlooks/"
             + "SPC_wx_outlks/MapServer/1/query?where=1%3D1&outFields=dn"
             + "&returnGeometry=true&outSR=4326&f=geojson"
         guard let u = URL(string: url),
-              let (data, resp) = try? await ThrottledNet.fetch(u),
-              (resp as? HTTPURLResponse)?.statusCode == 200,
-              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let features = json["features"] as? [[String: Any]] else {
+            let (data, resp) = try? await ThrottledNet.fetch(u),
+            (resp as? HTTPURLResponse)?.statusCode == 200,
+            let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+            let features = json["features"] as? [[String: Any]]
+        else {
             spcFetched = Self.failedStamp(ttl: 3600)
             return spcZones
         }
@@ -1000,16 +1093,26 @@ actor LiveHazardFeedFetcher {
             let dn = (props?["dn"] as? Int) ?? Int((props?["dn"] as? Double) ?? 0)
             let score = HazardFeedScores.spcCategoricalScore(dn: dn)
             guard score > 0, let geo = f["geometry"] as? [String: Any],
-                  let type = geo["type"] as? String else { continue }
+                let type = geo["type"] as? String
+            else { continue }
             var rings: [[CLLocationCoordinate2D]] = []
             if type == "Polygon", let c = geo["coordinates"] as? [[[Double]]],
-               let outer = c.first {
-                rings = [outer.compactMap { $0.count >= 2
-                    ? CLLocationCoordinate2D(latitude: $0[1], longitude: $0[0]) : nil }]
+                let outer = c.first
+            {
+                rings = [
+                    outer.compactMap {
+                        $0.count >= 2
+                            ? CLLocationCoordinate2D(latitude: $0[1], longitude: $0[0]) : nil
+                    }
+                ]
             } else if type == "MultiPolygon",
-                      let polys = geo["coordinates"] as? [[[[Double]]]] {
-                rings = polys.compactMap { $0.first?.compactMap { p in
-                    p.count >= 2 ? CLLocationCoordinate2D(latitude: p[1], longitude: p[0]) : nil } }
+                let polys = geo["coordinates"] as? [[[[Double]]]]
+            {
+                rings = polys.compactMap {
+                    $0.first?.compactMap { p in
+                        p.count >= 2 ? CLLocationCoordinate2D(latitude: p[1], longitude: p[0]) : nil
+                    }
+                }
             }
             if !rings.isEmpty { zones.append((rings, score)) }
         }
@@ -1032,7 +1135,8 @@ actor LiveHazardFeedFetcher {
     func maxSpeedMph(near point: CLLocationCoordinate2D) async -> Double {
         let key = "\(Int(point.latitude * 50))|\(Int(point.longitude * 50))"
         if let cached = speedCache[key] { return cached }
-        let query = "[out:json][timeout:10];way[\"maxspeed\"](around:2000,"
+        let query =
+            "[out:json][timeout:10];way[\"maxspeed\"](around:2000,"
             + "\(point.latitude),\(point.longitude));out tags 40;"
         var mph = PursuitReach.defaultSpeedMph
         var answered = false
@@ -1041,7 +1145,8 @@ actor LiveHazardFeedFetcher {
             var best = 0.0
             for el in elements {
                 guard let tags = el["tags"] as? [String: Any],
-                      let raw = tags["maxspeed"] as? String else { continue }
+                    let raw = tags["maxspeed"] as? String
+                else { continue }
                 let digits = raw.prefix { $0.isNumber }
                 guard let value = Double(digits) else { continue }
                 // "55 mph" vs bare km/h numbers.
@@ -1080,7 +1185,8 @@ actor LiveHazardFeedFetcher {
         // search radius grows by the cell's half-diagonal so the road under
         // the car is still inside it.
         let (qlat, qlon) = LiveHazardFeedFetcher.coarse(point)
-        let query = "[out:json][timeout:10];way[\"maxspeed\"][\"highway\"]"
+        let query =
+            "[out:json][timeout:10];way[\"maxspeed\"][\"highway\"]"
             + "(around:50,\(qlat),\(qlon));out tags 10;"
         var limit: Double?
         var elementsAnswered = false
@@ -1089,8 +1195,9 @@ actor LiveHazardFeedFetcher {
             var best: Double?
             for el in elements {
                 guard let tags = el["tags"] as? [String: Any],
-                      let raw = tags["maxspeed"] as? String,
-                      let mph = SpeedSign.parseMaxspeed(raw) else { continue }
+                    let raw = tags["maxspeed"] as? String,
+                    let mph = SpeedSign.parseMaxspeed(raw)
+                else { continue }
                 best = best.map { min($0, mph) } ?? mph
             }
             limit = best
@@ -1110,9 +1217,11 @@ actor LiveHazardFeedFetcher {
     /// main German instance, Kumi Systems (Austria), and OpenStreetMap
     /// France. Route coordinates go to these, so the set is deliberately
     /// limited to trusted operators.
-    static let overpassEndpoints = ["https://overpass-api.de/api/interpreter",
-                                    "https://overpass.kumi.systems/api/interpreter",
-                                    "https://overpass.openstreetmap.fr/api/interpreter"]
+    static let overpassEndpoints = [
+        "https://overpass-api.de/api/interpreter",
+        "https://overpass.kumi.systems/api/interpreter",
+        "https://overpass.openstreetmap.fr/api/interpreter",
+    ]
 
     /// Run an Overpass query and hand back its elements, falling down the
     /// mirror ladder until one answers.
@@ -1130,15 +1239,16 @@ actor LiveHazardFeedFetcher {
     }
 
     nonisolated static func overpassElements(_ query: String) async
-        -> [[String: Any]]? {
+        -> [[String: Any]]?
+    {
         for endpoint in overpassEndpoints {
             guard var comps = URLComponents(string: endpoint) else { continue }
             comps.queryItems = [URLQueryItem(name: "data", value: query)]
             guard let u = comps.url,
-                  let (data, resp) = try? await ThrottledNet.fetch(u),
-                  (resp as? HTTPURLResponse)?.statusCode == 200,
-                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                  let elements = json["elements"] as? [[String: Any]]
+                let (data, resp) = try? await ThrottledNet.fetch(u),
+                (resp as? HTTPURLResponse)?.statusCode == 200,
+                let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                let elements = json["elements"] as? [[String: Any]]
             else { continue }
             return elements
         }
@@ -1150,7 +1260,8 @@ actor LiveHazardFeedFetcher {
     /// to carry its own private copy of this loop — which is exactly how a
     /// mirror change gets made in one place and missed in the other.
     nonisolated static func overpassElements(post query: String) async
-        -> [[String: Any]]? {
+        -> [[String: Any]]?
+    {
         for endpoint in overpassEndpoints {
             guard let url = URL(string: endpoint) else { continue }
             var request = URLRequest(url: url)
@@ -1159,9 +1270,9 @@ actor LiveHazardFeedFetcher {
             request.httpBody = "data=\(query.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? query)"
                 .data(using: .utf8)
             guard let (data, resp) = try? await ThrottledNet.fetch(request),
-                  (resp as? HTTPURLResponse)?.statusCode == 200,
-                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                  let elements = json["elements"] as? [[String: Any]]
+                (resp as? HTTPURLResponse)?.statusCode == 200,
+                let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                let elements = json["elements"] as? [[String: Any]]
             else { continue }
             return elements
         }
@@ -1181,14 +1292,18 @@ actor LiveHazardFeedFetcher {
     /// four-minute stop asks after lunch, after a rest area, after a long
     /// light — and a question that is usually wrong gets dismissed without
     /// being read.
-    func isAtFuelStation(near point: CLLocationCoordinate2D,
-                         electric: Bool, diesel: Bool,
-                         radiusMeters: Int = 90) async -> Bool {
-        let key = "\(Int(point.latitude * 20_000))|\(Int(point.longitude * 20_000))"
+    func isAtFuelStation(
+        near point: CLLocationCoordinate2D,
+        electric: Bool, diesel: Bool,
+        radiusMeters: Int = 90
+    ) async -> Bool {
+        let key =
+            "\(Int(point.latitude * 20_000))|\(Int(point.longitude * 20_000))"
             + "|\(electric ? "e" : diesel ? "d" : "g")"
         if let cached = fuelStationCache[key] { return cached }
         let around = "(around:\(radiusMeters),\(point.latitude),\(point.longitude))"
-        let clause = electric
+        let clause =
+            electric
             ? "node[\"amenity\"=\"charging_station\"]\(around);"
                 + "way[\"amenity\"=\"charging_station\"]\(around);"
             : diesel
@@ -1199,7 +1314,7 @@ actor LiveHazardFeedFetcher {
                     + "way[\"amenity\"=\"fuel\"]\(around);"
         let query = "[out:json][timeout:12];(\(clause));out ids 1;"
         guard let elements = await LiveHazardFeedFetcher.overpassElements(query)
-        else { return false }   // unknown ≠ yes: never ask on a failed lookup
+        else { return false }  // unknown ≠ yes: never ask on a failed lookup
         let found = !elements.isEmpty
         fuelStationCache[key] = found
         if fuelStationCache.count > 200 { CacheEviction.dropHalf(&fuelStationCache) }
@@ -1222,14 +1337,18 @@ actor LiveHazardFeedFetcher {
     /// and there is nothing here. The caller needs the difference — blanking
     /// the map because Overpass was briefly unreachable would quietly drop
     /// cameras the driver is still approaching.
-    func enforcementCameras(near point: CLLocationCoordinate2D,
-                            radiusMeters: Int = 4_000) async
-        -> [EnforcementCameras.Camera]? {
+    func enforcementCameras(
+        near point: CLLocationCoordinate2D,
+        radiusMeters: Int = 4_000
+    ) async
+        -> [EnforcementCameras.Camera]?
+    {
         // ~1 km cells: cameras are fixed, so a coarse key still hits.
         let key = "\(Int(point.latitude * 100))|\(Int(point.longitude * 100))|\(radiusMeters)"
         if let cached = cameraCache[key] { return cached }
         let around = "(around:\(radiusMeters),\(point.latitude),\(point.longitude))"
-        let query = "[out:json][timeout:15];("
+        let query =
+            "[out:json][timeout:15];("
             + "node[\"highway\"=\"speed_camera\"]\(around);"
             + "node[\"enforcement\"]\(around);"
             + "node[\"traffic_signals\"=\"camera\"]\(around);"
@@ -1243,14 +1362,15 @@ actor LiveHazardFeedFetcher {
             guard let kind = EnforcementCameras.kind(fromTags: tags) else { continue }
             let center = el["center"] as? [String: Any]
             guard let lat = (center?["lat"] as? Double) ?? (el["lat"] as? Double),
-                  let lon = (center?["lon"] as? Double) ?? (el["lon"] as? Double)
+                let lon = (center?["lon"] as? Double) ?? (el["lon"] as? Double)
             else { continue }
             let id = (el["id"] as? Int).map(String.init) ?? "\(lat),\(lon)"
-            found.append(EnforcementCameras.Camera(
-                id: id,
-                coordinate: CLLocationCoordinate2D(latitude: lat, longitude: lon),
-                kind: kind,
-                limitMph: EnforcementCameras.limitMph(fromTags: tags)))
+            found.append(
+                EnforcementCameras.Camera(
+                    id: id,
+                    coordinate: CLLocationCoordinate2D(latitude: lat, longitude: lon),
+                    kind: kind,
+                    limitMph: EnforcementCameras.limitMph(fromTags: tags)))
         }
         cameraCache[key] = found
         if cameraCache.count > 120 { CacheEviction.dropHalf(&cameraCache) }
@@ -1271,8 +1391,9 @@ actor LiveHazardFeedFetcher {
         if let cached = laneCache[key] { return cached }
         // Tight radius: lane tagging is per-approach, and the lanes of the
         // cross street are the wrong answer.
-        let (qlat, qlon) = LiveHazardFeedFetcher.coarse(point)   // see postedLimitMph
-        let query = "[out:json][timeout:10];way[\"turn:lanes\"][\"highway\"]"
+        let (qlat, qlon) = LiveHazardFeedFetcher.coarse(point)  // see postedLimitMph
+        let query =
+            "[out:json][timeout:10];way[\"turn:lanes\"][\"highway\"]"
             + "(around:45,\(qlat),\(qlon));out tags 5;"
         var lanes: [LaneData.Lane] = []
         // A FAILED fetch must not be cached. This used to fall through and
@@ -1286,7 +1407,8 @@ actor LiveHazardFeedFetcher {
         // one lane shouldn't outvote the mainline's five.
         for el in elements {
             guard let tags = el["tags"] as? [String: Any],
-                  let raw = tags["turn:lanes"] as? String else { continue }
+                let raw = tags["turn:lanes"] as? String
+            else { continue }
             let parsed = LaneData.parse(turnLanes: raw)
             if parsed.count > lanes.count { lanes = parsed }
         }
@@ -1297,21 +1419,27 @@ actor LiveHazardFeedFetcher {
 
     // MARK: air + UV — Open-Meteo per ~0.5° cell (30-min TTL)
 
-    private struct AirCell { let aqi: Double?; let uv: Double?; let fetched: Date }
+    private struct AirCell {
+        let aqi: Double?
+        let uv: Double?
+        let fetched: Date
+    }
     private var airCells: [String: AirCell] = [:]
     private var airInFlight: [String: Task<(aqi: Double?, uv: Double?), Never>] = [:]
 
     func airAndUV(at point: CLLocationCoordinate2D) async -> (aqi: Double?, uv: Double?) {
         let key = "\(Int((point.latitude * 2).rounded()))|\(Int((point.longitude * 2).rounded()))"
         if let cell = airCells[key],
-           Date().timeIntervalSince(cell.fetched) < AdaptiveTuning.shared.ttl(1800) {
+            Date().timeIntervalSince(cell.fetched) < AdaptiveTuning.shared.ttl(1800)
+        {
             return (cell.aqi, cell.uv)
         }
         // Coalesce: a viewport sweep calls this for ~25 grid points that often
         // land in the same ~50 km cell — without this each would spawn its own
         // Open-Meteo request. Concurrent callers share one fetch.
         if let inFlight = airInFlight[key] { return await inFlight.value }
-        let lat = point.latitude, lon = point.longitude
+        let lat = point.latitude
+        let lon = point.longitude
         // fetchHourlyNow is static (no instance state) so the child task
         // captures nothing — no self, no Sendable warning.
         let task = Task<(aqi: Double?, uv: Double?), Never> {
@@ -1320,7 +1448,7 @@ actor LiveHazardFeedFetcher {
             // API in a second request, for the same place and the same hour.
             let both = await Self.fetchHourlyNow(
                 "https://air-quality-api.open-meteo.com/v1/air-quality?latitude=\(lat)"
-                + "&longitude=\(lon)&hourly=us_aqi,uv_index&forecast_days=1",
+                    + "&longitude=\(lon)&hourly=us_aqi,uv_index&forecast_days=1",
                 fields: ["us_aqi", "uv_index"])
             var uv = both["uv_index"]
             if uv == nil {
@@ -1328,7 +1456,7 @@ actor LiveHazardFeedFetcher {
                 // request, or a gap in its model run).
                 uv = await Self.fetchHourlyNow(
                     "https://api.open-meteo.com/v1/forecast?latitude=\(lat)"
-                    + "&longitude=\(lon)&hourly=uv_index&forecast_days=1",
+                        + "&longitude=\(lon)&hourly=uv_index&forecast_days=1",
                     fields: ["uv_index"])["uv_index"]
             }
             return (both["us_aqi"], uv)
@@ -1361,9 +1489,9 @@ actor LiveHazardFeedFetcher {
     /// absent from the result.
     private static func fetchHourlyNow(_ url: String, fields: [String]) async -> [String: Double] {
         guard let u = URL(string: url),
-              let (data, resp) = try? await ThrottledNet.fetch(u),
-              (resp as? HTTPURLResponse)?.statusCode == 200,
-              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+            let (data, resp) = try? await ThrottledNet.fetch(u),
+            (resp as? HTTPURLResponse)?.statusCode == 200,
+            let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
         else { return [:] }
         return currentHourValues(
             in: json, fields: fields,
@@ -1376,7 +1504,8 @@ actor LiveHazardFeedFetcher {
         in json: [String: Any], fields: [String], hourUTC: Int
     ) -> [String: Double] {
         guard let hourly = json["hourly"] as? [String: Any],
-              let times = hourly["time"] as? [String] else { return [:] }
+            let times = hourly["time"] as? [String]
+        else { return [:] }
         var out: [String: Double] = [:]
         for field in fields {
             guard let values = hourly[field] as? [Any] else { continue }
@@ -1456,25 +1585,29 @@ actor LiveHazardFeedFetcher {
     }
 
     private static func fetchWZDxRegistry() async -> [(state: String, url: URL)] {
-        guard let u = URL(string:
-                "https://data.transportation.gov/resource/69qe-yiui.json?$limit=200"),
-              let (data, resp) = try? await ThrottledNet.fetch(u),
-              (resp as? HTTPURLResponse)?.statusCode == 200,
-              let rows = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]]
+        guard
+            let u = URL(
+                string:
+                    "https://data.transportation.gov/resource/69qe-yiui.json?$limit=200"),
+            let (data, resp) = try? await ThrottledNet.fetch(u),
+            (resp as? HTTPURLResponse)?.statusCode == 200,
+            let rows = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]]
         else { return [] }
         var out: [(String, URL)] = []
         for row in rows {
             // Field names in the registry have drifted across versions —
             // probe the plausible keys defensively.
-            let state = ((row["state"] as? String)
+            let state =
+                ((row["state"] as? String)
                 ?? (row["issuingorganization"] as? String) ?? "").uppercased()
             let needsKey = ((row["needapikey"] as? String) ?? "").lowercased()
             let active = ((row["active"] as? String) ?? "true").lowercased()
             guard state.count == 2, needsKey != "yes", needsKey != "true",
-                  active != "false", active != "no",
-                  let urlStr = (row["url"] as? String)
+                active != "false", active != "no",
+                let urlStr = (row["url"] as? String)
                     ?? ((row["url"] as? [String: Any])?["url"] as? String),
-                  let url = URL(string: urlStr) else { continue }
+                let url = URL(string: urlStr)
+            else { continue }
             out.append((state, url))
         }
         return out
@@ -1485,7 +1618,8 @@ actor LiveHazardFeedFetcher {
     /// at most 3 states per call — closures are the realized "road is blocked"
     /// proof (uncleared snow, flood over road, work zone) that can band Red.
     func roadClosures(minLat: Double, minLon: Double, maxLat: Double, maxLon: Double)
-        async -> [(lat: Double, lon: Double)] {
+        async -> [(lat: Double, lon: Double)]
+    {
         Self.closurePoints(
             await closedRoads(minLat: minLat, minLon: minLon, maxLat: maxLat, maxLon: maxLon),
             minLat: minLat, minLon: minLon, maxLat: maxLat, maxLon: maxLon)
@@ -1503,8 +1637,10 @@ actor LiveHazardFeedFetcher {
 
     /// What scoring and the map read a closure by: its first point and, on a
     /// longer line, its middle — once each, inside the box.
-    static func closurePoints(_ roads: [ClosedRoad], minLat: Double, minLon: Double,
-                              maxLat: Double, maxLon: Double) -> [(lat: Double, lon: Double)] {
+    static func closurePoints(
+        _ roads: [ClosedRoad], minLat: Double, minLon: Double,
+        maxLat: Double, maxLon: Double
+    ) -> [(lat: Double, lon: Double)] {
         var out: [(lat: Double, lon: Double)] = []
         for road in roads {
             guard let first = road.line.first else { continue }
@@ -1523,19 +1659,27 @@ actor LiveHazardFeedFetcher {
     /// `budget` is how many feeds one call may read fresh. A map sweep keeps
     /// it small; a route check passes enough for every state it crosses,
     /// since a feed past the budget with nothing held reads as "no closures".
-    func closedRoads(minLat: Double, minLon: Double, maxLat: Double, maxLon: Double,
-                     budget: Int = 3)
-        async -> [ClosedRoad] {
-        await closedRoadsChecked(minLat: minLat, minLon: minLon, maxLat: maxLat,
-                                 maxLon: maxLon, budget: budget).roads
+    func closedRoads(
+        minLat: Double, minLon: Double, maxLat: Double, maxLon: Double,
+        budget: Int = 3
+    )
+        async -> [ClosedRoad]
+    {
+        await closedRoadsChecked(
+            minLat: minLat, minLon: minLon, maxLat: maxLat,
+            maxLon: maxLon, budget: budget
+        ).roads
     }
 
     /// The same, with whether every feed for the box has answered at least
     /// once. `complete` false means some state's closures are unknown — the
     /// list is not "no closures" there, and a route card must say so.
-    func closedRoadsChecked(minLat: Double, minLon: Double, maxLat: Double, maxLon: Double,
-                            budget: Int = 3)
-        async -> (roads: [ClosedRoad], complete: Bool) {
+    func closedRoadsChecked(
+        minLat: Double, minLon: Double, maxLat: Double, maxLon: Double,
+        budget: Int = 3
+    )
+        async -> (roads: [ClosedRoad], complete: Bool)
+    {
         await ensureWZDxRegistry()
         guard !wzdxRegistry.isEmpty else { return ([], false) }
         var complete = true
@@ -1549,7 +1693,8 @@ actor LiveHazardFeedFetcher {
             // key made later feeds always hit the first feed's fresh cache.
             let cacheKey = "\(state)|\(url.absoluteString.hashValue)"
             if let cached = closureCache[cacheKey],
-               Date().timeIntervalSince(cached.0) < AdaptiveTuning.shared.ttl(900) {
+                Date().timeIntervalSince(cached.0) < AdaptiveTuning.shared.ttl(900)
+            {
                 out.append(contentsOf: cached.1)
                 if closureNeverAnswered.contains(cacheKey) { complete = false }
                 continue
@@ -1568,23 +1713,27 @@ actor LiveHazardFeedFetcher {
             var roads: [ClosedRoad] = []
             var answered = false
             if let (data, resp) = try? await ThrottledNet.fetch(url),
-               (resp as? HTTPURLResponse)?.statusCode == 200,
-               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-               let features = json["features"] as? [[String: Any]] {
+                (resp as? HTTPURLResponse)?.statusCode == 200,
+                let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                let features = json["features"] as? [[String: Any]]
+            {
                 answered = true
                 for f in features {
                     guard let props = f["properties"] as? [String: Any] else { continue }
                     let impact = ((props["vehicle_impact"] as? String) ?? "").lowercased()
                     guard impact == "all-lanes-closed" else { continue }
                     guard let geom = f["geometry"] as? [String: Any],
-                          let coords = geom["coordinates"] else { continue }
+                        let coords = geom["coordinates"]
+                    else { continue }
                     // WZDx 4 keeps the direction in core_details, 3 in the
                     // properties themselves.
                     let core = props["core_details"] as? [String: Any]
                     let direction = ((core?["direction"] ?? props["direction"]) as? String ?? "")
                         .lowercased()
-                    let directed = ["northbound", "southbound", "eastbound", "westbound",
-                                    "inner-loop", "outer-loop"].contains(direction)
+                    let directed = [
+                        "northbound", "southbound", "eastbound", "westbound",
+                        "inner-loop", "outer-loop",
+                    ].contains(direction)
                     // LineString or MultiPoint [[lon,lat],…], or Point [lon,lat].
                     if let line = coords as? [[Double]] {
                         var points = line.prefix(5_000).compactMap { c -> (lat: Double, lon: Double)? in
@@ -1594,7 +1743,8 @@ actor LiveHazardFeedFetcher {
                         // (WZDx), not a line along the road: the straight
                         // hops between more points would leave it.
                         if (geom["type"] as? String) == "MultiPoint", points.count > 2,
-                           let first = points.first, let last = points.last {
+                            let first = points.first, let last = points.last
+                        {
                             points = [first, last]
                         }
                         if !points.isEmpty { roads.append(ClosedRoad(line: points, directed: directed)) }
@@ -1605,7 +1755,10 @@ actor LiveHazardFeedFetcher {
             }
             // A caller cancelled mid-read (a camera move, a replan) learned
             // nothing: caching its empty answer said "no closures" for 15 min.
-            if Task.isCancelled { complete = false; break }
+            if Task.isCancelled {
+                complete = false
+                break
+            }
             if answered {
                 closureCache[cacheKey] = (Date(), roads)
                 closureNeverAnswered.remove(cacheKey)
@@ -1635,8 +1788,8 @@ actor LiveHazardFeedFetcher {
     }
 }
 
-private extension Calendar {
-    func with(_ mutate: (inout Calendar) -> Void) -> Calendar {
+extension Calendar {
+    fileprivate func with(_ mutate: (inout Calendar) -> Void) -> Calendar {
         var copy = self
         mutate(&copy)
         return copy

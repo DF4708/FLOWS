@@ -17,16 +17,16 @@ final class HarmonicClimatologyTests: XCTestCase {
     private func fixture(coeffs: [[Float]]) -> Data {
         var d = Data("FLHH".utf8)
         func u32(_ v: UInt32) { withUnsafeBytes(of: v.littleEndian) { d.append(contentsOf: $0) } }
-        u32(1)                       // version
-        u32(2)                       // nZips
-        u32(2)                       // nFamilies
+        u32(1)  // version
+        u32(2)  // nZips
+        u32(2)  // nFamilies
         for fam in ["winter", "heat"] {
             d.append(UInt8(fam.utf8.count))
             d.append(contentsOf: fam.utf8)
         }
-        d.append(contentsOf: "53703".utf8)   // sorted zip index
+        d.append(contentsOf: "53703".utf8)  // sorted zip index
         d.append(contentsOf: "85004".utf8)
-        for zipFam in coeffs {               // 4 blocks of 5 f32 (zip-major)
+        for zipFam in coeffs {  // 4 blocks of 5 f32 (zip-major)
             for c in zipFam {
                 withUnsafeBytes(of: c.bitPattern.littleEndian) { d.append(contentsOf: $0) }
             }
@@ -41,22 +41,27 @@ final class HarmonicClimatologyTests: XCTestCase {
         let madisonHeat: [Float] = [0.05, 0, 0, 0, 0]
         let phoenixWinter: [Float] = [0.02, 0, 0, 0, 0]
         let phoenixHeat: [Float] = [0.3, -0.25, 0, 0, 0]
-        let table = HarmonicClimatology(data: fixture(
-            coeffs: [madisonWinter, madisonHeat, phoenixWinter, phoenixHeat]))
+        let table = HarmonicClimatology(
+            data: fixture(
+                coeffs: [madisonWinter, madisonHeat, phoenixWinter, phoenixHeat]))
         XCTAssertNotNil(table)
         guard let t = table else { return }
         XCTAssertEqual(t.families, ["winter", "heat"])
         // Week 0 (midwinter): Madison winter = 0.3 + 0.25·cos(0) = 0.55.
-        XCTAssertEqual(t.score(zip: "53703", family: "winter", week: 0) ?? 0,
-                       0.55, accuracy: 1e-6)
+        XCTAssertEqual(
+            t.score(zip: "53703", family: "winter", week: 0) ?? 0,
+            0.55, accuracy: 1e-6)
         // Week 26 (midsummer): Madison winter = 0.3 − 0.25 = 0.05.
-        XCTAssertEqual(t.score(zip: "53703", family: "winter", week: 26) ?? 0,
-                       0.05, accuracy: 1e-6)
+        XCTAssertEqual(
+            t.score(zip: "53703", family: "winter", week: 26) ?? 0,
+            0.05, accuracy: 1e-6)
         // Phoenix heat peaks midsummer: 0.3 + 0.25 = 0.55; near-zero winter.
-        XCTAssertEqual(t.score(zip: "85004", family: "heat", week: 26) ?? 0,
-                       0.55, accuracy: 1e-6)
-        XCTAssertEqual(t.score(zip: "85004", family: "heat", week: 0) ?? 0,
-                       0.05, accuracy: 1e-6)
+        XCTAssertEqual(
+            t.score(zip: "85004", family: "heat", week: 26) ?? 0,
+            0.55, accuracy: 1e-6)
+        XCTAssertEqual(
+            t.score(zip: "85004", family: "heat", week: 0) ?? 0,
+            0.05, accuracy: 1e-6)
         // Unknown zip / family → nil, never a trap.
         XCTAssertNil(t.score(zip: "99999", family: "winter", week: 0))
         XCTAssertNil(t.score(zip: "53703", family: "volcanic", week: 0))
@@ -64,14 +69,16 @@ final class HarmonicClimatologyTests: XCTestCase {
 
     func testClampAndCorruption() {
         // Coefficients that exceed the cap clamp to 0.6; negatives clamp to 0.
-        let hot: [Float] = [0.5, 0.5, 0, 0, 0]      // week 0 → 1.0 → clamps 0.6
-        let cold: [Float] = [-0.5, 0, 0, 0, 0]      // → clamps 0
+        let hot: [Float] = [0.5, 0.5, 0, 0, 0]  // week 0 → 1.0 → clamps 0.6
+        let cold: [Float] = [-0.5, 0, 0, 0, 0]  // → clamps 0
         let filler: [Float] = [0, 0, 0, 0, 0]
         let t = HarmonicClimatology(data: fixture(coeffs: [hot, cold, filler, filler]))
-        XCTAssertEqual(t?.score(zip: "53703", family: "winter", week: 0) ?? -1,
-                       0.6, accuracy: 1e-6)
-        XCTAssertEqual(t?.score(zip: "53703", family: "heat", week: 0) ?? -1,
-                       0, accuracy: 1e-6)
+        XCTAssertEqual(
+            t?.score(zip: "53703", family: "winter", week: 0) ?? -1,
+            0.6, accuracy: 1e-6)
+        XCTAssertEqual(
+            t?.score(zip: "53703", family: "heat", week: 0) ?? -1,
+            0, accuracy: 1e-6)
         // Truncated body / wrong magic → nil.
         var good = fixture(coeffs: [hot, cold, filler, filler])
         XCTAssertNil(HarmonicClimatology(data: good.prefix(good.count - 7)))
@@ -100,24 +107,33 @@ final class HarmonicClimatologyTests: XCTestCase {
         }
         payload.append(contentsOf: "01001".utf8)
         payload.append(contentsOf: "99999".utf8)
-        payload.append(f64(-72.6258)); payload.append(f64(42.0624))   // centroid 1 (lon,lat)
-        payload.append(f64(-100.5)); payload.append(f64(40.25))       // centroid 2
-        payload.append(f64(0.125)); payload.append(f64(0.5))          // scores z1
-        payload.append(f64(0)); payload.append(f64(0.043))            // scores z2
-        payload.append(le16(5)); payload.append(contentsOf: "windy".utf8)  // summary z1
-        payload.append(le16(0))                                       // summary z2: none
-        payload.append(le16(0))                                       // ring z1: none
-        payload.append(le16(3))                                       // ring z2: 3 pts
+        payload.append(f64(-72.6258))
+        payload.append(f64(42.0624))  // centroid 1 (lon,lat)
+        payload.append(f64(-100.5))
+        payload.append(f64(40.25))  // centroid 2
+        payload.append(f64(0.125))
+        payload.append(f64(0.5))  // scores z1
+        payload.append(f64(0))
+        payload.append(f64(0.043))  // scores z2
+        payload.append(le16(5))
+        payload.append(contentsOf: "windy".utf8)  // summary z1
+        payload.append(le16(0))  // summary z2: none
+        payload.append(le16(0))  // ring z1: none
+        payload.append(le16(3))  // ring z2: 3 pts
         for (lon, lat) in [(-100.0, 40.0), (-100.1, 40.1), (-100.2, 40.0)] {
-            payload.append(f64(lon)); payload.append(f64(lat))
+            payload.append(f64(lon))
+            payload.append(f64(lat))
         }
         var hash: UInt64 = 0xcbf2_9ce4_8422_2325
-        for b in payload { hash ^= UInt64(b); hash = hash &* 0x0000_0100_0000_01b3 }
+        for b in payload {
+            hash ^= UInt64(b)
+            hash = hash &* 0x0000_0100_0000_01b3
+        }
 
         var shard = Data("FRB1".utf8)
-        shard.append(le32(1))                       // version
-        shard.append(le32(2))                       // nFams
-        shard.append(le32(2))                       // nZips
+        shard.append(le32(1))  // version
+        shard.append(le32(2))  // nFams
+        shard.append(le32(2))  // nZips
         shard.append(le32(UInt32(generated.utf8.count)))
         shard.append(le64(hash))
         shard.append(payload)
@@ -125,7 +141,9 @@ final class HarmonicClimatologyTests: XCTestCase {
         guard let field = RiskFieldService.parseFRB1(shard) else {
             return XCTFail("valid FRB1 refused")
         }
-        let entries = field.entries, fams = field.families, gen = field.generated
+        let entries = field.entries
+        let fams = field.families
+        let gen = field.generated
         XCTAssertEqual(gen, generated)
         XCTAssertEqual(fams, ["wind", "fire"])
         XCTAssertEqual(entries.count, 2)
@@ -202,8 +220,10 @@ final class HarmonicRescoreTests: XCTestCase {
         let table = try XCTUnwrap(HarmonicClimatology(data: bulkFixture(nZips: 500)))
         let trig = HarmonicClimatology.WeekTrig(week: 10)
         let famIdx = [(bundle: 0, harmonic: 0), (bundle: 1, harmonic: 1)]
-        let ring = [CLLocationCoordinate2D(latitude: 43, longitude: -89),
-                    .init(latitude: 43.1, longitude: -89), .init(latitude: 43, longitude: -88.9)]
+        let ring = [
+            CLLocationCoordinate2D(latitude: 43, longitude: -89),
+            .init(latitude: 43.1, longitude: -89), .init(latitude: 43, longitude: -88.9),
+        ]
         // 600 entries: every 5th carries a ring (R-engine entry — must be
         // untouched), every 7th references a zip the table doesn't know
         // (skipped), the rest are national entries due a rescore.
@@ -240,7 +260,7 @@ final class HarmonicRescoreTests: XCTestCase {
         XCTAssertEqual(got.count, expected.count)
         for (g, e) in zip(got, expected) {
             XCTAssertEqual(g.zip, e.zip)
-            XCTAssertEqual(g.scores, e.scores)   // exact — same eval, same order
+            XCTAssertEqual(g.scores, e.scores)  // exact — same eval, same order
             XCTAssertEqual(g.ring == nil, e.ring == nil)
         }
         // Ringed entries kept their pre-rescore scores untouched.

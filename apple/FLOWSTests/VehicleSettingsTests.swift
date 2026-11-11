@@ -45,16 +45,24 @@ final class VehicleSettingsTests: XCTestCase {
 
     func testATrailerAloneIsNotTheRig() {
         // A trailer with no vehicle weight counts the vehicle at its max.
-        XCTAssertEqual(FilterLimits.rigVehicleLbs(entered: 0, towedLbs: 7_000,
-                                                  ratedMaxLbs: 6_000), 6_000)
+        XCTAssertEqual(
+            FilterLimits.rigVehicleLbs(
+                entered: 0, towedLbs: 7_000,
+                ratedMaxLbs: 6_000), 6_000)
         // An entered weight is used as given.
-        XCTAssertEqual(FilterLimits.rigVehicleLbs(entered: 5_500, towedLbs: 7_000,
-                                                  ratedMaxLbs: 6_000), 5_500)
+        XCTAssertEqual(
+            FilterLimits.rigVehicleLbs(
+                entered: 5_500, towedLbs: 7_000,
+                ratedMaxLbs: 6_000), 5_500)
         // Nothing entered: no weight, so no road is excluded on a guess.
-        XCTAssertEqual(FilterLimits.rigVehicleLbs(entered: 0, towedLbs: 0,
-                                                  ratedMaxLbs: 6_000), 0)
-        XCTAssertEqual(FilterLimits.rigVehicleLbs(entered: 0, towedLbs: 7_000,
-                                                  ratedMaxLbs: nil), 0)
+        XCTAssertEqual(
+            FilterLimits.rigVehicleLbs(
+                entered: 0, towedLbs: 0,
+                ratedMaxLbs: 6_000), 0)
+        XCTAssertEqual(
+            FilterLimits.rigVehicleLbs(
+                entered: 0, towedLbs: 7_000,
+                ratedMaxLbs: nil), 0)
         // A 13,000 lb rig does not take a 10,000 lb bridge.
         XCTAssertFalse(FilterLimits(rigWeightLbs: 6_000 + 7_000).passesWeightLimits([10_000]))
     }
@@ -85,30 +93,39 @@ final class VehicleSettingsTests: XCTestCase {
     }
 
     func testTheTowingCardNamesOnlyTheFiltersOn() {
-        XCTAssertEqual(RouteFilter.towingSummary(active: RouteFilter.towingSafety),
-                       "Route filters set: avoiding steep grades, low bridges, high winds, "
-                       + "and roads with weight signs under your vehicle + towing weight.")
-        XCTAssertEqual(RouteFilter.towingSummary(active: [.mountainGrades, .noHighWinds, .bridgeWeight]),
-                       "Route filters set: avoiding steep grades, high winds, and roads "
-                       + "with weight signs under your vehicle + towing weight.")
-        XCTAssertEqual(RouteFilter.towingSummary(active: [.lowBridges, .noHighWinds]),
-                       "Route filters set: avoiding low bridges and high winds.")
-        XCTAssertEqual(RouteFilter.towingSummary(active: [.lowBridges, .avoidTraffic]),
-                       "Route filters set: avoiding low bridges.")
-        XCTAssertEqual(RouteFilter.towingSummary(active: [.avoidTraffic]),
-                       "Towing route filters are off.")
+        XCTAssertEqual(
+            RouteFilter.towingSummary(active: RouteFilter.towingSafety),
+            "Route filters set: avoiding steep grades, low bridges, high winds, "
+                + "and roads with weight signs under your vehicle + towing weight.")
+        XCTAssertEqual(
+            RouteFilter.towingSummary(active: [.mountainGrades, .noHighWinds, .bridgeWeight]),
+            "Route filters set: avoiding steep grades, high winds, and roads "
+                + "with weight signs under your vehicle + towing weight.")
+        XCTAssertEqual(
+            RouteFilter.towingSummary(active: [.lowBridges, .noHighWinds]),
+            "Route filters set: avoiding low bridges and high winds.")
+        XCTAssertEqual(
+            RouteFilter.towingSummary(active: [.lowBridges, .avoidTraffic]),
+            "Route filters set: avoiding low bridges.")
+        XCTAssertEqual(
+            RouteFilter.towingSummary(active: [.avoidTraffic]),
+            "Towing route filters are off.")
     }
 
     // MARK: fuel stops while towing
 
     func testTowingFuelStopsComeSooner() {
-        XCTAssertEqual(TripNeeds.fuelIntervalMiles(ratedRangeMiles: 580, efficiencyFactor: 1,
-                                                   towing: false), 435)
+        XCTAssertEqual(
+            TripNeeds.fuelIntervalMiles(
+                ratedRangeMiles: 580, efficiencyFactor: 1,
+                towing: false), 435)
         // 75% of the TOWING range — a stop at 75% of the untowed range
         // lands on an empty tank.
-        XCTAssertEqual(TripNeeds.fuelIntervalMiles(ratedRangeMiles: 580, efficiencyFactor: 1,
-                                                   towing: true),
-                       435 * TowingLimits.towingEconomyFactor, accuracy: 1e-9)
+        XCTAssertEqual(
+            TripNeeds.fuelIntervalMiles(
+                ratedRangeMiles: 580, efficiencyFactor: 1,
+                towing: true),
+            435 * TowingLimits.towingEconomyFactor, accuracy: 1e-9)
         XCTAssertLessThan(TowingLimits.towingEconomyFactor, 1)
     }
 
@@ -116,8 +133,9 @@ final class VehicleSettingsTests: XCTestCase {
 
     func testAnEPAElectricCarIsRatedPerKWh() {
         // 2024 Nissan Leaf: 123 / 99 MPGe, EPA range 149 mi.
-        let leaf = EPAClassSpecs.filledIn(cityEPA: 123, highwayEPA: 99, fuelType: .electric,
-                                          epaRangeMiles: 149, classTank: 14.5)
+        let leaf = EPAClassSpecs.filledIn(
+            cityEPA: 123, highwayEPA: 99, fuelType: .electric,
+            epaRangeMiles: 149, classTank: 14.5)
         XCTAssertEqual(leaf.city, 123 / 33.705, accuracy: 1e-9)
         XCTAssertEqual(leaf.highway, 99 / 33.705, accuracy: 1e-9)
         XCTAssertEqual(leaf.combined, 3.29, accuracy: 0.01)
@@ -125,15 +143,17 @@ final class VehicleSettingsTests: XCTestCase {
         XCTAssertEqual(leaf.tank * leaf.combined, 149, accuracy: 0.5)
         XCTAssertEqual(leaf.tank, 45.3, accuracy: 1e-9)
         // No EPA range: a typical pack, never the ~600 mi the old path gave.
-        let unknown = EPAClassSpecs.filledIn(cityEPA: 123, highwayEPA: 99, fuelType: .electric,
-                                             epaRangeMiles: 0, classTank: 14.5)
+        let unknown = EPAClassSpecs.filledIn(
+            cityEPA: 123, highwayEPA: 99, fuelType: .electric,
+            epaRangeMiles: 0, classTank: 14.5)
         XCTAssertEqual(unknown.tank, EPAClassSpecs.typicalPackKWh)
         XCTAssertLessThan(unknown.tank * unknown.combined, 300)
     }
 
     func testEPAGasEconomyPassesThrough() {
-        let car = EPAClassSpecs.filledIn(cityEPA: 30, highwayEPA: 40, fuelType: .gas,
-                                         epaRangeMiles: nil, classTank: 12.5)
+        let car = EPAClassSpecs.filledIn(
+            cityEPA: 30, highwayEPA: 40, fuelType: .gas,
+            epaRangeMiles: nil, classTank: 12.5)
         XCTAssertEqual(car.city, 30)
         XCTAssertEqual(car.highway, 40)
         XCTAssertEqual(car.combined, 1 / (0.55 / 30 + 0.45 / 40), accuracy: 1e-12)
@@ -163,8 +183,9 @@ final class VehicleSettingsTests: XCTestCase {
         let store = VehicleStore(defaults: defaults)
         XCTAssertNil(store.displayedFuelFraction, "no vehicle, no gauge")
 
-        store.profile = VehicleProfile(make: "Ford", model: "Transit", fuelType: .diesel,
-                                       tankCapacityUnits: 25, ratedMilesPerUnit: 20)
+        store.profile = VehicleProfile(
+            make: "Ford", model: "Transit", fuelType: .diesel,
+            tankCapacityUnits: 25, ratedMilesPerUnit: 20)
         for _ in 0..<50 { store.recordFix(speedMps: 30, deltaMeters: 8_000) }
         store.telemetry = { (0.6, nil) }
         XCTAssertEqual(store.displayedFuelFraction, 0.6)
@@ -180,11 +201,12 @@ final class VehicleSettingsTests: XCTestCase {
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
         defaults.removePersistentDomain(forName: suite)
         let store = VehicleStore(defaults: defaults)
-        store.setFuelLevel(0.5)   // no vehicle: nothing to set, nothing breaks
+        store.setFuelLevel(0.5)  // no vehicle: nothing to set, nothing breaks
         XCTAssertNil(store.predictedFuelFraction)
 
-        store.profile = VehicleProfile(make: "Ford", model: "Transit", fuelType: .diesel,
-                                       tankCapacityUnits: 25, ratedMilesPerUnit: 20)
+        store.profile = VehicleProfile(
+            make: "Ford", model: "Transit", fuelType: .diesel,
+            tankCapacityUnits: 25, ratedMilesPerUnit: 20)
         for _ in 0..<50 { store.recordFix(speedMps: 30, deltaMeters: 8_000) }
         let before = try XCTUnwrap(store.predictedFuelFraction)
         XCTAssertLessThan(before, 0.7)
@@ -210,11 +232,15 @@ final class VehicleSettingsTests: XCTestCase {
     // MARK: shapes and big rigs
 
     func testANamedBusIsDrawnAsABusAtAnyWeight() {
-        XCTAssertEqual(VehicleShape.matching(make: "Generic", model: "Bus",
-                                             gvwrLbs: 36_200, isTrucker: false), .bus)
+        XCTAssertEqual(
+            VehicleShape.matching(
+                make: "Generic", model: "Bus",
+                gvwrLbs: 36_200, isTrucker: false), .bus)
         // Weight still beats a name that says nothing about the body.
-        XCTAssertEqual(VehicleShape.matching(make: "Freightliner", model: "Cascadia",
-                                             gvwrLbs: 80_000, isTrucker: true), .semi)
+        XCTAssertEqual(
+            VehicleShape.matching(
+                make: "Freightliner", model: "Cascadia",
+                gvwrLbs: 80_000, isTrucker: true), .semi)
     }
 
     func testBigRigWordsMatchWholeWordsOnly() {

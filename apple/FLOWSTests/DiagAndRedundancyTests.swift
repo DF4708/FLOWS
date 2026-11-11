@@ -27,8 +27,8 @@ final class DiagAndRedundancyTests: XCTestCase {
         let diag = FlowsDiag(directory: tempDir(), ringCap: 5, fileCap: 1 << 20)
         for i in 0..<12 { await diag.append(.info, "test", "line \(i)") }
         let recent = await diag.recent(10)
-        XCTAssertEqual(recent.count, 5)                       // ring capped
-        XCTAssertTrue(recent.last!.hasSuffix("line 11"))      // newest last
+        XCTAssertEqual(recent.count, 5)  // ring capped
+        XCTAssertTrue(recent.last!.hasSuffix("line 11"))  // newest last
         XCTAssertTrue(recent.first!.hasSuffix("line 7"))
         XCTAssertTrue(recent.allSatisfy { $0.contains("INFO [test]") })
     }
@@ -38,11 +38,12 @@ final class DiagAndRedundancyTests: XCTestCase {
         // Tiny cap: a handful of lines forces a rotation.
         let diag = FlowsDiag(directory: dir, ringCap: 100, fileCap: 200)
         for i in 0..<20 { await diag.append(.warn, "rot", "event number \(i)") }
-        _ = await diag.recent(1)   // barrier: all appends applied
+        _ = await diag.recent(1)  // barrier: all appends applied
         let current = dir.appendingPathComponent("flows_diag.log")
         let rolled = dir.appendingPathComponent("flows_diag.1.log")
         XCTAssertTrue(FileManager.default.fileExists(atPath: rolled.path))
-        let currentSize = (try? FileManager.default
+        let currentSize =
+            (try? FileManager.default
             .attributesOfItem(atPath: current.path)[.size] as? Int).flatMap { $0 } ?? 0
         // Rotation keeps the live file bounded near the cap, never unbounded.
         XCTAssertLessThan(currentSize, 400)
@@ -55,7 +56,7 @@ final class DiagAndRedundancyTests: XCTestCase {
         }
         await diag.appendThrottled(key: "other", interval: 600, .warn, "net", "different thing")
         let recent = await diag.recent(10)
-        XCTAssertEqual(recent.count, 2)   // one per key inside the interval
+        XCTAssertEqual(recent.count, 2)  // one per key inside the interval
     }
 
     /// "Send full log" is handed only files that exist: the rollover appears
@@ -79,20 +80,23 @@ final class DiagAndRedundancyTests: XCTestCase {
         XCTAssertEqual(recent.count, 1)
         XCTAssertTrue(recent[0].hasSuffix("[privacy] journal cleared"))
         XCTAssertEqual(diag.fileURLs.map(\.lastPathComponent), ["flows_diag.log"])
-        let onDisk = try String(contentsOf: dir.appendingPathComponent("flows_diag.log"),
-                                encoding: .utf8)
+        let onDisk = try String(
+            contentsOf: dir.appendingPathComponent("flows_diag.log"),
+            encoding: .utf8)
         XCTAssertFalse(onDisk.contains("learned value"))
     }
 
     // MARK: Open-Meteo forecast parsing (NWS forecast redundancy)
 
     func testOpenMeteoConditionsParsing() {
-        let json: [String: Any] = ["hourly": [
-            "temperature_2m": [60.0, 62.0, 64.5, 66.0],
-            "wind_speed_10m": [5.0, 8.0, 12.5, 15.0],
-            "precipitation_probability": [10.0, 20.0, 55.0, 80.0],
-            "precipitation": [0.0, 0.05, 0.10, 0.25],
-        ]]
+        let json: [String: Any] = [
+            "hourly": [
+                "temperature_2m": [60.0, 62.0, 64.5, 66.0],
+                "wind_speed_10m": [5.0, 8.0, 12.5, 15.0],
+                "precipitation_probability": [10.0, 20.0, 55.0, 80.0],
+                "precipitation": [0.0, 0.05, 0.10, 0.25],
+            ]
+        ]
         let c = NWSForecastFetcher.parseOpenMeteoConditions(json, hourUTC: 2)
         XCTAssertEqual(c?.temperatureF ?? 0, 64.5, accuracy: 1e-9)
         XCTAssertEqual(c?.windMph ?? 0, 12.5, accuracy: 1e-9)
@@ -100,14 +104,16 @@ final class DiagAndRedundancyTests: XCTestCase {
         // QPF sums the coming hours from the index (0.10 + 0.25).
         XCTAssertEqual(c?.qpfInches ?? 0, 0.35, accuracy: 1e-9)
         // Hour past the series clamps to the last entry.
-        XCTAssertEqual(NWSForecastFetcher.parseOpenMeteoConditions(json, hourUTC: 30)?
-            .temperatureF ?? 0, 66.0, accuracy: 1e-9)
+        XCTAssertEqual(
+            NWSForecastFetcher.parseOpenMeteoConditions(json, hourUTC: 30)?
+                .temperatureF ?? 0, 66.0, accuracy: 1e-9)
         // Nulls in a series (NSNull) skip that field, never crash.
         var gappy = json
-        gappy["hourly"] = [
-            "temperature_2m": [60.0, NSNull(), 64.5],
-            "wind_speed_10m": [NSNull(), NSNull(), NSNull()],
-        ] as [String: Any]
+        gappy["hourly"] =
+            [
+                "temperature_2m": [60.0, NSNull(), 64.5],
+                "wind_speed_10m": [NSNull(), NSNull(), NSNull()],
+            ] as [String: Any]
         let g = NWSForecastFetcher.parseOpenMeteoConditions(gappy, hourUTC: 1)
         XCTAssertNil(g?.temperatureF)
         XCTAssertNil(g?.windMph)
@@ -119,40 +125,51 @@ final class DiagAndRedundancyTests: XCTestCase {
     /// pulled again and thrown away): the same six-hour sum the full parse
     /// makes, from a response that has nothing else in it.
     func testOpenMeteoRainAloneMatchesTheFullParse() {
-        let json: [String: Any] = ["hourly": [
-            "temperature_2m": [60.0, 62.0, 64.5, 66.0],
-            "precipitation": [0.0, 0.05, 0.10, 0.25],
-        ]]
+        let json: [String: Any] = [
+            "hourly": [
+                "temperature_2m": [60.0, 62.0, 64.5, 66.0],
+                "precipitation": [0.0, 0.05, 0.10, 0.25],
+            ]
+        ]
         let full = NWSForecastFetcher.parseOpenMeteoConditions(json, hourUTC: 2)?.qpfInches
-        XCTAssertEqual(NWSForecastFetcher.parseOpenMeteoRain(json, hourUTC: 2) ?? -1,
-                       full ?? -2, accuracy: 1e-12)
+        XCTAssertEqual(
+            NWSForecastFetcher.parseOpenMeteoRain(json, hourUTC: 2) ?? -1,
+            full ?? -2, accuracy: 1e-12)
         let rainOnly: [String: Any] = ["hourly": ["precipitation": [0.0, NSNull(), 0.10, 0.25]]]
-        XCTAssertEqual(NWSForecastFetcher.parseOpenMeteoRain(rainOnly, hourUTC: 1) ?? -1,
-                       0.35, accuracy: 1e-12)          // a gap is skipped, not a crash
+        XCTAssertEqual(
+            NWSForecastFetcher.parseOpenMeteoRain(rainOnly, hourUTC: 1) ?? -1,
+            0.35, accuracy: 1e-12)  // a gap is skipped, not a crash
         XCTAssertNil(NWSForecastFetcher.parseOpenMeteoRain([:], hourUTC: 0))
-        XCTAssertNil(NWSForecastFetcher.parseOpenMeteoRain(
-            ["hourly": ["precipitation": [NSNull(), NSNull()]]], hourUTC: 0))
+        XCTAssertNil(
+            NWSForecastFetcher.parseOpenMeteoRain(
+                ["hourly": ["precipitation": [NSNull(), NSNull()]]], hourUTC: 0))
     }
 
     /// One air-quality response answers both the AQI and the UV index.
-/// The fire and flood boxes are widened to the quarter-degree grid, so the
+    /// The fire and flood boxes are widened to the quarter-degree grid, so the
     /// box asked for always covers every view that shares its cache key.
     func testHazardBoxesWidenToTheGrid() {
         let b = LiveHazardFeedFetcher.gridBox(44.81, -93.37, 45.02, -93.01)
-        XCTAssertEqual(b.minLat, 44.75); XCTAssertEqual(b.minLon, -93.5)
-        XCTAssertEqual(b.maxLat, 45.25); XCTAssertEqual(b.maxLon, -93.0)
+        XCTAssertEqual(b.minLat, 44.75)
+        XCTAssertEqual(b.minLon, -93.5)
+        XCTAssertEqual(b.maxLat, 45.25)
+        XCTAssertEqual(b.maxLon, -93.0)
         let near = LiveHazardFeedFetcher.gridBox(44.99, -93.49, 45.24, -93.20)
         XCTAssertEqual(near.key, b.key)
-        XCTAssertLessThanOrEqual(b.minLat, 44.81); XCTAssertLessThanOrEqual(b.minLon, -93.49)
-        XCTAssertGreaterThanOrEqual(b.maxLat, 45.24); XCTAssertGreaterThanOrEqual(b.maxLon, -93.01)
+        XCTAssertLessThanOrEqual(b.minLat, 44.81)
+        XCTAssertLessThanOrEqual(b.minLon, -93.49)
+        XCTAssertGreaterThanOrEqual(b.maxLat, 45.24)
+        XCTAssertGreaterThanOrEqual(b.maxLon, -93.01)
     }
 
     func testOneOpenMeteoResponseFeedsBothAirAndUV() {
-        let json: [String: Any] = ["hourly": [
-            "time": ["2026-10-13T00:00", "2026-10-13T01:00", "2026-10-13T02:00"],
-            "us_aqi": [44.0, 45.0, 46.0],
-            "uv_index": [0.0, 1.5, NSNull()],
-        ] as [String: Any]]
+        let json: [String: Any] = [
+            "hourly": [
+                "time": ["2026-10-13T00:00", "2026-10-13T01:00", "2026-10-13T02:00"],
+                "us_aqi": [44.0, 45.0, 46.0],
+                "uv_index": [0.0, 1.5, NSNull()],
+            ] as [String: Any]
+        ]
         let both = LiveHazardFeedFetcher.currentHourValues(
             in: json, fields: ["us_aqi", "uv_index"], hourUTC: 1)
         XCTAssertEqual(both["us_aqi"] ?? -1, 45, accuracy: 1e-9)
@@ -164,28 +181,47 @@ final class DiagAndRedundancyTests: XCTestCase {
         XCTAssertEqual(hole["us_aqi"] ?? -1, 46, accuracy: 1e-9)
         XCTAssertNil(hole["uv_index"])
         // A late hour clamps to the series; a missing field or body is empty.
-        XCTAssertEqual(LiveHazardFeedFetcher.currentHourValues(
-            in: json, fields: ["us_aqi"], hourUTC: 40)["us_aqi"] ?? -1, 46, accuracy: 1e-9)
-        XCTAssertTrue(LiveHazardFeedFetcher.currentHourValues(
-            in: json, fields: ["pm2_5"], hourUTC: 1).isEmpty)
-        XCTAssertTrue(LiveHazardFeedFetcher.currentHourValues(
-            in: [:], fields: ["us_aqi"], hourUTC: 1).isEmpty)
+        XCTAssertEqual(
+            LiveHazardFeedFetcher.currentHourValues(
+                in: json, fields: ["us_aqi"], hourUTC: 40)["us_aqi"] ?? -1, 46, accuracy: 1e-9)
+        XCTAssertTrue(
+            LiveHazardFeedFetcher.currentHourValues(
+                in: json, fields: ["pm2_5"], hourUTC: 1
+            ).isEmpty)
+        XCTAssertTrue(
+            LiveHazardFeedFetcher.currentHourValues(
+                in: [:], fields: ["us_aqi"], hourUTC: 1
+            ).isEmpty)
     }
 
     // MARK: IEM storm-based-warning parsing (NWS alert redundancy)
 
     func testBackupWarningParsing() {
         let features: [[String: Any]] = [
-            ["properties": ["ps": "Tornado Warning", "phenomena": "TO",
-                            "significance": "W", "wfo": "MKX", "eventid": 41,
-                            "product_id": "202608261555-KMKX-A",
-                            "expire_utc": "2026-08-26T20:00:00Z"],
-             "geometry": ["type": "Polygon",
-                          "coordinates": [[[-89.5, 42.9], [-89.5, 43.1], [-89.3, 43.1],
-                                           [-89.3, 42.9], [-89.5, 42.9]]]]],
+            [
+                "properties": [
+                    "ps": "Tornado Warning", "phenomena": "TO",
+                    "significance": "W", "wfo": "MKX", "eventid": 41,
+                    "product_id": "202608261555-KMKX-A",
+                    "expire_utc": "2026-08-26T20:00:00Z",
+                ],
+                "geometry": [
+                    "type": "Polygon",
+                    "coordinates": [
+                        [
+                            [-89.5, 42.9], [-89.5, 43.1], [-89.3, 43.1],
+                            [-89.3, 42.9], [-89.5, 42.9],
+                        ]
+                    ],
+                ],
+            ],
             // No geometry → unplaceable → dropped (polygon feed contract).
-            ["properties": ["ps": "Flood Warning", "phenomena": "FL",
-                            "significance": "W"], "geometry": NSNull()],
+            [
+                "properties": [
+                    "ps": "Flood Warning", "phenomena": "FL",
+                    "significance": "W",
+                ], "geometry": NSNull(),
+            ],
         ]
         let parsed = BackupWarningsCache.parse(features)
         XCTAssertEqual(parsed.count, 1)

@@ -20,10 +20,10 @@ struct VehicleSpec: Equatable, Identifiable {
     let make: String
     let model: String
     let fuelType: FuelType
-    let cityMPU: Double       // mi per unit (gal or kWh) city
-    let highwayMPU: Double    // mi per unit highway
-    let tankUnits: Double     // gal, or usable kWh for electric
-    let heightFeet: Double    // factory roof height
+    let cityMPU: Double  // mi per unit (gal or kWh) city
+    let highwayMPU: Double  // mi per unit highway
+    let tankUnits: Double  // gal, or usable kWh for electric
+    let heightFeet: Double  // factory roof height
     /// Towing ratings (manufacturer-typical; nil = not published/rated).
     var gvwrLbs: Double? = nil
     var towCapacityLbs: Double? = nil
@@ -41,8 +41,9 @@ struct VehicleSpec: Equatable, Identifiable {
     var id: String { "\(make) \(model)" }
 
     var towingRatings: TowingLimits.Ratings {
-        TowingLimits.Ratings(gvwrLbs: gvwrLbs, towCapacityLbs: towCapacityLbs,
-                             gcwrLbs: gcwrLbs)
+        TowingLimits.Ratings(
+            gvwrLbs: gvwrLbs, towCapacityLbs: towCapacityLbs,
+            gcwrLbs: gcwrLbs)
     }
 
     /// EPA combined blend: 1 / (0.55/city + 0.45/highway), computed in Rust.
@@ -51,11 +52,12 @@ struct VehicleSpec: Equatable, Identifiable {
     }
 
     var profile: VehicleProfile {
-        VehicleProfile(make: make, model: model, fuelType: fuelType,
-                       tankCapacityUnits: tankUnits,
-                       ratedMilesPerUnit: flows_trip_vehicle_rated_miles_per_unit(cityMPU, highwayMPU),
-                       cityMilesPerUnit: cityMPU,
-                       highwayMilesPerUnit: highwayMPU)
+        VehicleProfile(
+            make: make, model: model, fuelType: fuelType,
+            tankCapacityUnits: tankUnits,
+            ratedMilesPerUnit: flows_trip_vehicle_rated_miles_per_unit(cityMPU, highwayMPU),
+            cityMilesPerUnit: cityMPU,
+            highwayMilesPerUnit: highwayMPU)
     }
 }
 
@@ -81,13 +83,14 @@ enum VehicleSpecs {
         for r in makes.indices {
             let b = r * slots
             guard let code = UInt8(exactly: numbers[b]), let fuel = FuelType(rustCode: code) else { continue }
-            rows.append(VehicleSpec(
-                make: makes[r], model: models[r], fuelType: fuel,
-                cityMPU: numbers[b + 1], highwayMPU: numbers[b + 2],
-                tankUnits: numbers[b + 3], heightFeet: numbers[b + 4],
-                gvwrLbs: rating(numbers[b + 5]), towCapacityLbs: rating(numbers[b + 6]),
-                gcwrLbs: rating(numbers[b + 7]), publishedMaxGradePercent: rating(numbers[b + 8]),
-                topSpeedMph: rating(numbers[b + 9])))
+            rows.append(
+                VehicleSpec(
+                    make: makes[r], model: models[r], fuelType: fuel,
+                    cityMPU: numbers[b + 1], highwayMPU: numbers[b + 2],
+                    tankUnits: numbers[b + 3], heightFeet: numbers[b + 4],
+                    gvwrLbs: rating(numbers[b + 5]), towCapacityLbs: rating(numbers[b + 6]),
+                    gcwrLbs: rating(numbers[b + 7]), publishedMaxGradePercent: rating(numbers[b + 8]),
+                    topSpeedMph: rating(numbers[b + 9])))
         }
         return rows
     }()

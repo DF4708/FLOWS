@@ -24,8 +24,9 @@ enum SpotifyWebAPI {
 
     /// The transport toggle: pause while playing, play while paused.
     static func playPauseCall(isPlaying: Bool) -> Call {
-        Call(method: "PUT",
-             path: isPlaying ? "/v1/me/player/pause" : "/v1/me/player/play")
+        Call(
+            method: "PUT",
+            path: isPlaying ? "/v1/me/player/pause" : "/v1/me/player/play")
     }
 
     static func shuffleCall(on: Bool) -> Call {
@@ -38,8 +39,10 @@ enum SpotifyWebAPI {
         Call(method: "PUT", path: "/v1/me/player/repeat?state=\(all ? "context" : "off")")
     }
 
-    static func urlRequest(for call: Call, token: String,
-                           body: Data? = nil) -> URLRequest? {
+    static func urlRequest(
+        for call: Call, token: String,
+        body: Data? = nil
+    ) -> URLRequest? {
         guard let url = URL(string: apiBase + call.path) else { return nil }
         var request = URLRequest(url: url)
         request.httpMethod = call.method
@@ -68,12 +71,14 @@ enum SpotifyWebAPI {
         // Items one at a time: Spotify answers `null` in place of playlists
         // it no longer serves, and one null failed the whole `[[String:
         // Any]]` cast — the ask fell back to opening a search.
-        guard let json = try? JSONSerialization.jsonObject(with: data)
+        guard
+            let json = try? JSONSerialization.jsonObject(with: data)
                 as? [String: Any],
-              let items = (json["playlists"] as? [String: Any])?["items"] as? [Any],
-              let first = items.lazy.compactMap({ $0 as? [String: Any] })
+            let items = (json["playlists"] as? [String: Any])?["items"] as? [Any],
+            let first = items.lazy.compactMap({ $0 as? [String: Any] })
                 .first(where: { ($0["uri"] as? String)?.isEmpty == false }),
-              let uri = first["uri"] as? String else { return nil }
+            let uri = first["uri"] as? String
+        else { return nil }
         return (uri: uri, name: first["name"] as? String ?? "Spotify")
     }
 
@@ -86,9 +91,11 @@ enum SpotifyWebAPI {
 
     /// GET /v1/me/player payload → the four fields the mini player shows.
     static func parsePlayerState(_ data: Data) -> PlayerState? {
-        guard let json = try? JSONSerialization.jsonObject(with: data)
+        guard
+            let json = try? JSONSerialization.jsonObject(with: data)
                 as? [String: Any],
-              let isPlaying = json["is_playing"] as? Bool else { return nil }
+            let isPlaying = json["is_playing"] as? Bool
+        else { return nil }
         let item = json["item"] as? [String: Any]
         return PlayerState(
             isPlaying: isPlaying,
@@ -200,23 +207,27 @@ final class SpotifyRemote: ObservableObject {
     /// or playback couldn't start, so the caller can fall back honestly.
     func playSearch(_ query: String) async -> Bool {
         guard linked,
-              let searchRequest = SpotifyWebAPI.urlRequest(
+            let searchRequest = SpotifyWebAPI.urlRequest(
                 for: SpotifyWebAPI.searchCall(query: query), token: token),
-              let (data, resp) = try? await ThrottledNet.fetch(searchRequest),
-              (resp as? HTTPURLResponse)?.statusCode == 200,
-              let hit = SpotifyWebAPI.parsePlaylistContext(data) else {
+            let (data, resp) = try? await ThrottledNet.fetch(searchRequest),
+            (resp as? HTTPURLResponse)?.statusCode == 200,
+            let hit = SpotifyWebAPI.parsePlaylistContext(data)
+        else {
             status = "Couldn't find that on Spotify."
             return false
         }
         let body = try? JSONSerialization.data(
             withJSONObject: ["context_uri": hit.uri])
-        guard let playRequest = SpotifyWebAPI.urlRequest(
+        guard
+            let playRequest = SpotifyWebAPI.urlRequest(
                 for: SpotifyWebAPI.playPauseCall(isPlaying: false),
                 token: token, body: body),
-              let (_, playResp) = try? await ThrottledNet.fetch(playRequest),
-              let code = (playResp as? HTTPURLResponse)?.statusCode,
-              SpotifyWebAPI.plainWords(status: code) == nil else {
-            status = "Open Spotify and play one song first — "
+            let (_, playResp) = try? await ThrottledNet.fetch(playRequest),
+            let code = (playResp as? HTTPURLResponse)?.statusCode,
+            SpotifyWebAPI.plainWords(status: code) == nil
+        else {
+            status =
+                "Open Spotify and play one song first — "
                 + "then the buttons here take over."
             return false
         }
@@ -231,11 +242,12 @@ final class SpotifyRemote: ObservableObject {
 
     private func send(_ call: SpotifyWebAPI.Call) {
         guard linked,
-              let request = SpotifyWebAPI.urlRequest(for: call, token: token)
+            let request = SpotifyWebAPI.urlRequest(for: call, token: token)
         else { return }
         Task { [weak self] in
             guard let (_, resp) = try? await ThrottledNet.fetch(request),
-                  let code = (resp as? HTTPURLResponse)?.statusCode else {
+                let code = (resp as? HTTPURLResponse)?.statusCode
+            else {
                 await MainActor.run { self?.status = "Spotify didn't answer. Try again." }
                 return
             }
@@ -270,21 +282,25 @@ final class SpotifyRemote: ObservableObject {
 
     private func fetchState() async {
         guard linked,
-              let request = SpotifyWebAPI.urlRequest(for: SpotifyWebAPI.playerState,
-                                                     token: token),
-              let (data, resp) = try? await ThrottledNet.fetch(request),
-              let code = (resp as? HTTPURLResponse)?.statusCode else { return }
+            let request = SpotifyWebAPI.urlRequest(
+                for: SpotifyWebAPI.playerState,
+                token: token),
+            let (data, resp) = try? await ThrottledNet.fetch(request),
+            let code = (resp as? HTTPURLResponse)?.statusCode
+        else { return }
         if code == 200, let state = SpotifyWebAPI.parsePlayerState(data) {
             isPlaying = state.isPlaying
             trackName = state.track
-            playOrder = SpotifyWebAPI.order(shuffle: state.shuffle,
-                                            repeatOn: state.repeatOn)
+            playOrder = SpotifyWebAPI.order(
+                shuffle: state.shuffle,
+                repeatOn: state.repeatOn)
             status = nil
             stateReadAt = Date()
         } else if code == 204 {
             // 204 = token fine, but no Spotify device is active.
             isPlaying = false
-            status = "Open Spotify and play one song first — "
+            status =
+                "Open Spotify and play one song first — "
                 + "then the buttons here take over."
             stateReadAt = Date()
         } else {

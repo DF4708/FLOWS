@@ -26,7 +26,7 @@ final class SpeedSignTests: XCTestCase {
 
     func testUnreadableValuesPostNoNumber() {
         // Better a blank plate than a wrong limit.
-        XCTAssertNil(SpeedSign.parseMaxspeed("none"))       // derestricted autobahn
+        XCTAssertNil(SpeedSign.parseMaxspeed("none"))  // derestricted autobahn
         XCTAssertNil(SpeedSign.parseMaxspeed("signals"))
         XCTAssertNil(SpeedSign.parseMaxspeed("variable"))
         XCTAssertNil(SpeedSign.parseMaxspeed(""))
@@ -52,16 +52,24 @@ final class SpeedSignTests: XCTestCase {
     }
 
     func testVisibleOnlyWhileDriving() {
-        XCTAssertTrue(SpeedSign.shouldShow(isNavigating: true, isWalking: false,
-                                           isPassengerTransit: false))
+        XCTAssertTrue(
+            SpeedSign.shouldShow(
+                isNavigating: true, isWalking: false,
+                isPassengerTransit: false))
         // A walker has no posted limit to keep.
-        XCTAssertFalse(SpeedSign.shouldShow(isNavigating: true, isWalking: true,
-                                            isPassengerTransit: false))
+        XCTAssertFalse(
+            SpeedSign.shouldShow(
+                isNavigating: true, isWalking: true,
+                isPassengerTransit: false))
         // A passenger on a plane, bus, or train isn't the one driving.
-        XCTAssertFalse(SpeedSign.shouldShow(isNavigating: true, isWalking: false,
-                                            isPassengerTransit: true))
+        XCTAssertFalse(
+            SpeedSign.shouldShow(
+                isNavigating: true, isWalking: false,
+                isPassengerTransit: true))
         // And it's a driving instrument, so not while planning.
-        XCTAssertFalse(SpeedSign.shouldShow(isNavigating: false, isWalking: false,
-                                            isPassengerTransit: false))
+        XCTAssertFalse(
+            SpeedSign.shouldShow(
+                isNavigating: false, isWalking: false,
+                isPassengerTransit: false))
     }
 }

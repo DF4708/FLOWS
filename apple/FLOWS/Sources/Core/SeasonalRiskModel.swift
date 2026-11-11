@@ -38,11 +38,11 @@ import Foundation
 /// One completed-trip observation: what we predicted vs. what was encountered.
 struct TripObservation {
     let key: RouteKey
-    let week: Int            // 0…51, week-of-year
-    let predicted: Double    // 0…1 risk FLOWS predicted at plan time
-    let observed: Double     // 0…1 worst realized risk actually encountered
+    let week: Int  // 0…51, week-of-year
+    let predicted: Double  // 0…1 risk FLOWS predicted at plan time
+    let observed: Double  // 0…1 worst realized risk actually encountered
     let distanceKm: Double
-    let t: Double            // absolute time (epoch seconds) — drives decay
+    let t: Double  // absolute time (epoch seconds) — drives decay
 }
 
 /// Canonical route id: origin & destination quantized to ~11 km (0.1°) so trips
@@ -56,8 +56,10 @@ struct RouteKey: Hashable, Codable {
             let cell = flows_seasonal_route_cell(v)
             return cell.is_some == 1 ? Int(cell.value) : 0
         }
-        oLat = q(origin.latitude); oLon = q(origin.longitude)
-        dLat = q(dest.latitude); dLon = q(dest.longitude)
+        oLat = q(origin.latitude)
+        oLon = q(origin.longitude)
+        dLat = q(dest.latitude)
+        dLon = q(dest.longitude)
     }
 }
 
@@ -65,11 +67,11 @@ struct RouteKey: Hashable, Codable {
 /// observation enters with weight 1; existing weight decays by a half-life so a
 /// season two years ago counts a quarter as much as this one.
 struct WeekStat: Codable {
-    var wSum = 0.0        // Σ weights
-    var wObserved = 0.0   // Σ weight · observed
-    var wSqErr = 0.0      // Σ weight · (predicted − observed)²
-    var lastT = 0.0       // time of last update
-    var count = 0         // raw sample count (undecayed)
+    var wSum = 0.0  // Σ weights
+    var wObserved = 0.0  // Σ weight · observed
+    var wSqErr = 0.0  // Σ weight · (predicted − observed)²
+    var lastT = 0.0  // time of last update
+    var count = 0  // raw sample count (undecayed)
 
     /// The cell as the bridge carries it.
     var bridge: FlowsSeasonalWeekStat {
@@ -77,11 +79,19 @@ struct WeekStat: Codable {
     }
 
     init(bridge b: FlowsSeasonalWeekStat) {
-        wSum = b.w_sum; wObserved = b.w_observed; wSqErr = b.w_sq_err; lastT = b.last_t; count = Int(b.count)
+        wSum = b.w_sum
+        wObserved = b.w_observed
+        wSqErr = b.w_sq_err
+        lastT = b.last_t
+        count = Int(b.count)
     }
 
     init(wSum: Double = 0, wObserved: Double = 0, wSqErr: Double = 0, lastT: Double = 0, count: Int = 0) {
-        self.wSum = wSum; self.wObserved = wObserved; self.wSqErr = wSqErr; self.lastT = lastT; self.count = count
+        self.wSum = wSum
+        self.wObserved = wObserved
+        self.wSqErr = wSqErr
+        self.lastT = lastT
+        self.count = count
     }
 
     mutating func decay(to t: Double, halfLifeWeeks: Double) {
@@ -118,7 +128,10 @@ struct EdgeKey: Hashable, Codable {
         let p1 = (q(h1.latitude), q(h1.longitude))
         let p2 = (q(h2.latitude), q(h2.longitude))
         let (a, b) = p1 <= p2 ? (p1, p2) : (p2, p1)
-        aLat = a.0; aLon = a.1; bLat = b.0; bLon = b.1
+        aLat = a.0
+        aLon = a.1
+        bLat = b.0
+        bLon = b.1
     }
 }
 struct EdgeRecord: Codable { var weeks: [Int: WeekStat] = [:] }
@@ -144,11 +157,12 @@ struct SeasonalStore: Codable {
 
     // Tunables (documented so phase-2 training can reference them).
     static let crossCountryKm = flows_seasonal_cross_country_km()
-    static let localTripThreshold = Int(flows_seasonal_local_trip_threshold())        // local: common, filter noise
-    static let crossCountryTripThreshold = Int(flows_seasonal_cross_country_trip_threshold()) // cross-country: rare but valuable
+    static let localTripThreshold = Int(flows_seasonal_local_trip_threshold())  // local: common, filter noise
+    // cross-country: rare but valuable
+    static let crossCountryTripThreshold = Int(flows_seasonal_cross_country_trip_threshold())
     static let minWeekSamplesForConfidence = flows_seasonal_min_week_samples_for_confidence()
-    static let decayHalfLifeWeeks = flows_seasonal_decay_half_life_weeks()     // weight halves each year
-    static let homeMinTrips = Int(flows_seasonal_home_min_trips())             // origin trips before "home" is inferred
+    static let decayHalfLifeWeeks = flows_seasonal_decay_half_life_weeks()  // weight halves each year
+    static let homeMinTrips = Int(flows_seasonal_home_min_trips())  // origin trips before "home" is inferred
 
     /// Total recorded trips across every route — the gate for on-device
     /// fine-tuning (a head must not be re-fit from three trips).
@@ -185,8 +199,9 @@ struct SeasonalStore: Codable {
         rec.tripCount = Int(flows_seasonal_next_count(Int64(rec.tripCount)))
         rec.crossCountry = flows_seasonal_is_cross_country(obs.distanceKm)
         var ws = rec.weeks[obs.week] ?? WeekStat()
-        ws.add(observed: obs.observed, predicted: obs.predicted, t: obs.t,
-               halfLifeWeeks: Self.decayHalfLifeWeeks)
+        ws.add(
+            observed: obs.observed, predicted: obs.predicted, t: obs.t,
+            halfLifeWeeks: Self.decayHalfLifeWeeks)
         rec.weeks[obs.week] = ws
         routes[obs.key] = rec
         // Recency-decayed origin history — how a relocation becomes visible.
@@ -204,8 +219,10 @@ struct SeasonalStore: Codable {
     /// bounded cost; uncapped it was a pure write-amplifier.
     static let maxEdges = Int(flows_seasonal_max_edges())
 
-    mutating func recordEdges(hubPath: [CLLocationCoordinate2D], week: Int,
-                              observed: Double, t: Double) {
+    mutating func recordEdges(
+        hubPath: [CLLocationCoordinate2D], week: Int,
+        observed: Double, t: Double
+    ) {
         guard hubPath.count >= 2 else { return }
         // Consecutive hub pairs to the persisted "aLat,aLon,bLat,bLon" keys.
         let hubs = hubPath.flatMap { [$0.latitude, $0.longitude] }
@@ -214,8 +231,9 @@ struct SeasonalStore: Codable {
             let s = key.text
             var er = edges[s] ?? EdgeRecord()
             var ws = er.weeks[week] ?? WeekStat()
-            ws.add(observed: observed, predicted: observed, t: t,
-                   halfLifeWeeks: Self.decayHalfLifeWeeks)
+            ws.add(
+                observed: observed, predicted: observed, t: t,
+                halfLifeWeeks: Self.decayHalfLifeWeeks)
             er.weeks[week] = ws
             edges[s] = er
         }
@@ -242,7 +260,8 @@ struct SeasonalStore: Codable {
     /// the caller blends toward this prior as confidence grows. `nil` until the
     /// route passes its frequency gate.
     func seasonalPrior(for key: RouteKey, week: Int, now t: Double)
-        -> (risk: Double, confidence: Double)? {
+        -> (risk: Double, confidence: Double)?
+    {
         guard let rec = routes[key] else { return nil }
         // The target week and its two neighbours, wrapped; empty where the
         // week arithmetic overflowed (the Swift this replaced crashed).
@@ -308,13 +327,15 @@ struct SeasonalStore: Codable {
     static let relocationMinDays = flows_seasonal_relocation_min_days()
 
     mutating func recordOrigin(lat: Int, lon: Int, t: Double) {
-        let key = flows_seasonal_origin_key(Int64(lat), Int64(lon)).text   // "" on a Rust panic: no trap
+        let key = flows_seasonal_origin_key(Int64(lat), Int64(lon)).text  // "" on a Rust panic: no trap
         let prior = origins[key] ?? OriginStat()
         let next = flows_seasonal_origin_after_trip(
-            FlowsSeasonalOriginStat(weighted: prior.weighted, last_seen: prior.lastSeen,
-                                    first_seen: prior.firstSeen, trips: Int64(prior.trips)), t)
-        origins[key] = OriginStat(weighted: next.weighted, lastSeen: next.last_seen,
-                                  firstSeen: next.first_seen, trips: Int(next.trips))
+            FlowsSeasonalOriginStat(
+                weighted: prior.weighted, last_seen: prior.lastSeen,
+                first_seen: prior.firstSeen, trips: Int64(prior.trips)), t)
+        origins[key] = OriginStat(
+            weighted: next.weighted, lastSeen: next.last_seen,
+            firstSeen: next.first_seen, trips: Int(next.trips))
         // Bound the map: cells the driver has genuinely left decay to noise.
         guard flows_seasonal_origins_over_cap(Int64(origins.count)) else { return }
         let order = Array(origins.keys)
@@ -344,11 +365,14 @@ struct SeasonalStore: Codable {
         // first seen, trips — in the store's order.
         let entries: [Double] = origins.flatMap { key, stat -> [Double] in
             let cell = flows_seasonal_parse_origin_key(key)
-            return [cell.has, Double(cell.lat), Double(cell.lon),
-                    stat.weighted, stat.lastSeen, stat.firstSeen, Double(stat.trips)]
+            return [
+                cell.has, Double(cell.lat), Double(cell.lon),
+                stat.weighted, stat.lastSeen, stat.firstSeen, Double(stat.trips),
+            ]
         }
         let home = entries.lent {
-            flows_seasonal_learned_home($0, now, Int64(currentHome?.lat ?? 0), Int64(currentHome?.lon ?? 0), currentHome != nil)
+            flows_seasonal_learned_home(
+                $0, now, Int64(currentHome?.lat ?? 0), Int64(currentHome?.lon ?? 0), currentHome != nil)
         }
         return home.has == 1 ? (home.lat, home.lon, Int(home.trips)) : nil
     }
@@ -371,8 +395,10 @@ struct SeasonalStore: Codable {
         for (key, rec) in routes {
             for (wk, stat) in rec.weeks {
                 let b = stat.bridge
-                cells += [Double(key.oLat), Double(key.oLon), Double(key.dLat), Double(key.dLon), Double(wk),
-                          rec.crossCountry ? 1 : 0, b.w_sum, b.w_observed, b.w_sq_err, b.last_t, Double(b.count)]
+                cells += [
+                    Double(key.oLat), Double(key.oLon), Double(key.dLat), Double(key.dLon), Double(wk),
+                    rec.crossCountry ? 1 : 0, b.w_sum, b.w_observed, b.w_sq_err, b.last_t, Double(b.count),
+                ]
             }
         }
         guard !cells.isEmpty else { return [] }
@@ -392,7 +418,6 @@ struct SeasonalStore: Codable {
 
 // MARK: - Learned head (phase 2a)
 
-
 /// The route/week feature vector — IDENTICAL order in the Rust trainer
 /// (rust/flows-train/src/main.rs::features) and here. Pre-normalized to
 /// ~[-1, 1]; change one side ⇒ change both AND retrain (the head's input
@@ -400,8 +425,10 @@ struct SeasonalStore: Codable {
 /// v2 adds LONGITUDES: without them Phoenix and Moore, OK (same latitude)
 /// were indistinguishable — desert heat and tornado alley blurred together.
 enum RouteFeatures {
-    static func vector(oLat: Double, oLon: Double, dLat: Double, dLon: Double,
-                       week: Int, crossCountry: Bool) -> [Double] {
+    static func vector(
+        oLat: Double, oLon: Double, dLat: Double, dLon: Double,
+        week: Int, crossCountry: Bool
+    ) -> [Double] {
         Array(flows_seasonal_route_features(oLat, oLon, dLat, dLon, Int64(week), crossCountry))
     }
     static let count = Int(flows_seasonal_route_feature_count())
@@ -413,9 +440,9 @@ enum RouteFeatures {
 /// are dropped in by the worker; absent ⇒ the statistical seasonal prior is
 /// used instead, so the app degrades gracefully.
 struct LearnedHead: Codable {
-    let w1: [[Double]]   // [hidden][in]
-    let b1: [Double]     // [hidden]
-    let w2: [Double]     // [hidden] → single output
+    let w1: [[Double]]  // [hidden][in]
+    let b1: [Double]  // [hidden]
+    let w2: [Double]  // [hidden] → single output
     let b2: Double
     let version: Int
     /// Training-set size (absent in old heads). INFORMATIONAL ONLY now: it
@@ -439,7 +466,9 @@ struct LearnedHead: Codable {
     }
 
     /// A head from the bridge's flat form; nil for a buffer that is not one.
-    static func weights(fromBridgeFlat flat: ArraySlice<Double>) -> (w1: [[Double]], b1: [Double], w2: [Double], b2: Double)? {
+    static func weights(fromBridgeFlat flat: ArraySlice<Double>) -> (
+        w1: [[Double]], b1: [Double], w2: [Double], b2: Double
+    )? {
         var at = flat.startIndex
         func take(_ n: Int) -> [Double]? {
             guard n >= 0, at + n <= flat.endIndex else { return nil }
@@ -447,8 +476,9 @@ struct LearnedHead: Codable {
             return Array(flat[at..<(at + n)])
         }
         guard let hidden = take(1)?.first.flatMap({ Int(exactly: $0) }), hidden >= 0,
-              let b2 = take(1)?.first,
-              let b1 = take(hidden), let w2 = take(hidden), let widths = take(hidden) else { return nil }
+            let b2 = take(1)?.first,
+            let b1 = take(hidden), let w2 = take(hidden), let widths = take(hidden)
+        else { return nil }
         var w1: [[Double]] = []
         for w in widths {
             guard let n = Int(exactly: w), let row = take(n) else { return nil }
@@ -478,9 +508,9 @@ final class SeasonalRiskModel: ObservableObject {
     static let shared = SeasonalRiskModel()
 
     private var store = SeasonalStore()
-    private let url: URL           // the seasonal store
-    private let exportURL: URL     // flat training rows the worker reads
-    private let headURL: URL       // the trained MLP the worker drops in
+    private let url: URL  // the seasonal store
+    private let exportURL: URL  // flat training rows the worker reads
+    private let headURL: URL  // the trained MLP the worker drops in
     /// A store that opened but could not be decoded (see `keepAside`).
     private let asideURL: URL
 
@@ -502,8 +532,9 @@ final class SeasonalRiskModel: ObservableObject {
         values.isExcludedFromBackup = true
         var kept = aside
         try? kept.setResourceValues(values)
-        FlowsDiag.log(.warn, "privacy",
-                      "the learned-trips file would not decode and was put aside")
+        FlowsDiag.log(
+            .warn, "privacy",
+            "the learned-trips file would not decode and was put aside")
     }
 
     /// The store put aside earlier, if this build can decode it and it is
@@ -520,7 +551,7 @@ final class SeasonalRiskModel: ObservableObject {
             try? JSONDecoder().decode(SeasonalStore.self, from: $0)
         }
     }
-    private var head: LearnedHead? // nil until the worker has produced one
+    private var head: LearnedHead?  // nil until the worker has produced one
     /// SERIAL writer for persistence: snapshots are enqueued in call order
     /// and drain FIFO, so a later trip's write can never be clobbered by an
     /// earlier one landing late (the hazard of independent detached tasks).
@@ -542,9 +573,10 @@ final class SeasonalRiskModel: ObservableObject {
     private var diskLoad: Task<Void, Never>?
 
     init() {
-        let dir = (try? FileManager.default.url(
-            for: .applicationSupportDirectory, in: .userDomainMask,
-            appropriateFor: nil, create: true)) ?? URL(fileURLWithPath: NSTemporaryDirectory())
+        let dir =
+            (try? FileManager.default.url(
+                for: .applicationSupportDirectory, in: .userDomainMask,
+                appropriateFor: nil, create: true)) ?? URL(fileURLWithPath: NSTemporaryDirectory())
         url = dir.appendingPathComponent("flows_seasonal_model.json")
         exportURL = dir.appendingPathComponent("flows_training_export.csv")
         headURL = dir.appendingPathComponent("flows_route_head.json")
@@ -576,8 +608,10 @@ final class SeasonalRiskModel: ObservableObject {
             let loadedStore = decoded
             let cameFromAside = fromAside
             let local = Self.decodeHead(SecureBehaviorStore.readMigrating(headFileURL))
-            let bundled = Self.decodeHead(Bundle.main.url(
-                forResource: "baseline_route_head", withExtension: "json")
+            let bundled = Self.decodeHead(
+                Bundle.main.url(
+                    forResource: "baseline_route_head", withExtension: "json"
+                )
                 .flatMap { try? Data(contentsOf: $0) })
             await MainActor.run { [weak self] in
                 guard let self else { return }
@@ -612,8 +646,8 @@ final class SeasonalRiskModel: ObservableObject {
 
     nonisolated private static func decodeHead(_ data: Data?) -> LearnedHead? {
         guard let data,
-              let h = try? JSONDecoder().decode(LearnedHead.self, from: data),
-              h.inputWidth == RouteFeatures.count   // stale contract → unusable
+            let h = try? JSONDecoder().decode(LearnedHead.self, from: data),
+            h.inputWidth == RouteFeatures.count  // stale contract → unusable
         else { return nil }
         return h
     }
@@ -635,7 +669,8 @@ final class SeasonalRiskModel: ObservableObject {
         switch flows_seasonal_choose_head(
             local != nil, Int64(local?.rows ?? 0), local?.rows != nil,
             local?.tunedOnDevice ?? false, local?.tunedOnDevice != nil,
-            bundled != nil, Int64(bundled?.rows ?? 0), bundled?.rows != nil) {
+            bundled != nil, Int64(bundled?.rows ?? 0), bundled?.rows != nil)
+        {
         case 1: head = local
         case 2: head = bundled
         default: head = nil
@@ -664,10 +699,13 @@ final class SeasonalRiskModel: ObservableObject {
     /// learned function of week + geography) while confidence stays gated by how
     /// much real data backs this route — so a fresh model never overreaches.
     func priorForRanking(origin: CLLocationCoordinate2D, dest: CLLocationCoordinate2D)
-        -> (risk: Double, confidence: Double) {
+        -> (risk: Double, confidence: Double)
+    {
         let key = RouteKey(origin: origin, dest: dest)
-        guard let stat = store.seasonalPrior(
-            for: key, week: Self.week(), now: Date().timeIntervalSince1970) else { return (0, 0) }
+        guard
+            let stat = store.seasonalPrior(
+                for: key, week: Self.week(), now: Date().timeIntervalSince1970)
+        else { return (0, 0) }
         guard let head else { return stat }
         let x = RouteFeatures.vector(
             oLat: Double(key.oLat) / 10, oLon: Double(key.oLon) / 10,
@@ -694,9 +732,11 @@ final class SeasonalRiskModel: ObservableObject {
         guard let baseline = baselineHead else { return }
         let trips = store.totalTrips
         // At least 12 trips, a day since the last tune, and 5 new trips.
-        guard flows_seasonal_tune_due(
-            Int64(trips), lastTunedAt.map { now.timeIntervalSince($0) } ?? 0, lastTunedAt != nil,
-            Int64(tunedAtTripCount)) else { return }
+        guard
+            flows_seasonal_tune_due(
+                Int64(trips), lastTunedAt.map { now.timeIntervalSince($0) } ?? 0, lastTunedAt != nil,
+                Int64(tunedAtTripCount))
+        else { return }
         lastTunedAt = now
         tunedAtTripCount = trips
         let rows = store.trainingRows(now: now.timeIntervalSince1970)
@@ -704,12 +744,13 @@ final class SeasonalRiskModel: ObservableObject {
         let generation = eraseGeneration
         Task.detached(priority: .utility) { [weak self] in
             guard let tuned = RouteHeadTrainer.fineTune(base: baseline, rows: rows),
-                  let tunedError = RouteHeadTrainer.meanSquaredError(tuned, rows: rows),
-                  let baseError = RouteHeadTrainer.meanSquaredError(baseline, rows: rows),
-                  flows_seasonal_accept_tune(tunedError, baseError)
+                let tunedError = RouteHeadTrainer.meanSquaredError(tuned, rows: rows),
+                let baseError = RouteHeadTrainer.meanSquaredError(baseline, rows: rows),
+                flows_seasonal_accept_tune(tunedError, baseError)
             else {
-                FlowsDiag.log(.info, "learning",
-                              "route head fine-tune discarded — no improvement on own trips")
+                FlowsDiag.log(
+                    .info, "learning",
+                    "route head fine-tune discarded — no improvement on own trips")
                 return
             }
             // An erase while this trained must win: the rows it learned
@@ -726,9 +767,11 @@ final class SeasonalRiskModel: ObservableObject {
                 SecureBehaviorStore.persistQueue.async {
                     SecureBehaviorStore.save(tuned, to: headURL)
                 }
-                FlowsDiag.log(.info, "learning", String(
-                    format: "route head fine-tuned on %d rows (MSE %.4f → %.4f)",
-                    rows.count, baseError, tunedError))
+                FlowsDiag.log(
+                    .info, "learning",
+                    String(
+                        format: "route head fine-tuned on %d rows (MSE %.4f → %.4f)",
+                        rows.count, baseError, tunedError))
             }
         }
     }
@@ -761,9 +804,8 @@ final class SeasonalRiskModel: ObservableObject {
         SecureBehaviorStore.shred(exportURL)
         SecureBehaviorStore.shred(headURL)
         SecureBehaviorStore.shred(asideURL)
-        head = baselineHead   // back to the shipped national model
+        head = baselineHead  // back to the shipped national model
     }
-
 
     /// The learned home anchor (the most-frequent trip-origin cell) — the
     /// everyday POI cache centers its circle here. `nil` until an origin
@@ -786,9 +828,11 @@ final class SeasonalRiskModel: ObservableObject {
     /// recording into a store whose history hadn't decoded yet would persist
     /// a one-trip file over everything the driver ever recorded. Timestamps
     /// are captured NOW (at arrival), not when the task runs.
-    func recordTrip(origin: CLLocationCoordinate2D, dest: CLLocationCoordinate2D,
-                    predicted: Double, observed: Double, distanceKm: Double,
-                    hubPath: [CLLocationCoordinate2D] = []) {
+    func recordTrip(
+        origin: CLLocationCoordinate2D, dest: CLLocationCoordinate2D,
+        predicted: Double, observed: Double, distanceKm: Double,
+        hubPath: [CLLocationCoordinate2D] = []
+    ) {
         let now = Date().timeIntervalSince1970
         let wk = Self.week()
         let generation = eraseGeneration
@@ -798,9 +842,10 @@ final class SeasonalRiskModel: ObservableObject {
             // An erase that came after the arrival wins: the trip is part of
             // what the driver erased.
             guard self.eraseGeneration == generation else { return }
-            self.store.record(TripObservation(
-                key: RouteKey(origin: origin, dest: dest), week: wk,
-                predicted: predicted, observed: observed, distanceKm: distanceKm, t: now))
+            self.store.record(
+                TripObservation(
+                    key: RouteKey(origin: origin, dest: dest), week: wk,
+                    predicted: predicted, observed: observed, distanceKm: distanceKm, t: now))
             if hubPath.count >= 2 {
                 self.store.recordEdges(hubPath: hubPath, week: wk, observed: observed, t: now)
             }
@@ -816,7 +861,8 @@ final class SeasonalRiskModel: ObservableObject {
         // two quick trips can't clobber each other; the store write is done
         // FIRST (the durability-critical one) before the CSV export.
         let snapshot = store
-        let url = self.url, exportURL = self.exportURL
+        let url = self.url
+        let exportURL = self.exportURL
         let now = Date().timeIntervalSince1970
         persistQueue.async {
             // ENCRYPTED AT REST: a trip history is a map of someone's life.

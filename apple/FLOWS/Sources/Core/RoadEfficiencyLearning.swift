@@ -62,8 +62,10 @@ struct RoadEfficiencyStore: Codable, Equatable {
     }
 
     /// Fold in a measured stretch: miles covered for units burned.
-    mutating func record(milesDriven: Double, unitsBurned: Double,
-                         area: TrafficArea, roadClass: RoadClass, now: Double) {
+    mutating func record(
+        milesDriven: Double, unitsBurned: Double,
+        area: TrafficArea, roadClass: RoadClass, now: Double
+    ) {
         guard flows_learning_efficiency_accepts(milesDriven, unitsBurned) else { return }
         decay(to: now)
         let k = Self.key(area: area, roadClass: roadClass)
@@ -88,11 +90,14 @@ struct RoadEfficiencyStore: Codable, Equatable {
     /// The economy to actually plan with: the measured figure for this road
     /// once enough of it has been driven, else the vehicle's own rated
     /// number. Clamped so one strange stretch can't rewrite the vehicle.
-    func economy(ratedMilesPerUnit: Double, area: TrafficArea,
-                 roadClass: RoadClass) -> Double {
+    func economy(
+        ratedMilesPerUnit: Double, area: TrafficArea,
+        roadClass: RoadClass
+    ) -> Double {
         let (local, hasLocal) = crossing(cells[Self.key(area: area, roadClass: .local)])
         let (pooled, hasPooled) = crossing(cells[Self.key(area: .pooled, roadClass: .highway)])
-        return flows_learning_efficiency_economy(ratedMilesPerUnit, roadClass == .highway, local, hasLocal, pooled, hasPooled)
+        return flows_learning_efficiency_economy(
+            ratedMilesPerUnit, roadClass == .highway, local, hasLocal, pooled, hasPooled)
     }
 
     /// True once this road has been measured enough to speak for itself.
@@ -108,8 +113,11 @@ struct RoadEfficiencyStore: Codable, Equatable {
 /// A cell as the bridge takes it: its fields (miles in the third slot) plus
 /// whether it exists.
 private func crossing(_ cell: RoadEfficiencyStore.Cell?) -> (FlowsLearningCell, Bool) {
-    (FlowsLearningCell(weighted_sum: cell?.weightedSum ?? 0, weight: cell?.weight ?? 0,
-                       count: cell?.miles ?? 0), cell != nil)
+    (
+        FlowsLearningCell(
+            weighted_sum: cell?.weightedSum ?? 0, weight: cell?.weight ?? 0,
+            count: cell?.miles ?? 0), cell != nil
+    )
 }
 
 @MainActor
@@ -129,24 +137,29 @@ final class RoadEfficiencyModel: ObservableObject {
     private static let commitMiles = 2.0
 
     init() {
-        let dir = (try? FileManager.default.url(
-            for: .applicationSupportDirectory, in: .userDomainMask,
-            appropriateFor: nil, create: true)) ?? URL(fileURLWithPath: NSTemporaryDirectory())
+        let dir =
+            (try? FileManager.default.url(
+                for: .applicationSupportDirectory, in: .userDomainMask,
+                appropriateFor: nil, create: true)) ?? URL(fileURLWithPath: NSTemporaryDirectory())
         url = dir.appendingPathComponent("flows_road_efficiency.json")
         if let data = SecureBehaviorStore.readMigrating(url),
-           let saved = try? JSONDecoder().decode(RoadEfficiencyStore.self, from: data) {
+            let saved = try? JSONDecoder().decode(RoadEfficiencyStore.self, from: data)
+        {
             store = saved
         }
     }
 
     /// Feed one GPS step: how far the vehicle moved and how much fuel that
     /// cost at the economy it was achieving.
-    func record(deltaMiles: Double, unitsBurned: Double,
-                area: TrafficArea, roadClass: RoadClass) {
+    func record(
+        deltaMiles: Double, unitsBurned: Double,
+        area: TrafficArea, roadClass: RoadClass
+    ) {
         guard deltaMiles > 0, unitsBurned > 0 else { return }
         // Road class or neighbourhood changed → bank what we have first.
         if let pc = pendingClass, let pa = pendingArea,
-           pc != roadClass || pa != area {
+            pc != roadClass || pa != area
+        {
             commit(area: pa, roadClass: pc)
         }
         pendingArea = area
@@ -159,11 +172,15 @@ final class RoadEfficiencyModel: ObservableObject {
     }
 
     private func commit(area: TrafficArea, roadClass: RoadClass) {
-        defer { pendingMiles = 0; pendingUnits = 0 }
+        defer {
+            pendingMiles = 0
+            pendingUnits = 0
+        }
         guard pendingMiles > 0, pendingUnits > 0 else { return }
-        store.record(milesDriven: pendingMiles, unitsBurned: pendingUnits,
-                     area: area, roadClass: roadClass,
-                     now: Date().timeIntervalSince1970)
+        store.record(
+            milesDriven: pendingMiles, unitsBurned: pendingUnits,
+            area: area, roadClass: roadClass,
+            now: Date().timeIntervalSince1970)
         persist()
     }
 
@@ -176,10 +193,13 @@ final class RoadEfficiencyModel: ObservableObject {
     }
 
     /// The economy to plan with on this road.
-    func economy(ratedMilesPerUnit: Double, area: TrafficArea,
-                 roadClass: RoadClass) -> Double {
-        store.economy(ratedMilesPerUnit: ratedMilesPerUnit, area: area,
-                      roadClass: roadClass)
+    func economy(
+        ratedMilesPerUnit: Double, area: TrafficArea,
+        roadClass: RoadClass
+    ) -> Double {
+        store.economy(
+            ratedMilesPerUnit: ratedMilesPerUnit, area: area,
+            roadClass: roadClass)
     }
 
     /// Encoded and written on the persist queue, off the GPS sink.

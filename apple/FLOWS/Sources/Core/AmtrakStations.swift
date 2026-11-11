@@ -53,7 +53,7 @@ enum AmtrakStations {
 
     static func load(from url: URL?) -> [AmtrakStation] {
         guard let url, let data = try? Data(contentsOf: url),
-              let file = try? JSONDecoder().decode(File.self, from: data)
+            let file = try? JSONDecoder().decode(File.self, from: data)
         else { return [] }
         return file.stations
     }
@@ -68,7 +68,8 @@ enum AmtrakStations {
         in stations: [AmtrakStation] = all
     ) -> AmtrakStation? {
         guard !stations.isEmpty else { return nil }
-        let lats = stations.map(\.lat), lons = stations.map(\.lon)
+        let lats = stations.map(\.lat)
+        let lons = stations.map(\.lon)
         let i = lats.lent { la in
             lons.lent { lo in
                 flows_modes_nearest_within(point.latitude, point.longitude, maxMeters, la, lo)

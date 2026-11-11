@@ -7,6 +7,7 @@
 // -----------------------------------------------------------------------------
 
 import XCTest
+
 // The test target compiles the app sources directly; there is no FLOWS module to import.
 
 /// The risk combine must give the SAME BITS on every launch, through the
@@ -26,33 +27,44 @@ final class RiskDeterminismTests: XCTestCase {
     private let fixture: [(name: String, families: [String: Double], bits: UInt64)] = [
         ("flood_in_rain", ["qpf_flood": 0.7, "precip": 0.9, "wind": 0.6], 0x3feb_0790_1739_d869),
         ("fire_in_weather", ["fire": 0.85, "wind": 0.95, "heat": 0.9], 0x3fee_b030_4973_e758),
-        ("mixed_with_ignored",
-         ["closure": 0.3, "heat": 0.2, "wind": 0.4, "qpf_flood": 0.7, "environmental": 0.9],
-         0x3feb_3128_0d87_9f69),
-        ("all_predictors_maxed",
-         Dictionary(uniqueKeysWithValues: RiskEquations.secondaryOrder.map { ($0, 1.0) }),
-         0x3fe9_9999_9999_999a),
+        (
+            "mixed_with_ignored",
+            ["closure": 0.3, "heat": 0.2, "wind": 0.4, "qpf_flood": 0.7, "environmental": 0.9],
+            0x3feb_3128_0d87_9f69
+        ),
+        (
+            "all_predictors_maxed",
+            Dictionary(uniqueKeysWithValues: RiskEquations.secondaryOrder.map { ($0, 1.0) }),
+            0x3fe9_9999_9999_999a
+        ),
         ("two_primaries", ["seismic": 0.5, "fire": 0.5], 0x3fe8_0000_0000_0000),
-        ("ten_terms_unsaturated",
-         ["wind": 0.13, "cold": 0.07, "air": 0.11, "radiation": 0.09, "avalanche": 0.12,
-          "convective": 0.08, "winter": 0.06, "precip": 0.15, "heat": 0.05, "fire": 0.2],
-         0x3fdd_4910_b178_ba6a),
+        (
+            "ten_terms_unsaturated",
+            [
+                "wind": 0.13, "cold": 0.07, "air": 0.11, "radiation": 0.09, "avalanche": 0.12,
+                "convective": 0.08, "winter": 0.06, "precip": 0.15, "heat": 0.05, "fire": 0.2,
+            ],
+            0x3fdd_4910_b178_ba6a
+        ),
     ]
 
     func testRealizedRiskMatchesTheRustPortBitForBit() {
         for c in fixture {
             let got = RiskEquations.realizedRisk(c.families)
-            XCTAssertEqual(got.bitPattern, c.bits,
-                           "\(c.name): Swift \(got) (0x\(String(got.bitPattern, radix: 16))) "
-                           + "differs from the Rust port — one side has drifted")
+            XCTAssertEqual(
+                got.bitPattern, c.bits,
+                "\(c.name): Swift \(got) (0x\(String(got.bitPattern, radix: 16))) "
+                    + "differs from the Rust port — one side has drifted")
         }
     }
 
     func testRealizedRiskDoesNotDependOnInsertionOrder() {
         // Build the same family map from different insertion sequences. The
         // dictionaries may iterate differently; the result must not.
-        let base: [(String, Double)] = [("qpf_flood", 0.7), ("precip", 0.9), ("wind", 0.6),
-                                        ("heat", 0.3), ("fire", 0.1)]
+        let base: [(String, Double)] = [
+            ("qpf_flood", 0.7), ("precip", 0.9), ("wind", 0.6),
+            ("heat", 0.3), ("fire", 0.1),
+        ]
         let forward = Dictionary(uniqueKeysWithValues: base)
         let backward = Dictionary(uniqueKeysWithValues: base.reversed())
         var rotated: [String: Double] = [:]

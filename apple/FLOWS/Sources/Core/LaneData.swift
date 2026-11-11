@@ -33,12 +33,14 @@ enum LaneData {
         case through
         case slightRight, right, sharpRight
         case mergeToLeft, mergeToRight
-        case reverse          // U-turn lane
-        case none             // tagged but unspecified
+        case reverse  // U-turn lane
+        case none  // tagged but unspecified
 
         /// Turns by the bridge's code, in declaration order.
-        static let byCode: [Turn] = [.sharpLeft, .left, .slightLeft, .through, .slightRight, .right,
-                                     .sharpRight, .mergeToLeft, .mergeToRight, .reverse, Turn.none]
+        static let byCode: [Turn] = [
+            .sharpLeft, .left, .slightLeft, .through, .slightRight, .right,
+            .sharpRight, .mergeToLeft, .mergeToRight, .reverse, Turn.none,
+        ]
         var rustCode: UInt8 { UInt8(Turn.byCode.firstIndex(of: self) ?? 10) }
 
         /// The arrow drawn for a lane offering this movement.
@@ -70,7 +72,7 @@ enum LaneData {
         var symbol: String { primary.symbol }
 
         func allows(_ side: ManeuverSymbol.Side) -> Bool {
-            guard !turns.isEmpty else { return false }   // an empty buffer never crosses
+            guard !turns.isEmpty else { return false }  // an empty buffer never crosses
             let codes = turns.map { Int64($0.rustCode) }
             return codes.lent { flows_places_text_lane_allows($0, side.rustCode) }
         }
@@ -109,7 +111,8 @@ enum LaneData {
     /// Plain-words summary of the highlighted lanes ("2 right lanes").
     static func summary(lanes: [Lane], recommended: Set<Int>) -> String? {
         guard !recommended.isEmpty, !lanes.isEmpty,
-              recommended.count < lanes.count else { return nil }
+            recommended.count < lanes.count
+        else { return nil }
         let n = recommended.count
         let plural = n == 1 ? "lane" : "lanes"
         // Where do they sit? Left edge, right edge, or the middle.

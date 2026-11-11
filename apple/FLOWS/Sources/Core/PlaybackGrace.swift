@@ -7,8 +7,9 @@
 // -----------------------------------------------------------------------------
 
 import Foundation
+
 #if os(iOS)
-import AVFoundation
+    import AVFoundation
 #endif
 
 /// Is another app making sound right now?
@@ -25,9 +26,9 @@ import AVFoundation
 enum AudioActivity {
     static var isOtherAudioPlaying: Bool {
         #if os(iOS)
-        return AVAudioSession.sharedInstance().isOtherAudioPlaying
+            return AVAudioSession.sharedInstance().isOtherAudioPlaying
         #else
-        return false
+            return false
         #endif
     }
 }
@@ -87,8 +88,10 @@ enum PlaybackGrace {
     ///   the player is ours and can be asked. nil for players that can't.
     /// The radio's measured buffer is held between its floor and cap; every
     /// other player waits its cap (rust/flows-core media_policy.rs).
-    static func graceSeconds(for source: Source,
-                             measuredBuffer: Double? = nil) -> Double {
+    static func graceSeconds(
+        for source: Source,
+        measuredBuffer: Double? = nil
+    ) -> Double {
         let code: UInt8
         switch source {
         case .radio: code = 0

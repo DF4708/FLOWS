@@ -53,11 +53,15 @@ enum PlaybackFallback {
     ///   - lastGenre: what they asked for last ("rock"), for a like-for-like
     ///     radio match; empty/nil when unknown.
     /// The ladder itself lives in rust/flows-core (media_policy.rs).
-    static func onConnectionLost(isPlaying: Bool, needsNetwork: Bool,
-                                 hasLocalMusic: Bool,
-                                 lastGenre: String?) -> Source {
-        switch flows_modes_on_connection_lost(isPlaying, needsNetwork, hasLocalMusic,
-                                              lastGenre ?? "", lastGenre != nil) {
+    static func onConnectionLost(
+        isPlaying: Bool, needsNetwork: Bool,
+        hasLocalMusic: Bool,
+        lastGenre: String?
+    ) -> Source {
+        switch flows_modes_on_connection_lost(
+            isPlaying, needsNetwork, hasLocalMusic,
+            lastGenre ?? "", lastGenre != nil)
+        {
         case 0: return .localLibrary
         case 1: return .radio(genre: flows_modes_fallback_genre(lastGenre ?? "", lastGenre != nil).text)
         case 2: return .nothingAvailable
@@ -70,8 +74,10 @@ enum PlaybackFallback {
     /// link would otherwise ping-pong the driver every few seconds), and
     /// the driver hasn't since chosen something of their own. A choice
     /// they made outranks anything FLOWS wants to restore.
-    static func shouldRestore(handedOff: Bool, connectionHeld: Bool,
-                              driverChoseSince: Bool) -> Bool {
+    static func shouldRestore(
+        handedOff: Bool, connectionHeld: Bool,
+        driverChoseSince: Bool
+    ) -> Bool {
         flows_modes_should_restore(handedOff, connectionHeld, driverChoseSince)
     }
 

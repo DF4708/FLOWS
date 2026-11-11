@@ -113,8 +113,8 @@ let session: URLSession = {
 
 func json(_ url: String) async -> [String: Any]? {
     guard let u = URL(string: url),
-          let (d, r) = try? await session.data(from: u),
-          (r as? HTTPURLResponse)?.statusCode == 200
+        let (d, r) = try? await session.data(from: u),
+        (r as? HTTPURLResponse)?.statusCode == 200
     else { return nil }
     return try? JSONSerialization.jsonObject(with: d) as? [String: Any]
 }
@@ -131,12 +131,13 @@ func check(_ spot: Spot, sampleElevation: Bool) async -> Result {
     var out = Result(spot: spot)
     // NWS two-step
     if let p = await json(String(format: "https://api.weather.gov/points/%.4f,%.4f", spot.lat, spot.lon)),
-       let props = p["properties"] as? [String: Any],
-       let hourly = props["forecastHourly"] as? String,
-       let h = await json(hourly),
-       let hp = h["properties"] as? [String: Any],
-       let periods = hp["periods"] as? [[String: Any]],
-       let now = periods.first {
+        let props = p["properties"] as? [String: Any],
+        let hourly = props["forecastHourly"] as? String,
+        let h = await json(hourly),
+        let hp = h["properties"] as? [String: Any],
+        let periods = hp["periods"] as? [[String: Any]],
+        let now = periods.first
+    {
         out.forecast = true
         let t = (now["temperature"] as? Double).map { String(format: "%.0fF", $0) } ?? "?"
         let w = (now["windSpeed"] as? String) ?? "?"
@@ -144,11 +145,16 @@ func check(_ spot: Spot, sampleElevation: Bool) async -> Result {
     }
     // NWS alerts endpoint reachability (any 200 counts, even zero alerts)
     if let a = await json(String(format: "https://api.weather.gov/alerts/active?point=%.4f,%.4f", spot.lat, spot.lon)),
-       a["features"] != nil {
+        a["features"] != nil
+    {
         out.alerts = true
     }
     if sampleElevation,
-       let e = await json(String(format: "https://epqs.nationalmap.gov/v1/json?x=%.4f&y=%.4f&wkid=4326&units=Meters&includeDate=false", spot.lon, spot.lat)) {
+        let e = await json(
+            String(
+                format: "https://epqs.nationalmap.gov/v1/json?x=%.4f&y=%.4f&wkid=4326&units=Meters&includeDate=false",
+                spot.lon, spot.lat))
+    {
         out.elevation = (e["value"] as? Double) ?? (e["value"] as? String).flatMap(Double.init)
     }
     return out
@@ -156,15 +162,19 @@ func check(_ spot: Spot, sampleElevation: Bool) async -> Result {
 
 func routeCheck(_ name: String, from: (Double, Double), to: (Double, Double)) async -> String {
     let req = MKDirections.Request()
-    req.source = MKMapItem(placemark: MKPlacemark(
-        coordinate: CLLocationCoordinate2D(latitude: from.0, longitude: from.1)))
-    req.destination = MKMapItem(placemark: MKPlacemark(
-        coordinate: CLLocationCoordinate2D(latitude: to.0, longitude: to.1)))
+    req.source = MKMapItem(
+        placemark: MKPlacemark(
+            coordinate: CLLocationCoordinate2D(latitude: from.0, longitude: from.1)))
+    req.destination = MKMapItem(
+        placemark: MKPlacemark(
+            coordinate: CLLocationCoordinate2D(latitude: to.0, longitude: to.1)))
     req.transportType = .automobile
     if let resp = try? await MKDirections(request: req).calculate(),
-       let r = resp.routes.first {
-        return String(format: "ROUTE %@: OK — %.0f mi, %.0f min", name,
-                      r.distance / 1609.344, r.expectedTravelTime / 60)
+        let r = resp.routes.first
+    {
+        return String(
+            format: "ROUTE %@: OK — %.0f mi, %.0f min", name,
+            r.distance / 1609.344, r.expectedTravelTime / 60)
     }
     return "ROUTE \(name): FAILED"
 }
@@ -188,13 +198,17 @@ struct Check {
             idx += batch.count
         }
 
-        var okForecast: [String: Int] = [:], okAlerts: [String: Int] = [:], total: [String: Int] = [:]
+        var okForecast: [String: Int] = [:]
+        var okAlerts: [String: Int] = [:]
+        var total: [String: Int] = [:]
         for r in results.sorted(by: { $0.spot.name < $1.spot.name }) {
             total[r.spot.country, default: 0] += 1
             if r.forecast { okForecast[r.spot.country, default: 0] += 1 }
             if r.alerts { okAlerts[r.spot.country, default: 0] += 1 }
             let elev = r.elevation.map { String(format: "elev %.0fm", $0) } ?? ""
-            print("\(r.spot.country) \(r.spot.name): forecast=\(r.forecast ? "OK \(r.forecastDetail)" : "—") alerts=\(r.alerts ? "OK" : "—") \(elev)")
+            print(
+                "\(r.spot.country) \(r.spot.name): forecast=\(r.forecast ? "OK \(r.forecastDetail)" : "—") alerts=\(r.alerts ? "OK" : "—") \(elev)"
+            )
         }
         print("\nSUMMARY")
         for c in ["US", "CA", "MX"] {

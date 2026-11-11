@@ -17,12 +17,13 @@ final class RadioAndSpotifyTests: XCTestCase {
     func testParseServersDeduplicatesPerIPFamilyRepeats() {
         // The live payload repeats each mirror once per IP family (v4 + v6).
         let payload = """
-        [{"ip":"91.98.4.78","name":"de1.api.radio-browser.info"},
-         {"ip":"2a01:4f8::1","name":"de1.api.radio-browser.info"},
-         {"ip":"1.2.3.4","name":"nl1.api.radio-browser.info"}]
-        """.data(using: .utf8)!
-        XCTAssertEqual(RadioBrowser.parseServers(payload),
-                       ["de1.api.radio-browser.info", "nl1.api.radio-browser.info"])
+            [{"ip":"91.98.4.78","name":"de1.api.radio-browser.info"},
+             {"ip":"2a01:4f8::1","name":"de1.api.radio-browser.info"},
+             {"ip":"1.2.3.4","name":"nl1.api.radio-browser.info"}]
+            """.data(using: .utf8)!
+        XCTAssertEqual(
+            RadioBrowser.parseServers(payload),
+            ["de1.api.radio-browser.info", "nl1.api.radio-browser.info"])
     }
 
     func testParseServersToleratesGarbage() {
@@ -31,18 +32,21 @@ final class RadioAndSpotifyTests: XCTestCase {
     }
 
     func testServerHealthReadsTheStatsStatus() {
-        XCTAssertTrue(RadioBrowser.serverLooksHealthy(
-            Data(#"{"status":"OK","stations":57620}"#.utf8)))
-        XCTAssertFalse(RadioBrowser.serverLooksHealthy(
-            Data(#"{"error":"down"}"#.utf8)))
+        XCTAssertTrue(
+            RadioBrowser.serverLooksHealthy(
+                Data(#"{"status":"OK","stations":57620}"#.utf8)))
+        XCTAssertFalse(
+            RadioBrowser.serverLooksHealthy(
+                Data(#"{"error":"down"}"#.utf8)))
         XCTAssertFalse(RadioBrowser.serverLooksHealthy(Data("x".utf8)))
     }
 
     // MARK: radio-browser — station search URL
 
     func testSearchURLPinsUSWorkingHTTPSAndVoteOrder() throws {
-        let url = try XCTUnwrap(RadioBrowser.searchURL(
-            host: "de1.api.radio-browser.info", state: "Texas", name: nil))
+        let url = try XCTUnwrap(
+            RadioBrowser.searchURL(
+                host: "de1.api.radio-browser.info", state: "Texas", name: nil))
         let s = url.absoluteString
         XCTAssertTrue(s.hasPrefix("https://de1.api.radio-browser.info/json/stations/search?"))
         // The three structural filters: US only (banned-country services can
@@ -55,20 +59,23 @@ final class RadioAndSpotifyTests: XCTestCase {
     }
 
     func testSearchURLEncodesSpacesAndReservedCharacters() throws {
-        let state = try XCTUnwrap(RadioBrowser.searchURL(
-            host: "h", state: "New Mexico", name: nil))
+        let state = try XCTUnwrap(
+            RadioBrowser.searchURL(
+                host: "h", state: "New Mexico", name: nil))
         XCTAssertTrue(state.absoluteString.contains("state=New%20Mexico"))
         // "&" and "=" in a free-text term must not split the query string
         // (the Yelp truncation lesson).
-        let name = try XCTUnwrap(RadioBrowser.searchURL(
-            host: "h", state: nil, name: "rock & roll"))
+        let name = try XCTUnwrap(
+            RadioBrowser.searchURL(
+                host: "h", state: nil, name: "rock & roll"))
         XCTAssertTrue(name.absoluteString.contains("name=rock%20%26%20roll"))
         XCTAssertFalse(name.absoluteString.contains("roll&"))
     }
 
     func testSearchURLGenreModeUsesTheTagParameter() throws {
-        let url = try XCTUnwrap(RadioBrowser.searchURL(
-            host: "h", state: nil, name: nil, tag: "classic country"))
+        let url = try XCTUnwrap(
+            RadioBrowser.searchURL(
+                host: "h", state: nil, name: nil, tag: "classic country"))
         XCTAssertTrue(url.absoluteString.contains("tag=classic%20country"))
         XCTAssertFalse(url.absoluteString.contains("name="))
     }
@@ -77,8 +84,9 @@ final class RadioAndSpotifyTests: XCTestCase {
         let a = RadioBrowser.Station(name: "KAAA", url: "https://a/1", genre: "", votes: 9)
         let b = RadioBrowser.Station(name: "KBBB", url: "https://b/1", genre: "", votes: 8)
         let dupB = RadioBrowser.Station(name: "kbbb", url: "https://b/2", genre: "", votes: 7)
-        XCTAssertEqual(RadioBrowser.merged(nameHits: [a], tagHits: [b, dupB]),
-                       [a, b])
+        XCTAssertEqual(
+            RadioBrowser.merged(nameHits: [a], tagHits: [b, dupB]),
+            [a, b])
         // One failed mode still serves the other.
         XCTAssertEqual(RadioBrowser.merged(nameHits: nil, tagHits: [b]), [b])
         XCTAssertEqual(RadioBrowser.merged(nameHits: [a], tagHits: nil), [a])
@@ -89,18 +97,18 @@ final class RadioAndSpotifyTests: XCTestCase {
     // MARK: radio-browser — station rows
 
     private let stationPayload = """
-    [{"name":"KAAA Country","url_resolved":"https://a.example.com/live",
-      "tags":"country,news,talk,extra-tag","votes":900},
-     {"name":"KBBB Insecure","url_resolved":"http://b.example.com/live",
-      "tags":"rock","votes":800},
-     {"name":"KAAA Country","url_resolved":"https://a.example.com/live-hi",
-      "tags":"country","votes":700},
-     {"name":"KCCC Jazz","url_resolved":"https://a.example.com/live",
-      "tags":"","votes":600},
-     {"name":"  ","url_resolved":"https://d.example.com/live","tags":"x","votes":500},
-     {"name":"KEEE Talk","url_resolved":"https://e.example.com/live",
-      "tags":"talk","votes":400}]
-    """.data(using: .utf8)!
+        [{"name":"KAAA Country","url_resolved":"https://a.example.com/live",
+          "tags":"country,news,talk,extra-tag","votes":900},
+         {"name":"KBBB Insecure","url_resolved":"http://b.example.com/live",
+          "tags":"rock","votes":800},
+         {"name":"KAAA Country","url_resolved":"https://a.example.com/live-hi",
+          "tags":"country","votes":700},
+         {"name":"KCCC Jazz","url_resolved":"https://a.example.com/live",
+          "tags":"","votes":600},
+         {"name":"  ","url_resolved":"https://d.example.com/live","tags":"x","votes":500},
+         {"name":"KEEE Talk","url_resolved":"https://e.example.com/live",
+          "tags":"talk","votes":400}]
+        """.data(using: .utf8)!
 
     func testParseStationsFiltersToHTTPSAndDeduplicates() {
         let stations = RadioBrowser.parseStations(stationPayload)
@@ -113,8 +121,9 @@ final class RadioAndSpotifyTests: XCTestCase {
     }
 
     func testGenreWordsTakeTheFirstThreeTags() {
-        XCTAssertEqual(RadioBrowser.genreWords(fromTags: "country, news ,talk,extra"),
-                       "country · news · talk")
+        XCTAssertEqual(
+            RadioBrowser.genreWords(fromTags: "country, news ,talk,extra"),
+            "country · news · talk")
         XCTAssertEqual(RadioBrowser.genreWords(fromTags: ""), "")
         XCTAssertEqual(RadioBrowser.genreWords(fromTags: " ,,rock"), "rock")
     }
@@ -124,14 +133,14 @@ final class RadioAndSpotifyTests: XCTestCase {
             name: "KAAA", url: "https://a.example.com/live", genre: "", votes: 1)
         let channel = station.channel
         XCTAssertEqual(channel.streamURL?.absoluteString, "https://a.example.com/live")
-        XCTAssertEqual(channel.detail, "AM/FM stream")   // plain words when tagless
+        XCTAssertEqual(channel.detail, "AM/FM stream")  // plain words when tagless
     }
 
     func testStateNamesCoverEveryTwoLetterCode() {
         XCTAssertEqual(RadioBrowser.stateName("TX"), "Texas")
         XCTAssertEqual(RadioBrowser.stateName("dc"), "District of Columbia")
         XCTAssertEqual(RadioBrowser.stateName("NM"), "New Mexico")
-        XCTAssertNil(RadioBrowser.stateName("PR"))   // directory has no PR index
+        XCTAssertNil(RadioBrowser.stateName("PR"))  // directory has no PR index
         XCTAssertNil(RadioBrowser.stateName(""))
     }
 
@@ -144,12 +153,15 @@ final class RadioAndSpotifyTests: XCTestCase {
 
     func testStateFeedDirectoryUsesFIPSIds() {
         // Verified live: Broadcastify's stid values are US state FIPS codes.
-        XCTAssertEqual(ScannerLinks.stateFeedsURL(stateCode: "TX")?.absoluteString,
-                       "https://www.broadcastify.com/listen/stid/48")
-        XCTAssertEqual(ScannerLinks.stateFeedsURL(stateCode: "ca")?.absoluteString,
-                       "https://www.broadcastify.com/listen/stid/6")
-        XCTAssertEqual(ScannerLinks.stateFeedsURL(stateCode: "DC")?.absoluteString,
-                       "https://www.broadcastify.com/listen/stid/11")
+        XCTAssertEqual(
+            ScannerLinks.stateFeedsURL(stateCode: "TX")?.absoluteString,
+            "https://www.broadcastify.com/listen/stid/48")
+        XCTAssertEqual(
+            ScannerLinks.stateFeedsURL(stateCode: "ca")?.absoluteString,
+            "https://www.broadcastify.com/listen/stid/6")
+        XCTAssertEqual(
+            ScannerLinks.stateFeedsURL(stateCode: "DC")?.absoluteString,
+            "https://www.broadcastify.com/listen/stid/11")
         XCTAssertNil(ScannerLinks.stateFeedsURL(stateCode: "PR"))
         XCTAssertNil(ScannerLinks.stateFeedsURL(stateCode: ""))
     }
@@ -158,7 +170,8 @@ final class RadioAndSpotifyTests: XCTestCase {
 
     func testSpokenClipCutsAtSentenceEdges() {
         XCTAssertEqual(SiriSummaries.spokenClip("Short."), "Short.")
-        let sentences = "First sentence here. "
+        let sentences =
+            "First sentence here. "
             + String(repeating: "second part goes on ", count: 30)
         XCTAssertEqual(SiriSummaries.spokenClip(sentences), "First sentence here.")
         let noPeriods = String(repeating: "word ", count: 60)
@@ -169,9 +182,10 @@ final class RadioAndSpotifyTests: XCTestCase {
         XCTAssertEqual(
             SiriSummaries.fasterRouteOffer(minutes: 12),
             "Traffic ahead adds about 12 minutes. "
-            + "A faster route is ready — say yes to take it.")
-        XCTAssertTrue(SiriSummaries.fasterRouteOffer(minutes: 1)
-            .contains("about 1 minute."))
+                + "A faster route is ready — say yes to take it.")
+        XCTAssertTrue(
+            SiriSummaries.fasterRouteOffer(minutes: 1)
+                .contains("about 1 minute."))
     }
 
     func testYesNoWordsReadPlainReplies() {
@@ -194,56 +208,79 @@ final class RadioAndSpotifyTests: XCTestCase {
     func testVoicePickTakesNamesKeywordsAndPlainYes() {
         let options = ["Taco Bell", "El Rays", "Chipotle"]
         // The user's exact script: "yes, let's go to Taco Bell".
-        XCTAssertEqual(VoicePick.choose(reply: "yes, let's go to Taco Bell",
-                                        options: options), .picked(0))
-        XCTAssertEqual(VoicePick.choose(reply: "El Rays please",
-                                        options: options), .picked(1))
+        XCTAssertEqual(
+            VoicePick.choose(
+                reply: "yes, let's go to Taco Bell",
+                options: options), .picked(0))
+        XCTAssertEqual(
+            VoicePick.choose(
+                reply: "El Rays please",
+                options: options), .picked(1))
         // A bare yes takes the FIRST offer.
         XCTAssertEqual(VoicePick.choose(reply: "yes", options: options), .picked(0))
         XCTAssertEqual(VoicePick.choose(reply: "no", options: options), .declined)
         XCTAssertEqual(VoicePick.choose(reply: "hmm what", options: options), .unclear)
         // Cuisine step: "I want mexican" from the category list.
         let cuisines = ["Fast food", "Pizza", "American", "Mexican", "Greek"]
-        XCTAssertEqual(VoicePick.choose(reply: "I want mexican",
-                                        options: cuisines), .picked(3))
-        XCTAssertEqual(VoicePick.choose(reply: "fast food I guess",
-                                        options: cuisines), .picked(0))
+        XCTAssertEqual(
+            VoicePick.choose(
+                reply: "I want mexican",
+                options: cuisines), .picked(3))
+        XCTAssertEqual(
+            VoicePick.choose(
+                reply: "fast food I guess",
+                options: cuisines), .picked(0))
     }
 
     func testPlaceReplyHandlesChangesOfMind() {
         let places = ["Athens Gyro", "Olive Grove"]
         let cuisines = ["Fast food", "Pizza", "American", "Mexican", "Greek"]
         // Straight picks still work at this step.
-        XCTAssertEqual(VoicePick.placeReply("Olive Grove sounds good",
-                                            places: places, cuisines: cuisines),
-                       .picked(1))
-        XCTAssertEqual(VoicePick.placeReply("yes", places: places, cuisines: cuisines),
-                       .picked(0))
+        XCTAssertEqual(
+            VoicePick.placeReply(
+                "Olive Grove sounds good",
+                places: places, cuisines: cuisines),
+            .picked(1))
+        XCTAssertEqual(
+            VoicePick.placeReply("yes", places: places, cuisines: cuisines),
+            .picked(0))
         // The change of mind: picked Greek, now wants Mexican — naming the
         // cuisine switches the earlier answer with no back-word needed.
-        XCTAssertEqual(VoicePick.placeReply("actually I want Mexican instead",
-                                            places: places, cuisines: cuisines),
-                       .switchCuisine(3))
+        XCTAssertEqual(
+            VoicePick.placeReply(
+                "actually I want Mexican instead",
+                places: places, cuisines: cuisines),
+            .switchCuisine(3))
         // The explicit third option: back a step.
-        XCTAssertEqual(VoicePick.placeReply("go back",
-                                            places: places, cuisines: cuisines),
-                       .backToCuisine)
-        XCTAssertEqual(VoicePick.placeReply("something else",
-                                            places: places, cuisines: cuisines),
-                       .backToCuisine)
+        XCTAssertEqual(
+            VoicePick.placeReply(
+                "go back",
+                places: places, cuisines: cuisines),
+            .backToCuisine)
+        XCTAssertEqual(
+            VoicePick.placeReply(
+                "something else",
+                places: places, cuisines: cuisines),
+            .backToCuisine)
         // A place hit beats everything — "Athens Gyro" wins even though
         // the sentence also says "different".
-        XCTAssertEqual(VoicePick.placeReply("no wait, Athens Gyro is a different one, let's do that",
-                                            places: places, cuisines: cuisines),
-                       .picked(0))
-        XCTAssertEqual(VoicePick.placeReply("no", places: places, cuisines: cuisines),
-                       .declined)
-        XCTAssertEqual(VoicePick.placeReply("hmm", places: places, cuisines: cuisines),
-                       .unclear)
+        XCTAssertEqual(
+            VoicePick.placeReply(
+                "no wait, Athens Gyro is a different one, let's do that",
+                places: places, cuisines: cuisines),
+            .picked(0))
+        XCTAssertEqual(
+            VoicePick.placeReply("no", places: places, cuisines: cuisines),
+            .declined)
+        XCTAssertEqual(
+            VoicePick.placeReply("hmm", places: places, cuisines: cuisines),
+            .unclear)
         // Non-food dialogues pass no cuisines — back-words still back out.
-        XCTAssertEqual(VoicePick.placeReply("something different",
-                                            places: places, cuisines: []),
-                       .backToCuisine)
+        XCTAssertEqual(
+            VoicePick.placeReply(
+                "something different",
+                places: places, cuisines: []),
+            .backToCuisine)
     }
 
     func testCommonGenresAreCleanDirectoryTags() {
@@ -271,39 +308,47 @@ final class RadioAndSpotifyTests: XCTestCase {
         XCTAssertNil(IntentClarifier.optionIndex(fromModelText: "none of them", optionCount: 3))
         XCTAssertNil(IntentClarifier.optionIndex(fromModelText: "", optionCount: 3))
         // The FIRST number wins — chatter after it can't redirect the pick.
-        XCTAssertEqual(IntentClarifier.optionIndex(
-            fromModelText: "1 (though 2 is close)", optionCount: 3), 0)
+        XCTAssertEqual(
+            IntentClarifier.optionIndex(
+                fromModelText: "1 (though 2 is close)", optionCount: 3), 0)
     }
 
     // MARK: text-size slider — screen-clamped bounds
 
     func testTextScaleCapsFollowTheScreenWidth() {
         // Phone-width windows stop before the accessibility tiers.
-        XCTAssertEqual(TextScale.steps[TextScale.maxStepIndex(forWidthPoints: 375)],
-                       .xxxLarge)
+        XCTAssertEqual(
+            TextScale.steps[TextScale.maxStepIndex(forWidthPoints: 375)],
+            .xxxLarge)
         // Mid widths (big phones, split view) allow the small accessibility
         // sizes; only tablet/desktop widths offer the largest.
-        XCTAssertEqual(TextScale.steps[TextScale.maxStepIndex(forWidthPoints: 650)],
-                       .accessibility2)
-        XCTAssertEqual(TextScale.steps[TextScale.maxStepIndex(forWidthPoints: 1200)],
-                       .accessibility5)
+        XCTAssertEqual(
+            TextScale.steps[TextScale.maxStepIndex(forWidthPoints: 650)],
+            .accessibility2)
+        XCTAssertEqual(
+            TextScale.steps[TextScale.maxStepIndex(forWidthPoints: 1200)],
+            .accessibility5)
     }
 
     func testTextScaleRangePinsChoicesAndClampsTheSystem() {
         let maxIdx = TextScale.maxStepIndex(forWidthPoints: 375)
         // Follow-system (−1): free below, capped above.
-        XCTAssertEqual(TextScale.range(chosenIndex: -1, maxIndex: maxIdx),
-                       .xSmall ... .xxxLarge)
+        XCTAssertEqual(
+            TextScale.range(chosenIndex: -1, maxIndex: maxIdx),
+            .xSmall ... .xxxLarge)
         // A picked step pins exactly.
         let large = TextScale.index(of: .large)
-        XCTAssertEqual(TextScale.range(chosenIndex: large, maxIndex: maxIdx),
-                       .large ... .large)
+        XCTAssertEqual(
+            TextScale.range(chosenIndex: large, maxIndex: maxIdx),
+            .large ... .large)
         // A pick beyond the screen's cap clamps to the cap — words must
         // never warp off the edge no matter what was stored.
-        XCTAssertEqual(TextScale.range(chosenIndex: 99, maxIndex: maxIdx),
-                       .xxxLarge ... .xxxLarge)
-        XCTAssertEqual(TextScale.range(chosenIndex: 0, maxIndex: 99),
-                       .small ... .small)
+        XCTAssertEqual(
+            TextScale.range(chosenIndex: 99, maxIndex: maxIdx),
+            .xxxLarge ... .xxxLarge)
+        XCTAssertEqual(
+            TextScale.range(chosenIndex: 0, maxIndex: 99),
+            .small ... .small)
     }
 
     func testSpokenTurnDistancesReadLikeANavigator() {
@@ -327,12 +372,16 @@ final class RadioAndSpotifyTests: XCTestCase {
                 event: "Tornado Warning",
                 headline: "Tornado Warning until 5 PM.", action: .shelter),
             "Weather alert on your route: Tornado Warning. "
-            + "Tornado Warning until 5 PM. FLOWS is showing shelter options.")
-        XCTAssertTrue(SiriSummaries.emergencyAnnouncement(
-            event: "High Wind Warning", headline: nil, action: .restArea)
+                + "Tornado Warning until 5 PM. FLOWS is showing shelter options.")
+        XCTAssertTrue(
+            SiriSummaries.emergencyAnnouncement(
+                event: "High Wind Warning", headline: nil, action: .restArea
+            )
             .hasSuffix("rest area."))
-        XCTAssertTrue(SiriSummaries.emergencyAnnouncement(
-            event: "Wind Advisory", headline: nil, action: .monitor)
+        XCTAssertTrue(
+            SiriSummaries.emergencyAnnouncement(
+                event: "Wind Advisory", headline: nil, action: .monitor
+            )
             .hasSuffix("when it's safe."))
     }
 
@@ -352,16 +401,19 @@ final class RadioAndSpotifyTests: XCTestCase {
                 action: .restArea, minutesAway: 1),
             "High Wind Warning in about 1 minute. Wait it out at a rest area.")
         XCTAssertEqual(
-            SiriSummaries.spokenWarning(event: "Dense Fog Advisory", headline: nil,
-                                        action: .monitor),
+            SiriSummaries.spokenWarning(
+                event: "Dense Fog Advisory", headline: nil,
+                action: .monitor),
             "Dense Fog Advisory ahead.")
         // Red and AMBER keep every word.
         let tornado = SiriSummaries.spokenWarning(
             event: "Tornado Warning", headline: "Tornado Warning until 5 PM.",
             action: .shelter, minutesAway: 4)
-        XCTAssertEqual(tornado, SiriSummaries.emergencyAnnouncement(
-            event: "Tornado Warning", headline: "Tornado Warning until 5 PM.",
-            action: .shelter))
+        XCTAssertEqual(
+            tornado,
+            SiriSummaries.emergencyAnnouncement(
+                event: "Tornado Warning", headline: "Tornado Warning until 5 PM.",
+                action: .shelter))
         XCTAssertTrue(tornado.contains("Tornado Warning until 5 PM."))
         let amber = SiriSummaries.spokenWarning(
             event: "Child Abduction Emergency",
@@ -387,12 +439,15 @@ final class RadioAndSpotifyTests: XCTestCase {
 
     func testHOSLineSpeaksOnlyWhenTheClockMatters() {
         XCTAssertNil(SiriSummaries.hosLine(.ok))
-        XCTAssertEqual(SiriSummaries.hosLine(.breakSoon(secondsUntilDue: 22 * 60)),
-                       "Heads up: your 30-minute break is due in 22 minutes.")
-        XCTAssertEqual(SiriSummaries.hosLine(.breakDue),
-                       "Your 30-minute break is due now.")
-        XCTAssertEqual(SiriSummaries.hosLine(.limitReached),
-                       "You've hit the 11-hour driving limit — time to stop.")
+        XCTAssertEqual(
+            SiriSummaries.hosLine(.breakSoon(secondsUntilDue: 22 * 60)),
+            "Heads up: your 30-minute break is due in 22 minutes.")
+        XCTAssertEqual(
+            SiriSummaries.hosLine(.breakDue),
+            "Your 30-minute break is due now.")
+        XCTAssertEqual(
+            SiriSummaries.hosLine(.limitReached),
+            "You've hit the 11-hour driving limit — time to stop.")
     }
 
     // MARK: Siri replies — spoken text is UI, so the wording is pinned
@@ -410,8 +465,9 @@ final class RadioAndSpotifyTests: XCTestCase {
         XCTAssertEqual(SiriSummaries.spokenTime(seconds: 60), "1 minute")
         XCTAssertEqual(SiriSummaries.spokenTime(seconds: 45 * 60), "45 minutes")
         XCTAssertEqual(SiriSummaries.spokenTime(seconds: 2 * 3600), "2 hours")
-        XCTAssertEqual(SiriSummaries.spokenTime(seconds: 3 * 3600 + 61 * 60 + 30),
-                       "4 hours 2 minutes")
+        XCTAssertEqual(
+            SiriSummaries.spokenTime(seconds: 3 * 3600 + 61 * 60 + 30),
+            "4 hours 2 minutes")
         XCTAssertEqual(SiriSummaries.spokenTime(seconds: 3660), "1 hour 1 minute")
     }
 
@@ -426,32 +482,38 @@ final class RadioAndSpotifyTests: XCTestCase {
 
     func testRoadAheadSummarizesDistanceTimeAndAlerts() {
         XCTAssertEqual(
-            SiriSummaries.roadAhead(remainingMeters: 212 * 1609.344,
-                                    remainingSeconds: 3 * 3600 + 10 * 60,
-                                    alertEvents: []),
+            SiriSummaries.roadAhead(
+                remainingMeters: 212 * 1609.344,
+                remainingSeconds: 3 * 3600 + 10 * 60,
+                alertEvents: []),
             "About 212 miles and 3 hours 10 minutes to go. "
-            + "No weather alerts on the route.")
+                + "No weather alerts on the route.")
         XCTAssertEqual(
-            SiriSummaries.roadAhead(remainingMeters: 8 * 1609.344,
-                                    remainingSeconds: 12 * 60,
-                                    alertEvents: ["Severe Thunderstorm Warning",
-                                                  "Severe Thunderstorm Warning"]),
+            SiriSummaries.roadAhead(
+                remainingMeters: 8 * 1609.344,
+                remainingSeconds: 12 * 60,
+                alertEvents: [
+                    "Severe Thunderstorm Warning",
+                    "Severe Thunderstorm Warning",
+                ]),
             "About 8 miles and 12 minutes to go. "
-            + "One weather alert ahead: Severe Thunderstorm Warning.")
+                + "One weather alert ahead: Severe Thunderstorm Warning.")
         XCTAssertEqual(
-            SiriSummaries.roadAhead(remainingMeters: 8 * 1609.344,
-                                    remainingSeconds: 12 * 60,
-                                    alertEvents: ["Flood Warning", "High Wind Warning"]),
+            SiriSummaries.roadAhead(
+                remainingMeters: 8 * 1609.344,
+                remainingSeconds: 12 * 60,
+                alertEvents: ["Flood Warning", "High Wind Warning"]),
             "About 8 miles and 12 minutes to go. "
-            + "2 weather alerts ahead: Flood Warning, High Wind Warning.")
+                + "2 weather alerts ahead: Flood Warning, High Wind Warning.")
         // The way on from an added stop not planned yet: the numbers and the
         // alert check reach only the stop, and the reply says so.
         XCTAssertEqual(
-            SiriSummaries.roadAhead(remainingMeters: 5 * 1609.344,
-                                    remainingSeconds: 6 * 60,
-                                    alertEvents: [], toStop: "Kwik Trip"),
+            SiriSummaries.roadAhead(
+                remainingMeters: 5 * 1609.344,
+                remainingSeconds: 6 * 60,
+                alertEvents: [], toStop: "Kwik Trip"),
             "About 5 miles and 6 minutes to Kwik Trip. The way on from there is "
-            + "still being planned. No weather alerts on the way there.")
+                + "still being planned. No weather alerts on the way there.")
     }
 
     // MARK: Siri add-a-stop name matching
@@ -459,8 +521,10 @@ final class RadioAndSpotifyTests: XCTestCase {
     func testAskedNameMatchesStandaloneWordRuns() {
         XCTAssertTrue(BrandKnowledge.askedName("Starbucks", matches: "Starbucks Coffee"))
         XCTAssertTrue(BrandKnowledge.askedName("Buc-ee's", matches: "Buc-ee's #34"))
-        XCTAssertTrue(BrandKnowledge.askedName("Yellowstone",
-                                               matches: "Yellowstone National Park"))
+        XCTAssertTrue(
+            BrandKnowledge.askedName(
+                "Yellowstone",
+                matches: "Yellowstone National Park"))
         XCTAssertTrue(BrandKnowledge.askedName("McDonald's", matches: "McDonalds"))
         // Substring-of-a-word must NOT match — "Star" is not "Starbucks".
         XCTAssertFalse(BrandKnowledge.askedName("Star", matches: "Starbucks"))
@@ -524,8 +588,9 @@ final class RadioAndSpotifyTests: XCTestCase {
             PlaybackGrace.graceSeconds(for: .radio, measuredBuffer: 600),
             PlaybackGrace.radioCapSeconds)
         // Unknown (nothing playing yet) falls back to the floor, never NaN.
-        XCTAssertEqual(PlaybackGrace.graceSeconds(for: .radio),
-                       PlaybackGrace.radioFloorSeconds)
+        XCTAssertEqual(
+            PlaybackGrace.graceSeconds(for: .radio),
+            PlaybackGrace.radioFloorSeconds)
         XCTAssertEqual(
             PlaybackGrace.graceSeconds(for: .radio, measuredBuffer: .nan),
             PlaybackGrace.radioFloorSeconds)
@@ -534,10 +599,12 @@ final class RadioAndSpotifyTests: XCTestCase {
     func testOtherPlayersUseTheirDocumentedCaps() {
         // Their buffers aren't inspectable, so these bound the wait; the
         // real trigger is the player reporting it stopped.
-        XCTAssertEqual(PlaybackGrace.graceSeconds(for: .appleMusicCloud),
-                       PlaybackGrace.appleMusicCapSeconds)
-        XCTAssertEqual(PlaybackGrace.graceSeconds(for: .spotify),
-                       PlaybackGrace.spotifyCapSeconds)
+        XCTAssertEqual(
+            PlaybackGrace.graceSeconds(for: .appleMusicCloud),
+            PlaybackGrace.appleMusicCapSeconds)
+        XCTAssertEqual(
+            PlaybackGrace.graceSeconds(for: .spotify),
+            PlaybackGrace.spotifyCapSeconds)
         // A measured value can't leak in from a player we don't own.
         XCTAssertEqual(
             PlaybackGrace.graceSeconds(for: .appleMusicCloud, measuredBuffer: 3),
@@ -554,10 +621,12 @@ final class RadioAndSpotifyTests: XCTestCase {
         // No service publishes a read-ahead figure, so this is a WATCH
         // ceiling, not a buffer estimate: it must outlast the others,
         // because audio still playing at the ceiling is left alone.
-        XCTAssertEqual(PlaybackGrace.graceSeconds(for: .otherApp),
-                       PlaybackGrace.otherAppWatchSeconds)
-        XCTAssertGreaterThan(PlaybackGrace.otherAppWatchSeconds,
-                             PlaybackGrace.spotifyCapSeconds)
+        XCTAssertEqual(
+            PlaybackGrace.graceSeconds(for: .otherApp),
+            PlaybackGrace.otherAppWatchSeconds)
+        XCTAssertGreaterThan(
+            PlaybackGrace.otherAppWatchSeconds,
+            PlaybackGrace.spotifyCapSeconds)
         // A measured buffer is meaningless for a player we don't own —
         // it must never shorten the watch.
         XCTAssertEqual(
@@ -624,40 +693,59 @@ final class RadioAndSpotifyTests: XCTestCase {
     // MARK: signal quality — staging the switch before the music dies
 
     func testRadioTechnologyMapsToTheRightTier() {
-        XCTAssertEqual(SignalQuality.tier(radioTechnology: "CTRadioAccessTechnologyLTE",
-                                          onWiFi: false, offline: false), .strong)
-        XCTAssertEqual(SignalQuality.tier(radioTechnology: "CTRadioAccessTechnologyNRNSA",
-                                          onWiFi: false, offline: false), .strong)
+        XCTAssertEqual(
+            SignalQuality.tier(
+                radioTechnology: "CTRadioAccessTechnologyLTE",
+                onWiFi: false, offline: false), .strong)
+        XCTAssertEqual(
+            SignalQuality.tier(
+                radioTechnology: "CTRadioAccessTechnologyNRNSA",
+                onWiFi: false, offline: false), .strong)
         // The classic dead-zone approach: a fallback to EDGE happens
         // BEFORE the throughput collapse that starves a buffer.
-        XCTAssertEqual(SignalQuality.tier(radioTechnology: "CTRadioAccessTechnologyEdge",
-                                          onWiFi: false, offline: false), .weak)
-        XCTAssertEqual(SignalQuality.tier(radioTechnology: "CTRadioAccessTechnologyGPRS",
-                                          onWiFi: false, offline: false), .weak)
-        XCTAssertEqual(SignalQuality.tier(radioTechnology: "CTRadioAccessTechnologyHSDPA",
-                                          onWiFi: false, offline: false), .fair)
-        XCTAssertEqual(SignalQuality.tier(radioTechnology: nil,
-                                          onWiFi: true, offline: false), .strong)
-        XCTAssertEqual(SignalQuality.tier(radioTechnology: "CTRadioAccessTechnologyLTE",
-                                          onWiFi: false, offline: true), .offline)
+        XCTAssertEqual(
+            SignalQuality.tier(
+                radioTechnology: "CTRadioAccessTechnologyEdge",
+                onWiFi: false, offline: false), .weak)
+        XCTAssertEqual(
+            SignalQuality.tier(
+                radioTechnology: "CTRadioAccessTechnologyGPRS",
+                onWiFi: false, offline: false), .weak)
+        XCTAssertEqual(
+            SignalQuality.tier(
+                radioTechnology: "CTRadioAccessTechnologyHSDPA",
+                onWiFi: false, offline: false), .fair)
+        XCTAssertEqual(
+            SignalQuality.tier(
+                radioTechnology: nil,
+                onWiFi: true, offline: false), .strong)
+        XCTAssertEqual(
+            SignalQuality.tier(
+                radioTechnology: "CTRadioAccessTechnologyLTE",
+                onWiFi: false, offline: true), .offline)
     }
 
     func testPreStagingFiresOnFailureSignsButNotWhenAlreadyTooLate() {
         // A weak radio technology alone is enough to get ready.
-        XCTAssertTrue(SignalQuality.shouldPreStage(
-            tier: .weak, bufferDraining: false, recentStalls: 0))
+        XCTAssertTrue(
+            SignalQuality.shouldPreStage(
+                tier: .weak, bufferDraining: false, recentStalls: 0))
         // So is the actual mechanism of failure, observed on our own
         // player: the buffer being consumed faster than it refills.
-        XCTAssertTrue(SignalQuality.shouldPreStage(
-            tier: .strong, bufferDraining: true, recentStalls: 0))
-        XCTAssertTrue(SignalQuality.shouldPreStage(
-            tier: .strong, bufferDraining: false, recentStalls: 1))
+        XCTAssertTrue(
+            SignalQuality.shouldPreStage(
+                tier: .strong, bufferDraining: true, recentStalls: 0))
+        XCTAssertTrue(
+            SignalQuality.shouldPreStage(
+                tier: .strong, bufferDraining: false, recentStalls: 1))
         // A healthy link stages nothing.
-        XCTAssertFalse(SignalQuality.shouldPreStage(
-            tier: .strong, bufferDraining: false, recentStalls: 0))
+        XCTAssertFalse(
+            SignalQuality.shouldPreStage(
+                tier: .strong, bufferDraining: false, recentStalls: 0))
         // Already offline: too late to fetch anything, so don't try.
-        XCTAssertFalse(SignalQuality.shouldPreStage(
-            tier: .offline, bufferDraining: true, recentStalls: 3))
+        XCTAssertFalse(
+            SignalQuality.shouldPreStage(
+                tier: .offline, bufferDraining: true, recentStalls: 3))
     }
 
     func testBufferDrainingNeedsARealDrop() {
@@ -716,24 +804,29 @@ final class RadioAndSpotifyTests: XCTestCase {
 
     func testSwitchBackNeedsAHeldConnectionAndNoDriverChoice() {
         // The happy path: FLOWS moved it, signal held, driver stayed put.
-        XCTAssertTrue(PlaybackFallback.shouldRestore(
-            handedOff: true, connectionHeld: true, driverChoseSince: false))
+        XCTAssertTrue(
+            PlaybackFallback.shouldRestore(
+                handedOff: true, connectionHeld: true, driverChoseSince: false))
         // A blink that didn't hold must NOT ping-pong the driver back.
-        XCTAssertFalse(PlaybackFallback.shouldRestore(
-            handedOff: true, connectionHeld: false, driverChoseSince: false))
+        XCTAssertFalse(
+            PlaybackFallback.shouldRestore(
+                handedOff: true, connectionHeld: false, driverChoseSince: false))
         // The driver's own pick outranks anything FLOWS wants to restore.
-        XCTAssertFalse(PlaybackFallback.shouldRestore(
-            handedOff: true, connectionHeld: true, driverChoseSince: true))
+        XCTAssertFalse(
+            PlaybackFallback.shouldRestore(
+                handedOff: true, connectionHeld: true, driverChoseSince: true))
         // Never switch anything FLOWS didn't move in the first place.
-        XCTAssertFalse(PlaybackFallback.shouldRestore(
-            handedOff: false, connectionHeld: true, driverChoseSince: false))
+        XCTAssertFalse(
+            PlaybackFallback.shouldRestore(
+                handedOff: false, connectionHeld: true, driverChoseSince: false))
         // The hold window is long enough to outlast a flicker.
         XCTAssertGreaterThanOrEqual(PlaybackFallback.restoreHoldSeconds, 15)
     }
 
     func testRestoreLineNamesTheServiceComingBack() {
-        XCTAssertEqual(PlaybackFallback.restoreLine(service: "Spotify"),
-                       "Signal's back — returning to Spotify.")
+        XCTAssertEqual(
+            PlaybackFallback.restoreLine(service: "Spotify"),
+            "Signal's back — returning to Spotify.")
     }
 
     func testHandoffSpeaksWhatChangedAndWhy() {
@@ -743,11 +836,11 @@ final class RadioAndSpotifyTests: XCTestCase {
         XCTAssertEqual(
             PlaybackFallback.spokenLine(for: .radio(genre: "rock")),
             "Signal dropped and there's no music saved on your phone — "
-            + "trying rock radio.")
+                + "trying rock radio.")
         XCTAssertEqual(
             PlaybackFallback.spokenLine(for: .nothingAvailable),
             "Signal dropped, and there's no music saved on your phone "
-            + "to fall back on.")
+                + "to fall back on.")
     }
 
     // MARK: in-place control — the truth table every surface consults
@@ -759,18 +852,21 @@ final class RadioAndSpotifyTests: XCTestCase {
             // always-keyless one.
             let keyless = provider == .appleMusic || provider == .radio
             // Keyless floor off-mac: Apple Music only.
-            XCTAssertEqual(provider.controllable(onMac: false, spotifyLinked: false),
-                           keyless, "\(provider.rawValue) keyless")
+            XCTAssertEqual(
+                provider.controllable(onMac: false, spotifyLinked: false),
+                keyless, "\(provider.rawValue) keyless")
             // A Spotify token upgrades EXACTLY one provider — Spotify. No
             // other service publishes a control API, so no token, key, or
             // setting may ever flip the rest (the survey in DATA_FEEDS §13).
-            XCTAssertEqual(provider.controllable(onMac: false, spotifyLinked: true),
-                           keyless || provider == .spotify,
-                           "\(provider.rawValue) with Spotify token")
+            XCTAssertEqual(
+                provider.controllable(onMac: false, spotifyLinked: true),
+                keyless || provider == .spotify,
+                "\(provider.rawValue) with Spotify token")
             // macOS adds Apple-Events Spotify; the rest stay uncontrollable.
-            XCTAssertEqual(provider.controllable(onMac: true, spotifyLinked: false),
-                           keyless || provider == .spotify,
-                           "\(provider.rawValue) on macOS")
+            XCTAssertEqual(
+                provider.controllable(onMac: true, spotifyLinked: false),
+                keyless || provider == .spotify,
+                "\(provider.rawValue) on macOS")
         }
     }
 
@@ -792,10 +888,12 @@ final class RadioAndSpotifyTests: XCTestCase {
     // MARK: Spotify Web API — request shapes
 
     func testTransportCallsMapToThePlayerEndpoints() {
-        XCTAssertEqual(SpotifyWebAPI.playPauseCall(isPlaying: true),
-                       SpotifyWebAPI.Call(method: "PUT", path: "/v1/me/player/pause"))
-        XCTAssertEqual(SpotifyWebAPI.playPauseCall(isPlaying: false),
-                       SpotifyWebAPI.Call(method: "PUT", path: "/v1/me/player/play"))
+        XCTAssertEqual(
+            SpotifyWebAPI.playPauseCall(isPlaying: true),
+            SpotifyWebAPI.Call(method: "PUT", path: "/v1/me/player/pause"))
+        XCTAssertEqual(
+            SpotifyWebAPI.playPauseCall(isPlaying: false),
+            SpotifyWebAPI.Call(method: "PUT", path: "/v1/me/player/play"))
         XCTAssertEqual(SpotifyWebAPI.next.method, "POST")
         XCTAssertEqual(SpotifyWebAPI.next.path, "/v1/me/player/next")
         XCTAssertEqual(SpotifyWebAPI.previous.path, "/v1/me/player/previous")
@@ -803,24 +901,31 @@ final class RadioAndSpotifyTests: XCTestCase {
     }
 
     func testOrderCallsMapShuffleAndLoop() {
-        XCTAssertEqual(SpotifyWebAPI.shuffleCall(on: true).path,
-                       "/v1/me/player/shuffle?state=true")
-        XCTAssertEqual(SpotifyWebAPI.shuffleCall(on: false).path,
-                       "/v1/me/player/shuffle?state=false")
-        XCTAssertEqual(SpotifyWebAPI.repeatCall(all: true).path,
-                       "/v1/me/player/repeat?state=context")
-        XCTAssertEqual(SpotifyWebAPI.repeatCall(all: false).path,
-                       "/v1/me/player/repeat?state=off")
+        XCTAssertEqual(
+            SpotifyWebAPI.shuffleCall(on: true).path,
+            "/v1/me/player/shuffle?state=true")
+        XCTAssertEqual(
+            SpotifyWebAPI.shuffleCall(on: false).path,
+            "/v1/me/player/shuffle?state=false")
+        XCTAssertEqual(
+            SpotifyWebAPI.repeatCall(all: true).path,
+            "/v1/me/player/repeat?state=context")
+        XCTAssertEqual(
+            SpotifyWebAPI.repeatCall(all: false).path,
+            "/v1/me/player/repeat?state=off")
     }
 
     func testURLRequestCarriesTheBearerToken() throws {
-        let request = try XCTUnwrap(SpotifyWebAPI.urlRequest(
-            for: SpotifyWebAPI.next, token: "abc123"))
+        let request = try XCTUnwrap(
+            SpotifyWebAPI.urlRequest(
+                for: SpotifyWebAPI.next, token: "abc123"))
         XCTAssertEqual(request.httpMethod, "POST")
-        XCTAssertEqual(request.url?.absoluteString,
-                       "https://api.spotify.com/v1/me/player/next")
-        XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"),
-                       "Bearer abc123")
+        XCTAssertEqual(
+            request.url?.absoluteString,
+            "https://api.spotify.com/v1/me/player/next")
+        XCTAssertEqual(
+            request.value(forHTTPHeaderField: "Authorization"),
+            "Bearer abc123")
     }
 
     // MARK: Spotify Web API — voice search-and-play
@@ -828,20 +933,22 @@ final class RadioAndSpotifyTests: XCTestCase {
     func testSearchCallEncodesAndTargetsPlaylists() {
         let call = SpotifyWebAPI.searchCall(query: "classic country & hits")
         XCTAssertEqual(call.method, "GET")
-        XCTAssertEqual(call.path,
-                       "/v1/search?q=classic%20country%20%26%20hits&type=playlist&limit=5")
+        XCTAssertEqual(
+            call.path,
+            "/v1/search?q=classic%20country%20%26%20hits&type=playlist&limit=5")
     }
 
     func testParsePlaylistContextReadsTheFirstPlaylist() throws {
         let payload = """
-        {"playlists":{"items":[{"uri":"spotify:playlist:37i9dQ",
-          "name":"Classic Country's Best"}]}}
-        """.data(using: .utf8)!
+            {"playlists":{"items":[{"uri":"spotify:playlist:37i9dQ",
+              "name":"Classic Country's Best"}]}}
+            """.data(using: .utf8)!
         let hit = try XCTUnwrap(SpotifyWebAPI.parsePlaylistContext(payload))
         XCTAssertEqual(hit.uri, "spotify:playlist:37i9dQ")
         XCTAssertEqual(hit.name, "Classic Country's Best")
-        XCTAssertNil(SpotifyWebAPI.parsePlaylistContext(
-            Data(#"{"playlists":{"items":[]}}"#.utf8)))
+        XCTAssertNil(
+            SpotifyWebAPI.parsePlaylistContext(
+                Data(#"{"playlists":{"items":[]}}"#.utf8)))
         XCTAssertNil(SpotifyWebAPI.parsePlaylistContext(Data("x".utf8)))
         // A playlist Spotify no longer serves comes back null: passed over.
         let withNull = Data(#"{"playlists":{"items":[null,{"uri":"spotify:playlist:B","name":"B"}]}}"#.utf8)
@@ -851,16 +958,19 @@ final class RadioAndSpotifyTests: XCTestCase {
     func testURLRequestCarriesAJSONBodyWhenGiven() throws {
         let body = try JSONSerialization.data(
             withJSONObject: ["context_uri": "spotify:playlist:abc"])
-        let request = try XCTUnwrap(SpotifyWebAPI.urlRequest(
-            for: SpotifyWebAPI.playPauseCall(isPlaying: false),
-            token: "t", body: body))
+        let request = try XCTUnwrap(
+            SpotifyWebAPI.urlRequest(
+                for: SpotifyWebAPI.playPauseCall(isPlaying: false),
+                token: "t", body: body))
         XCTAssertEqual(request.httpMethod, "PUT")
-        XCTAssertEqual(request.value(forHTTPHeaderField: "Content-Type"),
-                       "application/json")
+        XCTAssertEqual(
+            request.value(forHTTPHeaderField: "Content-Type"),
+            "application/json")
         XCTAssertEqual(request.httpBody, body)
         // No body → no content type, same as before.
-        let bare = try XCTUnwrap(SpotifyWebAPI.urlRequest(
-            for: SpotifyWebAPI.next, token: "t"))
+        let bare = try XCTUnwrap(
+            SpotifyWebAPI.urlRequest(
+                for: SpotifyWebAPI.next, token: "t"))
         XCTAssertNil(bare.value(forHTTPHeaderField: "Content-Type"))
     }
 
@@ -868,10 +978,12 @@ final class RadioAndSpotifyTests: XCTestCase {
 
     func testSiriPlaybackTipsExistOnlyForVerifiedServices() {
         // Radio's phrase routes through FLOWS (it IS FLOWS's player).
-        let verified: Set<MusicProvider> = [.radio, .appleMusic, .spotify,
-                                            .youtubeMusic, .amazonMusic,
-                                            .pandora, .deezer, .tidal,
-                                            .iHeartRadio]
+        let verified: Set<MusicProvider> = [
+            .radio, .appleMusic, .spotify,
+            .youtubeMusic, .amazonMusic,
+            .pandora, .deezer, .tidal,
+            .iHeartRadio,
+        ]
         for provider in MusicProvider.allCases {
             if verified.contains(provider) {
                 XCTAssertNotNil(provider.siriPlaybackTip, provider.rawValue)
@@ -886,9 +998,9 @@ final class RadioAndSpotifyTests: XCTestCase {
 
     func testParsePlayerStateReadsTheFourDisplayedFields() throws {
         let payload = """
-        {"is_playing":true,"shuffle_state":true,"repeat_state":"off",
-         "item":{"name":"Copperhead Road"}}
-        """.data(using: .utf8)!
+            {"is_playing":true,"shuffle_state":true,"repeat_state":"off",
+             "item":{"name":"Copperhead Road"}}
+            """.data(using: .utf8)!
         let state = try XCTUnwrap(SpotifyWebAPI.parsePlayerState(payload))
         XCTAssertTrue(state.isPlaying)
         XCTAssertTrue(state.shuffle)
@@ -919,15 +1031,20 @@ final class RadioAndSpotifyTests: XCTestCase {
         XCTAssertNil(SpotifyWebAPI.plainWords(status: 200))
         XCTAssertNil(SpotifyWebAPI.plainWords(status: 204))
         // Each failure names the driver's next move, no jargon.
-        XCTAssertEqual(SpotifyWebAPI.plainWords(status: 401),
-                       "Spotify token expired or wrong. Paste a fresh one in Settings.")
-        XCTAssertEqual(SpotifyWebAPI.plainWords(status: 403),
-                       "Spotify says no — remote control needs Spotify Premium.")
-        XCTAssertEqual(SpotifyWebAPI.plainWords(status: 404),
-                       "No Spotify player is on. Open Spotify and play one song first.")
-        XCTAssertEqual(SpotifyWebAPI.plainWords(status: 429),
-                       "Spotify is busy. Wait a moment and try again.")
-        XCTAssertEqual(SpotifyWebAPI.plainWords(status: 500),
-                       "Spotify didn't answer. Try again.")
+        XCTAssertEqual(
+            SpotifyWebAPI.plainWords(status: 401),
+            "Spotify token expired or wrong. Paste a fresh one in Settings.")
+        XCTAssertEqual(
+            SpotifyWebAPI.plainWords(status: 403),
+            "Spotify says no — remote control needs Spotify Premium.")
+        XCTAssertEqual(
+            SpotifyWebAPI.plainWords(status: 404),
+            "No Spotify player is on. Open Spotify and play one song first.")
+        XCTAssertEqual(
+            SpotifyWebAPI.plainWords(status: 429),
+            "Spotify is busy. Wait a moment and try again.")
+        XCTAssertEqual(
+            SpotifyWebAPI.plainWords(status: 500),
+            "Spotify didn't answer. Try again.")
     }
 }

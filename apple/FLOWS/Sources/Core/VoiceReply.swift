@@ -8,8 +8,9 @@
 
 import AVFoundation
 import Foundation
+
 #if os(iOS)
-import Speech
+    import Speech
 #endif
 
 /// A word list the Rust core owns (yes and no words, back-words, directory
@@ -65,7 +66,7 @@ enum VoiceCommands {
 /// offer, a no declines, anything else reads as unclear — never guessed.
 enum VoicePick {
     enum Outcome: Equatable {
-        case picked(Int)   // index into the offered options
+        case picked(Int)  // index into the offered options
         case declined
         case unclear
     }
@@ -92,21 +93,24 @@ enum VoicePick {
     /// back-words return to the cuisine question, yes takes the first
     /// offer, no ends the dialogue with the list on screen.
     enum PlaceOutcome: Equatable {
-        case picked(Int)          // index into the offered places
-        case switchCuisine(Int)   // index into the cuisine list
+        case picked(Int)  // index into the offered places
+        case switchCuisine(Int)  // index into the cuisine list
         case backToCuisine
         case declined
         case unclear
     }
 
-    static func placeReply(_ reply: String, places: [String],
-                           cuisines: [String]) -> PlaceOutcome {
+    static func placeReply(
+        _ reply: String, places: [String],
+        cuisines: [String]
+    ) -> PlaceOutcome {
         // A named cuisine is the clearest change-of-mind signal — "actually
         // I want Mexican" needs no back-word (rust/flows-core tags_and_replies.rs).
         let outcome = RustTextColumn(places).with { placeText, placeLengths, _ in
             RustTextColumn(cuisines).with { cuisineText, cuisineLengths, _ in
-                flows_tags_place_reply(reply, placeText, placeLengths, Int64(places.count),
-                                       cuisineText, cuisineLengths, Int64(cuisines.count))
+                flows_tags_place_reply(
+                    reply, placeText, placeLengths, Int64(places.count),
+                    cuisineText, cuisineLengths, Int64(cuisines.count))
             }
         }
         switch (outcome.code, outcome.index) {
@@ -120,223 +124,240 @@ enum VoicePick {
 }
 
 #if os(iOS)
-/// One-shot listener for a short spoken answer AFTER FLOWS asks a question
-/// out loud — the same guarded microphone pattern as the crash check-in
-/// (wait out our own utterance, refuse a record-incapable session, bounded
-/// window, one callback). Used for reroute offers; the crash flow keeps
-/// its own listener and vocabulary.
-@MainActor
-final class VoiceReply {
-    static let shared = VoiceReply()
+    /// One-shot listener for a short spoken answer AFTER FLOWS asks a question
+    /// out loud — the same guarded microphone pattern as the crash check-in
+    /// (wait out our own utterance, refuse a record-incapable session, bounded
+    /// window, one callback). Used for reroute offers; the crash flow keeps
+    /// its own listener and vocabulary.
+    @MainActor
+    final class VoiceReply {
+        static let shared = VoiceReply()
 
-    private let recognizer = SFSpeechRecognizer(locale: Locale(identifier: "en-US"))
-    private var audioEngine: AVAudioEngine?
-    private var recognitionRequest: SFSpeechAudioBufferRecognitionRequest?
-    private var recognitionTask: SFSpeechRecognitionTask?
-    private var onAnswer: ((Bool?) -> Void)?
-    private var answered = false
-    /// Dictation mode (the in-app mic): capture the words instead of
-    /// interpreting yes/no; the transcript is delivered at window end.
-    private var onTranscript: ((String?) -> Void)?
-    private var lastHeard = ""
-    /// Which listen is open: a timeout or a late transcript from an earlier
-    /// one must not close or answer the one that replaced it.
-    private var session = 0
-    /// Listens asked for whose microphone hasn't opened yet (waiting on
-    /// permission, or on FLOWS's own question to end).
-    private var waitingToListen = 0
+        private let recognizer = SFSpeechRecognizer(locale: Locale(identifier: "en-US"))
+        private var audioEngine: AVAudioEngine?
+        private var recognitionRequest: SFSpeechAudioBufferRecognitionRequest?
+        private var recognitionTask: SFSpeechRecognitionTask?
+        private var onAnswer: ((Bool?) -> Void)?
+        private var answered = false
+        /// Dictation mode (the in-app mic): capture the words instead of
+        /// interpreting yes/no; the transcript is delivered at window end.
+        private var onTranscript: ((String?) -> Void)?
+        private var lastHeard = ""
+        /// Which listen is open: a timeout or a late transcript from an earlier
+        /// one must not close or answer the one that replaced it.
+        private var session = 0
+        /// Listens asked for whose microphone hasn't opened yet (waiting on
+        /// permission, or on FLOWS's own question to end).
+        private var waitingToListen = 0
 
-    /// From the ask until the microphone closes. The spoken lines don't
-    /// hand the audio session back meanwhile: the music would come up
-    /// between the question and the listening.
-    var isListening: Bool { waitingToListen > 0 || audioEngine != nil }
+        /// From the ask until the microphone closes. The spoken lines don't
+        /// hand the audio session back meanwhile: the music would come up
+        /// between the question and the listening.
+        var isListening: Bool { waitingToListen > 0 || audioEngine != nil }
 
-    /// Wait for the announcement to finish, then listen ~`seconds` for a
-    /// yes/no. Calls back exactly once on the main actor; nil = no clear
-    /// answer (the on-screen chip stays, nothing is guessed).
-    func listenAfterSpeech(seconds: Double = 6.0,
-                           onAnswer: @escaping (Bool?) -> Void) {
-        waitingToListen += 1
-        SFSpeechRecognizer.requestAuthorization { [weak self] auth in
-            Task { @MainActor in
-                guard let self else { return }
-                guard auth == .authorized else {
+        /// Wait for the announcement to finish, then listen ~`seconds` for a
+        /// yes/no. Calls back exactly once on the main actor; nil = no clear
+        /// answer (the on-screen chip stays, nothing is guessed).
+        func listenAfterSpeech(
+            seconds: Double = 6.0,
+            onAnswer: @escaping (Bool?) -> Void
+        ) {
+            waitingToListen += 1
+            SFSpeechRecognizer.requestAuthorization { [weak self] auth in
+                Task { @MainActor in
+                    guard let self else { return }
+                    guard auth == .authorized else {
+                        self.waitingToListen -= 1
+                        onAnswer(nil)
+                        return
+                    }
+                    var waited = 0
+                    while VoiceAnnouncer.shared.isSpeaking, waited < 100 {
+                        try? await Task.sleep(for: .milliseconds(100))
+                        waited += 1
+                    }
                     self.waitingToListen -= 1
-                    onAnswer(nil)
-                    return
+                    self.begin(seconds: seconds, onAnswer: onAnswer)
                 }
-                var waited = 0
-                while VoiceAnnouncer.shared.isSpeaking, waited < 100 {
-                    try? await Task.sleep(for: .milliseconds(100)); waited += 1
-                }
-                self.waitingToListen -= 1
-                self.begin(seconds: seconds, onAnswer: onAnswer)
             }
         }
-    }
 
-    /// The in-app mic (music ask, station ask): listen ~`seconds` and hand
-    /// back what was SAID — final transcript, or the last partial when the
-    /// window closes first. nil = permission refused or nothing heard.
-    func listenForDictation(seconds: Double = 5.0,
-                            onTranscript: @escaping (String?) -> Void) {
-        waitingToListen += 1
-        SFSpeechRecognizer.requestAuthorization { [weak self] auth in
-            Task { @MainActor in
-                guard let self else { return }
-                self.waitingToListen -= 1
-                guard auth == .authorized else { onTranscript(nil); return }
-                self.begin(seconds: seconds, onAnswer: nil,
-                           onTranscript: onTranscript)
+        /// The in-app mic (music ask, station ask): listen ~`seconds` and hand
+        /// back what was SAID — final transcript, or the last partial when the
+        /// window closes first. nil = permission refused or nothing heard.
+        func listenForDictation(
+            seconds: Double = 5.0,
+            onTranscript: @escaping (String?) -> Void
+        ) {
+            waitingToListen += 1
+            SFSpeechRecognizer.requestAuthorization { [weak self] auth in
+                Task { @MainActor in
+                    guard let self else { return }
+                    self.waitingToListen -= 1
+                    guard auth == .authorized else {
+                        onTranscript(nil)
+                        return
+                    }
+                    self.begin(
+                        seconds: seconds, onAnswer: nil,
+                        onTranscript: onTranscript)
+                }
             }
         }
-    }
 
-    private func begin(seconds: Double, onAnswer: ((Bool?) -> Void)?,
-                       onTranscript: ((String?) -> Void)? = nil) {
-        // The crash check-in has its own microphone and its own "yes". A
-        // second listen opened over it (a faster-road offer landing during
-        // the check-in) took the session from under it, and heard the
-        // driver's "yes" for help as a yes to the faster road.
-        guard !VoiceAnnouncer.shared.checkInHoldsSession() else {
-            onAnswer?(nil)
-            onTranscript?(nil)
-            return
+        private func begin(
+            seconds: Double, onAnswer: ((Bool?) -> Void)?,
+            onTranscript: ((String?) -> Void)? = nil
+        ) {
+            // The crash check-in has its own microphone and its own "yes". A
+            // second listen opened over it (a faster-road offer landing during
+            // the check-in) took the session from under it, and heard the
+            // driver's "yes" for help as a yes to the faster road.
+            guard !VoiceAnnouncer.shared.checkInHoldsSession() else {
+                onAnswer?(nil)
+                onTranscript?(nil)
+                return
+            }
+            guard let recognizer, recognizer.isAvailable else {
+                onAnswer?(nil)
+                onTranscript?(nil)
+                return
+            }
+            // A listen still open (another mic tapped within its window, or
+            // FLOWS's own yes/no question) is closed first with no answer. Its
+            // callback was simply overwritten, so its mic button showed
+            // "Listening" and refused taps for the rest of the drive.
+            if !answered {
+                let yesNo = self.onAnswer
+                let dictation = self.onTranscript
+                self.onAnswer = nil
+                self.onTranscript = nil
+                answered = true
+                yesNo?(nil)
+                dictation?(nil)
+            }
+            teardown()
+            session += 1
+            let mine = session
+            self.onAnswer = onAnswer
+            self.onTranscript = onTranscript
+            lastHeard = ""
+            answered = false
+            // Record-capable session for the tap; the radio/music session is
+            // re-established by whichever playback starts next.
+            try? AVAudioSession.sharedInstance().setCategory(
+                .playAndRecord, mode: .voiceChat,
+                options: [.duckOthers, .defaultToSpeaker, .allowBluetoothHFP])
+            try? AVAudioSession.sharedInstance().setActive(true)
+            let engine = AVAudioEngine()
+            let request = SFSpeechAudioBufferRecognitionRequest()
+            request.shouldReportPartialResults = true
+            // A "yes"/"no", or "I'm okay" after a crash, is recognized on the
+            // device whenever the device can. Without this line every reply
+            // went to Apple's server recognizer by default — audio from inside
+            // the car, at the worst moment, for a one-word answer. Server
+            // recognition remains the fallback only where on-device is not
+            // supported for the locale.
+            request.requiresOnDeviceRecognition = recognizer.supportsOnDeviceRecognition
+            let input = engine.inputNode
+            let format = input.outputFormat(forBus: 0)
+            // Defensive: a record-incapable (0 Hz) session must not installTap —
+            // it raises an uncatchable NSException (the crash-service lesson).
+            guard format.sampleRate > 0, format.channelCount > 0 else {
+                finish(with: nil)
+                return
+            }
+            input.installTap(onBus: 0, bufferSize: 1024, format: format) { buffer, _ in
+                request.append(buffer)
+            }
+            engine.prepare()
+            try? engine.start()
+            audioEngine = engine
+            recognitionRequest = request
+            recognitionTask = recognizer.recognitionTask(with: request) { [weak self] result, _ in
+                guard let result else { return }
+                let transcript = result.bestTranscription.formattedString
+                let isFinal = result.isFinal
+                Task { @MainActor in
+                    guard let self, self.session == mine, !self.answered else { return }
+                    if self.onTranscript != nil {
+                        // Dictation: keep the best-so-far; a FINAL result ends
+                        // the window early with the settled words.
+                        self.lastHeard = transcript
+                        if isFinal { self.finish(with: nil) }
+                    } else if let answer = YesNoWords.interpret(transcript) {
+                        self.finish(with: answer)
+                    }
+                }
+            }
+            Task { [weak self] in
+                try? await Task.sleep(for: .seconds(seconds))
+                await MainActor.run {
+                    // This listen's window, not a later one's: it cut the next
+                    // listen short and handed it a half-heard transcript.
+                    guard let self, self.session == mine else { return }
+                    self.finish(with: nil)
+                }
+            }
         }
-        guard let recognizer, recognizer.isAvailable else {
-            onAnswer?(nil)
-            onTranscript?(nil)
-            return
-        }
-        // A listen still open (another mic tapped within its window, or
-        // FLOWS's own yes/no question) is closed first with no answer. Its
-        // callback was simply overwritten, so its mic button showed
-        // "Listening" and refused taps for the rest of the drive.
-        if !answered {
-            let yesNo = self.onAnswer, dictation = self.onTranscript
-            self.onAnswer = nil
-            self.onTranscript = nil
+
+        private func finish(with answer: Bool?) {
+            guard !answered else { return }
             answered = true
+            let yesNo = onAnswer
+            let dictation = onTranscript
+            let heard = lastHeard.trimmingCharacters(in: .whitespacesAndNewlines)
+            onAnswer = nil
+            onTranscript = nil
+            teardown()
+            yesNo?(answer)
+            dictation?(heard.isEmpty ? nil : heard)
+            // After the answer is acted on, so music it just started (a music
+            // ask) comes up from under the listening session too.
+            VoiceAnnouncer.shared.releaseSessionWhenQuiet()
+        }
+
+        /// A crash check-in is starting: a listen still open closes with no
+        /// answer, so the microphone and the next "yes" are the check-in's.
+        func closeForCheckIn() {
+            guard audioEngine != nil, !answered else { return }
+            answered = true
+            let yesNo = onAnswer
+            let dictation = onTranscript
+            onAnswer = nil
+            onTranscript = nil
+            teardown()
             yesNo?(nil)
             dictation?(nil)
         }
-        teardown()
-        session += 1
-        let mine = session
-        self.onAnswer = onAnswer
-        self.onTranscript = onTranscript
-        lastHeard = ""
-        answered = false
-        // Record-capable session for the tap; the radio/music session is
-        // re-established by whichever playback starts next.
-        try? AVAudioSession.sharedInstance().setCategory(
-            .playAndRecord, mode: .voiceChat,
-            options: [.duckOthers, .defaultToSpeaker, .allowBluetoothHFP])
-        try? AVAudioSession.sharedInstance().setActive(true)
-        let engine = AVAudioEngine()
-        let request = SFSpeechAudioBufferRecognitionRequest()
-        request.shouldReportPartialResults = true
-        // A "yes"/"no", or "I'm okay" after a crash, is recognized on the
-        // device whenever the device can. Without this line every reply
-        // went to Apple's server recognizer by default — audio from inside
-        // the car, at the worst moment, for a one-word answer. Server
-        // recognition remains the fallback only where on-device is not
-        // supported for the locale.
-        request.requiresOnDeviceRecognition = recognizer.supportsOnDeviceRecognition
-        let input = engine.inputNode
-        let format = input.outputFormat(forBus: 0)
-        // Defensive: a record-incapable (0 Hz) session must not installTap —
-        // it raises an uncatchable NSException (the crash-service lesson).
-        guard format.sampleRate > 0, format.channelCount > 0 else {
-            finish(with: nil)
-            return
-        }
-        input.installTap(onBus: 0, bufferSize: 1024, format: format) { buffer, _ in
-            request.append(buffer)
-        }
-        engine.prepare()
-        try? engine.start()
-        audioEngine = engine
-        recognitionRequest = request
-        recognitionTask = recognizer.recognitionTask(with: request) { [weak self] result, _ in
-            guard let result else { return }
-            let transcript = result.bestTranscription.formattedString
-            let isFinal = result.isFinal
-            Task { @MainActor in
-                guard let self, self.session == mine, !self.answered else { return }
-                if self.onTranscript != nil {
-                    // Dictation: keep the best-so-far; a FINAL result ends
-                    // the window early with the settled words.
-                    self.lastHeard = transcript
-                    if isFinal { self.finish(with: nil) }
-                } else if let answer = YesNoWords.interpret(transcript) {
-                    self.finish(with: answer)
-                }
-            }
-        }
-        Task { [weak self] in
-            try? await Task.sleep(for: .seconds(seconds))
-            await MainActor.run {
-                // This listen's window, not a later one's: it cut the next
-                // listen short and handed it a half-heard transcript.
-                guard let self, self.session == mine else { return }
-                self.finish(with: nil)
-            }
-        }
-    }
 
-    private func finish(with answer: Bool?) {
-        guard !answered else { return }
-        answered = true
-        let yesNo = onAnswer
-        let dictation = onTranscript
-        let heard = lastHeard.trimmingCharacters(in: .whitespacesAndNewlines)
-        onAnswer = nil
-        onTranscript = nil
-        teardown()
-        yesNo?(answer)
-        dictation?(heard.isEmpty ? nil : heard)
-        // After the answer is acted on, so music it just started (a music
-        // ask) comes up from under the listening session too.
-        VoiceAnnouncer.shared.releaseSessionWhenQuiet()
+        private func teardown() {
+            audioEngine?.stop()
+            audioEngine?.inputNode.removeTap(onBus: 0)
+            audioEngine = nil
+            recognitionRequest?.endAudio()
+            recognitionRequest = nil
+            recognitionTask?.cancel()
+            recognitionTask = nil
+        }
     }
-
-    /// A crash check-in is starting: a listen still open closes with no
-    /// answer, so the microphone and the next "yes" are the check-in's.
-    func closeForCheckIn() {
-        guard audioEngine != nil, !answered else { return }
-        answered = true
-        let yesNo = onAnswer, dictation = onTranscript
-        onAnswer = nil
-        onTranscript = nil
-        teardown()
-        yesNo?(nil)
-        dictation?(nil)
-    }
-
-    private func teardown() {
-        audioEngine?.stop()
-        audioEngine?.inputNode.removeTap(onBus: 0)
-        audioEngine = nil
-        recognitionRequest?.endAudio()
-        recognitionRequest = nil
-        recognitionTask?.cancel()
-        recognitionTask = nil
-    }
-}
 #else
-/// macOS: prompts stay on screen — no microphone reply loop.
-@MainActor
-final class VoiceReply {
-    static let shared = VoiceReply()
-    func listenAfterSpeech(seconds: Double = 6.0,
-                           onAnswer: @escaping (Bool?) -> Void) {
-        onAnswer(nil)
+    /// macOS: prompts stay on screen — no microphone reply loop.
+    @MainActor
+    final class VoiceReply {
+        static let shared = VoiceReply()
+        func listenAfterSpeech(
+            seconds: Double = 6.0,
+            onAnswer: @escaping (Bool?) -> Void
+        ) {
+            onAnswer(nil)
+        }
+        func listenForDictation(
+            seconds: Double = 5.0,
+            onTranscript: @escaping (String?) -> Void
+        ) {
+            onTranscript(nil)
+        }
+        func closeForCheckIn() {}
     }
-    func listenForDictation(seconds: Double = 5.0,
-                            onTranscript: @escaping (String?) -> Void) {
-        onTranscript(nil)
-    }
-    func closeForCheckIn() {}
-}
 #endif

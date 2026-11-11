@@ -38,10 +38,11 @@ final class EIAFuelPrices: Sendable {
     /// Fetch the week's table once per 12 h (EIA publishes it each Monday).
     func refresh() async {
         guard isStale,
-              let url = URL(string: flows_places_text_eia_weekly_url().text),
-              let (data, resp) = try? await ThrottledNet.fetch(url),
-              (resp as? HTTPURLResponse)?.statusCode == 200,
-              let html = String(data: data, encoding: .utf8) else { return }
+            let url = URL(string: flows_places_text_eia_weekly_url().text),
+            let (data, resp) = try? await ThrottledNet.fetch(url),
+            (resp as? HTTPURLResponse)?.statusCode == 200,
+            let html = String(data: data, encoding: .utf8)
+        else { return }
         let parsed = Self.parse(html)
         guard !parsed.isEmpty else { return }
         store(parsed)
@@ -68,7 +69,8 @@ final class EIAFuelPrices: Sendable {
         let codes = flows_places_text_state_codes()
         var out: [String: (gas: Double, diesel: Double)] = [:]
         for i in 0..<min(codes.len(), flat.len() / 2) {
-            let gas = flat[2 * i], diesel = flat[2 * i + 1]
+            let gas = flat[2 * i]
+            let diesel = flat[2 * i + 1]
             if !gas.isNaN, !diesel.isNaN {
                 out[codes[i].text] = (gas, diesel)
             }
@@ -116,7 +118,8 @@ enum FuelPrices {
     /// Full state names → codes (MKPlacemark.administrativeArea may be either),
     /// from the table in Rust.
     static let stateNameToCode: [String: String] = {
-        let names = flows_places_text_state_names(), codes = flows_places_text_state_codes()
+        let names = flows_places_text_state_names()
+        let codes = flows_places_text_state_codes()
         var m: [String: String] = [:]
         for i in 0..<min(names.len(), codes.len()) {
             m[names[i].text] = codes[i].text

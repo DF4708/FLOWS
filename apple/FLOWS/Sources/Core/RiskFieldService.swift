@@ -46,8 +46,8 @@ final class RiskFieldService: ObservableObject {
         var id: Int = -1
         let zip: String
         let centroid: CLLocationCoordinate2D
-        let scores: [Double]           // aligned with `families`
-        let summary: String?           // risk_type_summary_text
+        let scores: [Double]  // aligned with `families`
+        let summary: String?  // risk_type_summary_text
         let ring: [CLLocationCoordinate2D]?
     }
 
@@ -58,8 +58,10 @@ final class RiskFieldService: ObservableObject {
     /// The bundle's build stamp ("2026-07-04T11:39:45Z") as Settings shows
     /// it — "July 4, 2026" — or nil when it does not parse. The raw stamp
     /// read like a timestamp on live data.
-    nonisolated static func builtDate(_ generatedUTC: String, locale: Locale = .current,
-                                      timeZone: TimeZone = .current) -> String? {
+    nonisolated static func builtDate(
+        _ generatedUTC: String, locale: Locale = .current,
+        timeZone: TimeZone = .current
+    ) -> String? {
         let parser = ISO8601DateFormatter()
         guard let date = parser.date(from: generatedUTC) else { return nil }
         let out = DateFormatter()
@@ -135,7 +137,7 @@ final class RiskFieldService: ObservableObject {
             lonMax: region.center.longitude + region.span.longitudeDelta / 2,
             family: fi, limit: limit
         ).map { field.entry($0) }
-        if zipsMemo.count > 8 { zipsMemo.removeAll() }   // camera moved on: tiny cache
+        if zipsMemo.count > 8 { zipsMemo.removeAll() }  // camera moved on: tiny cache
         zipsMemo[key] = out
         return out
     }
@@ -161,21 +163,22 @@ final class RiskFieldService: ObservableObject {
     /// doubles), JSON as the dev/legacy fallback.
     nonisolated private static func candidatePaths() -> [String] {
         #if os(macOS)
-        let repo = ProcessInfo.processInfo.environment["FLOWS_REPO"]
-            ?? "\(NSHomeDirectory())/Documents/Coding_Files/FLOWS"
-        return [
-            Bundle.main.path(forResource: "app_risk_bundle", ofType: "frb1"),
-            "\(repo)/data/runtime_cache/app_risk_bundle.frb1",
-            "/Users/Shared/flows/repo/data/runtime_cache/app_risk_bundle.frb1",
-            Bundle.main.path(forResource: "app_risk_bundle", ofType: "json"),
-            "\(repo)/data/runtime_cache/app_risk_bundle.json",
-            "/Users/Shared/flows/repo/data/runtime_cache/app_risk_bundle.json",
-        ].compactMap { $0 }
+            let repo =
+                ProcessInfo.processInfo.environment["FLOWS_REPO"]
+                ?? "\(NSHomeDirectory())/Documents/Coding_Files/FLOWS"
+            return [
+                Bundle.main.path(forResource: "app_risk_bundle", ofType: "frb1"),
+                "\(repo)/data/runtime_cache/app_risk_bundle.frb1",
+                "/Users/Shared/flows/repo/data/runtime_cache/app_risk_bundle.frb1",
+                Bundle.main.path(forResource: "app_risk_bundle", ofType: "json"),
+                "\(repo)/data/runtime_cache/app_risk_bundle.json",
+                "/Users/Shared/flows/repo/data/runtime_cache/app_risk_bundle.json",
+            ].compactMap { $0 }
         #else
-        return [
-            Bundle.main.path(forResource: "app_risk_bundle", ofType: "frb1"),
-            Bundle.main.path(forResource: "app_risk_bundle", ofType: "json"),
-        ].compactMap { $0 }
+            return [
+                Bundle.main.path(forResource: "app_risk_bundle", ofType: "frb1"),
+                Bundle.main.path(forResource: "app_risk_bundle", ofType: "json"),
+            ].compactMap { $0 }
         #endif
     }
 
@@ -192,8 +195,11 @@ final class RiskFieldService: ObservableObject {
             let sp = flowsSignposter.beginInterval("bundle-parse")
             defer { flowsSignposter.endInterval("bundle-parse", sp) }
             for path in Self.candidatePaths() {
-                guard let data = try? Data(contentsOf: URL(fileURLWithPath: path),
-                                           options: .mappedIfSafe) else { continue }
+                guard
+                    let data = try? Data(
+                        contentsOf: URL(fileURLWithPath: path),
+                        options: .mappedIfSafe)
+                else { continue }
                 if path.hasSuffix(".frb1") {
                     if let field = RiskField(frb1: data) { return field }
                     continue
@@ -279,9 +285,9 @@ final class RiskField: Sendable {
     /// The FRB1 shard; nil for a corrupt one. An empty buffer never crosses.
     convenience init?(frb1 data: Data) {
         guard !data.isEmpty,
-              let parsed = data.lentBytes({ bytes -> FlowsRiskField? in
-                  flows_risk_field_parse_frb1(bytes)
-              })
+            let parsed = data.lentBytes({ bytes -> FlowsRiskField? in
+                flows_risk_field_parse_frb1(bytes)
+            })
         else { return nil }
         self.init(handle: parsed)
     }
@@ -295,14 +301,22 @@ final class RiskField: Sendable {
     convenience init?(generated: String, families: [String], entries: [RiskFieldService.ZipEntry]) {
         let familyColumn = RustTextColumn(families)
         guard !entries.isEmpty else {
-            self.init(handle: familyColumn.with { joined, lens, _ in
-                flows_risk_field_empty(generated, joined, lens, Int64(families.count))
-            })
+            self.init(
+                handle: familyColumn.with { joined, lens, _ in
+                    flows_risk_field_empty(generated, joined, lens, Int64(families.count))
+                })
             return
         }
-        var lats: [Double] = [], lons: [Double] = [], scores: [Double] = [], ringPoints: [Double] = []
-        var scoreCounts: [Int64] = [], hasSummary: [Int64] = [], ringCounts: [Int64] = [], hasRing: [Int64] = []
-        var zips: [String] = [], summaries: [String] = []
+        var lats: [Double] = []
+        var lons: [Double] = []
+        var scores: [Double] = []
+        var ringPoints: [Double] = []
+        var scoreCounts: [Int64] = []
+        var hasSummary: [Int64] = []
+        var ringCounts: [Int64] = []
+        var hasRing: [Int64] = []
+        var zips: [String] = []
+        var summaries: [String] = []
         for e in entries {
             zips.append(e.zip)
             lats.append(e.centroid.latitude)
@@ -313,23 +327,32 @@ final class RiskField: Sendable {
             summaries.append(e.summary ?? "")
             ringCounts.append(Int64(e.ring?.count ?? 0))
             hasRing.append(e.ring == nil ? 0 : 1)
-            for p in e.ring ?? [] { ringPoints.append(p.latitude); ringPoints.append(p.longitude) }
+            for p in e.ring ?? [] {
+                ringPoints.append(p.latitude)
+                ringPoints.append(p.longitude)
+            }
         }
         if scores.isEmpty { scores = [0] }
         if ringPoints.isEmpty { ringPoints = [0] }
-        let zipColumn = RustTextColumn(zips), summaryColumn = RustTextColumn(summaries)
-        let handle: FlowsRiskField? = familyColumn.with { fj, fl, _ in zipColumn.with { zj, zl, _ in
-          summaryColumn.with { sj, sl, _ in lats.lent { la in
-            lons.lent { lo in
-                scoreCounts.lent { sc in
-                    scores.lent { s in
-                        hasSummary.lent { hs in
-                            ringCounts.lent { rc in
-                                hasRing.lent { hr in
-                                    ringPoints.lent { rp in
-                                        flows_risk_field_from_columns(
-                                            generated, fj, fl, Int64(families.count), zj, zl,
-                                            la, lo, sc, s, sj, sl, hs, rc, hr, rp)
+        let zipColumn = RustTextColumn(zips)
+        let summaryColumn = RustTextColumn(summaries)
+        let handle: FlowsRiskField? = familyColumn.with { fj, fl, _ in
+            zipColumn.with { zj, zl, _ in
+                summaryColumn.with { sj, sl, _ in
+                    lats.lent { la in
+                        lons.lent { lo in
+                            scoreCounts.lent { sc in
+                                scores.lent { s in
+                                    hasSummary.lent { hs in
+                                        ringCounts.lent { rc in
+                                            hasRing.lent { hr in
+                                                ringPoints.lent { rp in
+                                                    flows_risk_field_from_columns(
+                                                        generated, fj, fl, Int64(families.count), zj, zl,
+                                                        la, lo, sc, s, sj, sl, hs, rc, hr, rp)
+                                                }
+                                            }
+                                        }
                                     }
                                 }
                             }
@@ -338,7 +361,6 @@ final class RiskField: Sendable {
                 }
             }
         }
-        } } }
         guard let handle else { return nil }
         self.init(handle: handle)
     }
@@ -389,8 +411,10 @@ final class RiskField: Sendable {
 
     /// The viewport working set: ringed entries inside the box, worst score
     /// first for the family, the first `limit` of them.
-    func select(latMin: Double, latMax: Double, lonMin: Double, lonMax: Double,
-                family: Int, limit: Int) -> [Int] {
+    func select(
+        latMin: Double, latMax: Double, lonMin: Double, lonMax: Double,
+        family: Int, limit: Int
+    ) -> [Int] {
         Array(handle.select(latMin, latMax, lonMin, lonMax, Int64(family), Int64(limit))).map { Int($0) }
     }
 

@@ -45,23 +45,30 @@ enum TripShareLogic {
     /// `firstStop`: an added stop whose way on isn't planned yet — `arrival`
     /// is the time at the stop, so the text says it is, and still names the
     /// trip's true end.
-    static func shareMessage(destination: String, arrival: Date,
-                             latitude: Double?, longitude: Double?,
-                             firstStop: String? = nil) -> String {
+    static func shareMessage(
+        destination: String, arrival: Date,
+        latitude: Double?, longitude: Double?,
+        firstStop: String? = nil
+    ) -> String {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.dateFormat = "h:mm a"
         let time = formatter.string(from: arrival)
-        var lines = firstStop.map { stop in
-            ["On my way to \(destination), stopping at \(stop) first.",
-             "I should get to \(stop) around \(time)."]
-        } ?? [
-            "On my way to \(destination).",
-            "I should get there around \(time).",
-        ]
+        var lines =
+            firstStop.map { stop in
+                [
+                    "On my way to \(destination), stopping at \(stop) first.",
+                    "I should get to \(stop) around \(time).",
+                ]
+            } ?? [
+                "On my way to \(destination).",
+                "I should get there around \(time).",
+            ]
         if let latitude, let longitude {
-            lines.append(String(format: "Map: https://maps.apple.com/?daddr=%.5f,%.5f",
-                                latitude, longitude))
+            lines.append(
+                String(
+                    format: "Map: https://maps.apple.com/?daddr=%.5f,%.5f",
+                    latitude, longitude))
         }
         return lines.joined(separator: "\n")
     }
@@ -73,7 +80,7 @@ enum TripShareLogic {
     static func smsURLString(number: String, body: String) -> String? {
         let digits = number.filter { "0123456789+".contains($0) }
         guard !digits.isEmpty,
-              let encoded = body.addingPercentEncoding(withAllowedCharacters: bodyAllowed)
+            let encoded = body.addingPercentEncoding(withAllowedCharacters: bodyAllowed)
         else { return nil }
         return "sms:\(digits)?&body=\(encoded)"
     }
@@ -95,8 +102,10 @@ enum TripShareLogic {
     /// Ties break on the most recent share (Swift's sort isn't stable).
     static func ranked(_ recipients: [ShareRecipient], now: Date) -> [ShareRecipient] {
         let order = ShareColumns(recipients).withDates { dates, counts, count in
-            Array(flows_long_trips_ranked_recipients(dates, counts, count,
-                                                     now.timeIntervalSinceReferenceDate))
+            Array(
+                flows_long_trips_ranked_recipients(
+                    dates, counts, count,
+                    now.timeIntervalSinceReferenceDate))
         }
         return order.map { recipients[Int($0)] }
     }
@@ -132,13 +141,17 @@ struct DailyDriveLog: Codable, Equatable {
     var day: Date
     var meters: Double
 
-    static func empty(on date: Date = Date(),
-                      calendar: Calendar = .current) -> DailyDriveLog {
+    static func empty(
+        on date: Date = Date(),
+        calendar: Calendar = .current
+    ) -> DailyDriveLog {
         DailyDriveLog(day: calendar.startOfDay(for: date), meters: 0)
     }
 
-    mutating func add(meters delta: Double, at date: Date = Date(),
-                      calendar: Calendar = .current) {
+    mutating func add(
+        meters delta: Double, at date: Date = Date(),
+        calendar: Calendar = .current
+    ) {
         // A new calendar day starts the count over, and a GPS glitch must
         // never drive the total down (rust/flows-core long_trips.rs). The
         // calendar's start of day stays here.
@@ -196,11 +209,13 @@ final class ShareHistoryStore: ObservableObject {
                 defaults.removeObject(forKey: Self.key)
             }
             if let saved = try? JSONDecoder().decode(
-                [ShareRecipient].self, from: Data(json.utf8)) {
+                [ShareRecipient].self, from: Data(json.utf8))
+            {
                 recipients = saved
             }
         } else if let data = defaults.data(forKey: Self.key),
-                  let saved = try? JSONDecoder().decode([ShareRecipient].self, from: data) {
+            let saved = try? JSONDecoder().decode([ShareRecipient].self, from: data)
+        {
             recipients = saved
         }
     }
@@ -219,8 +234,10 @@ final class ShareHistoryStore: ObservableObject {
         let columns = ShareColumns(recipients)
         let plan: [Int64] = columns.phones.with { joined, lengths, _ in
             columns.withDates { dates, counts, count in
-                Array(flows_long_trips_record_share(joined, lengths, dates, counts, count,
-                                                    name, phone, date.timeIntervalSinceReferenceDate))
+                Array(
+                    flows_long_trips_record_share(
+                        joined, lengths, dates, counts, count,
+                        name, phone, date.timeIntervalSinceReferenceDate))
             }
         }
         guard plan.count >= 4 else { return }
@@ -262,8 +279,9 @@ final class ShareHistoryStore: ObservableObject {
         do {
             let data = try JSONEncoder().encode(recipients)
             if useKeychain {
-                SecureStore.set(String(decoding: data, as: UTF8.self),
-                                for: Self.keychainKey)
+                SecureStore.set(
+                    String(decoding: data, as: UTF8.self),
+                    for: Self.keychainKey)
             } else {
                 defaults.set(data, forKey: Self.key)
             }

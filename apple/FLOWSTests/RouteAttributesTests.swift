@@ -13,8 +13,9 @@ import XCTest
 final class RouteAttributesTests: XCTestCase {
 
     func testMaxGradeFlatRouteIsZero() {
-        XCTAssertEqual(RouteAttributes.maxGradePercent(
-            elevations: [200, 200, 200], spacingMeters: 1000), 0)
+        XCTAssertEqual(
+            RouteAttributes.maxGradePercent(
+                elevations: [200, 200, 200], spacingMeters: 1000), 0)
     }
 
     func testMaxGradeDetectsClimb() {
@@ -30,8 +31,9 @@ final class RouteAttributesTests: XCTestCase {
             elevations: [100, 120, nil, 130], spacingMeters: 1000)
         XCTAssertEqual(g!, 2.0, accuracy: 0.001)
         // All-missing → unknown, not zero.
-        XCTAssertNil(RouteAttributes.maxGradePercent(
-            elevations: [nil, nil], spacingMeters: 1000))
+        XCTAssertNil(
+            RouteAttributes.maxGradePercent(
+                elevations: [nil, nil], spacingMeters: 1000))
     }
 
     func testOSMClearanceParsing() {
@@ -79,8 +81,10 @@ final class RouteAttributesTests: XCTestCase {
     }
 
     /// `n` points `step` metres apart heading north (bearing 0) or east (90).
-    private func line(from start: CLLocationCoordinate2D, bearing: Double, count: Int,
-                      step: Double) -> [CLLocationCoordinate2D] {
+    private func line(
+        from start: CLLocationCoordinate2D, bearing: Double, count: Int,
+        step: Double
+    ) -> [CLLocationCoordinate2D] {
         let mLon = 111_320.0 * cos(start.latitude * .pi / 180)
         return (0..<count).map { i in
             let d = Double(i) * step
@@ -103,13 +107,17 @@ final class RouteAttributesTests: XCTestCase {
         let garage = PostedLimit(value: 1.96, line: Array(route[5...6]), tags: ["amenity": "parking"])
         let crossing = PostedLimit(
             value: 3.2,
-            line: line(from: CLLocationCoordinate2D(latitude: route[2].latitude,
-                                                    longitude: start.longitude - 0.002),
-                       bearing: 90, count: 3, step: 100),
+            line: line(
+                from: CLLocationCoordinate2D(
+                    latitude: route[2].latitude,
+                    longitude: start.longitude - 0.002),
+                bearing: 90, count: 3, step: 100),
             tags: ["highway": "residential"])
-        XCTAssertEqual(RouteAttributes.onRoute([bridge, garageEntrance, garage, crossing],
-                                               route: route),
-                       [true, false, false, false])
+        XCTAssertEqual(
+            RouteAttributes.onRoute(
+                [bridge, garageEntrance, garage, crossing],
+                route: route),
+            [true, false, false, false])
         // Nothing to judge: no limits, or a route too short to have a line.
         XCTAssertEqual(RouteAttributes.onRoute([], route: route), [])
         XCTAssertEqual(RouteAttributes.onRoute([bridge], route: [start]), [false])

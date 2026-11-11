@@ -110,8 +110,9 @@ enum BadgeClustering {
             let weight = group.reduce(0.0) { $0 + max($1.score, 1e-4) }
             let lat = group.reduce(0.0) { $0 + $1.coordinate.latitude * max($1.score, 1e-4) } / weight
             let lon = group.reduce(0.0) { $0 + $1.coordinate.longitude * max($1.score, 1e-4) } / weight
-            return Item(coordinate: CLLocationCoordinate2D(latitude: lat, longitude: lon),
-                        kind: seed.kind, score: seed.score)
+            return Item(
+                coordinate: CLLocationCoordinate2D(latitude: lat, longitude: lon),
+                kind: seed.kind, score: seed.score)
         }
     }
 
@@ -132,7 +133,9 @@ enum BadgeClustering {
             let item = items[i]
             if kept.contains(where: {
                 POIRanking.meters($0.coordinate, item.coordinate) < minSeparationMeters
-            }) { continue }
+            }) {
+                continue
+            }
             kept.append(item)
         }
         return kept
@@ -226,8 +229,10 @@ enum BadgeClustering {
 
         init(_ ring: [CLLocationCoordinate2D]) {
             for c in ring {
-                minLat = min(minLat, c.latitude); maxLat = max(maxLat, c.latitude)
-                minLon = min(minLon, c.longitude); maxLon = max(maxLon, c.longitude)
+                minLat = min(minLat, c.latitude)
+                maxLat = max(maxLat, c.latitude)
+                minLon = min(minLon, c.longitude)
+                maxLon = max(maxLon, c.longitude)
             }
         }
 

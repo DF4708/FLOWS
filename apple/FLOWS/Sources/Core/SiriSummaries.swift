@@ -122,11 +122,14 @@ enum SiriSummaries {
     /// Reply to "start a trip": the route and how to take it. `whileDriving`:
     /// another trip is being driven, so the drive screen stays up and only a
     /// yes switches to the new one.
-    static func tripOffer(name: String, meters: Double, seconds: Double,
-                          whileDriving: Bool) -> String {
+    static func tripOffer(
+        name: String, meters: Double, seconds: Double,
+        whileDriving: Bool
+    ) -> String {
         tripRoute(name: name, meters: meters, seconds: seconds)
-            + (whileDriving ? " Say: go ahead in FLOWS to switch to it."
-                            : " Say: go ahead in FLOWS — or pick a route on screen.")
+            + (whileDriving
+                ? " Say: go ahead in FLOWS to switch to it."
+                : " Say: go ahead in FLOWS — or pick a route on screen.")
     }
 
     /// Reply to a yes when the offered route no longer fits the driver's
@@ -152,10 +155,13 @@ enum SiriSummaries {
     /// Spoken emergency announcement when a warning enters the corridor.
     /// Child-abduction (AMBER) alerts get the emergency framing and the
     /// call-911 line; weather warnings get the action FLOWS already took.
-    static func emergencyAnnouncement(event: String, headline: String?,
-                                      action: ImminentAlerts.Action) -> String {
+    static func emergencyAnnouncement(
+        event: String, headline: String?,
+        action: ImminentAlerts.Action
+    ) -> String {
         let isAbduction = isChildAbduction(event)
-        var out = (isAbduction ? "Emergency alert: " : "Weather alert on your route: ")
+        var out =
+            (isAbduction ? "Emergency alert: " : "Weather alert on your route: ")
             + event + "."
         if let headline, !headline.isEmpty {
             let clipped = spokenClip(headline)
@@ -188,9 +194,11 @@ enum SiriSummaries {
     /// to do. Reading a whole official yellow headline aloud buried that in
     /// a paragraph. The banner on screen and the lock-screen notice still
     /// carry the official text, so nothing is lost, only unsaid.
-    static func spokenWarning(event: String, headline: String?,
-                              action: ImminentAlerts.Action,
-                              minutesAway: Int? = nil) -> String {
+    static func spokenWarning(
+        event: String, headline: String?,
+        action: ImminentAlerts.Action,
+        minutesAway: Int? = nil
+    ) -> String {
         guard !isChildAbduction(event), !action.isRed else {
             return emergencyAnnouncement(event: event, headline: headline, action: action)
         }
@@ -225,9 +233,12 @@ enum SiriSummaries {
     /// weather alerts crossing the route — or an all-clear.
     /// `toStop`: an added stop whose way on isn't planned yet — the numbers
     /// and the alerts reach only as far as the stop, and the reply says so.
-    static func roadAhead(remainingMeters: Double, remainingSeconds: Double,
-                          alertEvents: [String], toStop: String? = nil) -> String {
-        var out = "About \(spokenMiles(meters: remainingMeters)) and "
+    static func roadAhead(
+        remainingMeters: Double, remainingSeconds: Double,
+        alertEvents: [String], toStop: String? = nil
+    ) -> String {
+        var out =
+            "About \(spokenMiles(meters: remainingMeters)) and "
             + "\(spokenTime(seconds: remainingSeconds)) "
             + (toStop.map { "to \($0). The way on from there is still being planned." }
                 ?? "to go.")
@@ -236,12 +247,15 @@ enum SiriSummaries {
             if !$0.contains($1) { $0.append($1) }
         }
         if unique.isEmpty {
-            out += toStop == nil ? " No weather alerts on the route."
-                                 : " No weather alerts on the way there."
+            out +=
+                toStop == nil
+                ? " No weather alerts on the route."
+                : " No weather alerts on the way there."
         } else if unique.count == 1 {
             out += " One weather alert ahead: \(unique[0])."
         } else {
-            out += " \(unique.count) weather alerts ahead: "
+            out +=
+                " \(unique.count) weather alerts ahead: "
                 + unique.prefix(3).joined(separator: ", ") + "."
         }
         return out

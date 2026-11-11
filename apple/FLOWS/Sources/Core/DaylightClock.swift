@@ -60,13 +60,18 @@ enum DaylightClock {
     /// Sunrise and sunset (civil twilight by default) for a place and day,
     /// as instants. nil in the polar day/night, where there is no crossing.
     /// The day is chosen LOCALLY, by longitude, not in UTC.
-    static func twilight(at coordinate: CLLocationCoordinate2D, on date: Date,
-                         angle: Double = civilTwilightDegrees) -> (dawn: Date, dusk: Date)? {
-        let t = flows_climate_twilight(coordinate.latitude, coordinate.longitude,
-                                       date.timeIntervalSinceReferenceDate, angle)
+    static func twilight(
+        at coordinate: CLLocationCoordinate2D, on date: Date,
+        angle: Double = civilTwilightDegrees
+    ) -> (dawn: Date, dusk: Date)? {
+        let t = flows_climate_twilight(
+            coordinate.latitude, coordinate.longitude,
+            date.timeIntervalSinceReferenceDate, angle)
         guard t.has == 1 else { return nil }
-        return (dawn: Date(timeIntervalSinceReferenceDate: t.dawn),
-                dusk: Date(timeIntervalSinceReferenceDate: t.dusk))
+        return (
+            dawn: Date(timeIntervalSinceReferenceDate: t.dawn),
+            dusk: Date(timeIntervalSinceReferenceDate: t.dusk)
+        )
     }
 
     /// Is it dark out, here, now? Above the polar circles, where there may be
@@ -85,7 +90,8 @@ enum DaylightClock {
     /// next, so the switch happens ON the boundary rather than up to an hour
     /// late. Falls back to an hour out where there is no boundary today.
     static func nextChange(at coordinate: CLLocationCoordinate2D, now: Date = Date()) -> Date {
-        Date(timeIntervalSinceReferenceDate: flows_climate_next_change(
-            coordinate.latitude, coordinate.longitude, now.timeIntervalSinceReferenceDate))
+        Date(
+            timeIntervalSinceReferenceDate: flows_climate_next_change(
+                coordinate.latitude, coordinate.longitude, now.timeIntervalSinceReferenceDate))
     }
 }

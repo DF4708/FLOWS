@@ -53,8 +53,10 @@ enum SpeedSign {
     /// Whether the pair belongs on screen at all. It's a DRIVING instrument:
     /// a walker has no posted limit to keep, and a passenger on a plane,
     /// bus, or train isn't the one driving.
-    static func shouldShow(isNavigating: Bool, isWalking: Bool,
-                           isPassengerTransit: Bool) -> Bool {
+    static func shouldShow(
+        isNavigating: Bool, isWalking: Bool,
+        isPassengerTransit: Bool
+    ) -> Bool {
         isNavigating && !isWalking && !isPassengerTransit
     }
 }

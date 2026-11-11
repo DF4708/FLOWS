@@ -42,9 +42,9 @@ final class LocationService: NSObject, ObservableObject, CLLocationManagerDelega
 
     func requestAuthorization() {
         #if os(macOS)
-        manager.requestAlwaysAuthorization()
+            manager.requestAlwaysAuthorization()
         #else
-        manager.requestWhenInUseAuthorization()
+            manager.requestWhenInUseAuthorization()
         #endif
     }
 
@@ -63,13 +63,13 @@ final class LocationService: NSObject, ObservableObject, CLLocationManagerDelega
         manager.desiredAccuracy = kCLLocationAccuracyBestForNavigation
         manager.distanceFilter = kCLDistanceFilterNone
         #if os(iOS)
-        manager.allowsBackgroundLocationUpdates = true
-        manager.activityType = .automotiveNavigation
-        // Never paused by iOS mid-trip: left at its default, a long stop
-        // with the phone locked paused updates (and suspended the app) until
-        // it was reopened — guidance, cameras, speed limits and the crash
-        // check all went dark for the rest of the drive.
-        manager.pausesLocationUpdatesAutomatically = false
+            manager.allowsBackgroundLocationUpdates = true
+            manager.activityType = .automotiveNavigation
+            // Never paused by iOS mid-trip: left at its default, a long stop
+            // with the phone locked paused updates (and suspended the app) until
+            // it was reopened — guidance, cameras, speed limits and the crash
+            // check all went dark for the rest of the drive.
+            manager.pausesLocationUpdatesAutomatically = false
         #endif
         manager.startUpdatingLocation()
     }
@@ -82,7 +82,7 @@ final class LocationService: NSObject, ObservableObject, CLLocationManagerDelega
     func arrivedUpdates() {
         arrived = true
         #if os(iOS)
-        manager.pausesLocationUpdatesAutomatically = true
+            manager.pausesLocationUpdatesAutomatically = true
         #endif
     }
 
@@ -90,8 +90,8 @@ final class LocationService: NSObject, ObservableObject, CLLocationManagerDelega
         navigating = false
         arrived = false
         #if os(iOS)
-        manager.allowsBackgroundLocationUpdates = false
-        manager.pausesLocationUpdatesAutomatically = true
+            manager.allowsBackgroundLocationUpdates = false
+            manager.pausesLocationUpdatesAutomatically = true
         #endif
         beginPlanningUpdates()
     }
@@ -113,9 +113,9 @@ final class LocationService: NSObject, ObservableObject, CLLocationManagerDelega
         let status = manager.authorizationStatus
         Task { @MainActor in
             #if os(macOS)
-            self.authorized = status == .authorizedAlways
+                self.authorized = status == .authorizedAlways
             #else
-            self.authorized = status == .authorizedWhenInUse || status == .authorizedAlways
+                self.authorized = status == .authorizedWhenInUse || status == .authorizedAlways
             #endif
             self.denied = status == .denied || status == .restricted
             // A permission change mid-drive keeps the drive's cadence: the

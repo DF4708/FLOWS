@@ -7,8 +7,9 @@
 // -----------------------------------------------------------------------------
 
 import Foundation
+
 #if canImport(FoundationModels)
-import FoundationModels
+    import FoundationModels
 #endif
 
 /// Optional on-device language help for drivers who struggle to find the
@@ -29,23 +30,24 @@ enum IntentClarifier {
     /// match (or no on-device model on this hardware).
     static func pick(reply: String, options: [String]) async -> Int? {
         #if canImport(FoundationModels)
-        guard #available(iOS 26.0, macOS 26.0, *) else { return nil }
-        guard !reply.isEmpty, !options.isEmpty,
-              case .available = SystemLanguageModel.default.availability
-        else { return nil }
-        let list = options.enumerated()
-            .map { "\($0.offset + 1). \($0.element)" }
-            .joined(separator: "\n")
-        let session = LanguageModelSession(instructions:
-            "You match a driver's spoken reply to one of the numbered options. "
-            + "Answer with ONLY the option's number. If no option clearly "
-            + "matches, answer 0.")
-        let prompt = "Options:\n\(list)\n\nDriver said: \"\(reply)\"\n\nNumber:"
-        guard let text = try? await session.respond(to: prompt).content
-        else { return nil }
-        return optionIndex(fromModelText: text, optionCount: options.count)
+            guard #available(iOS 26.0, macOS 26.0, *) else { return nil }
+            guard !reply.isEmpty, !options.isEmpty,
+                case .available = SystemLanguageModel.default.availability
+            else { return nil }
+            let list = options.enumerated()
+                .map { "\($0.offset + 1). \($0.element)" }
+                .joined(separator: "\n")
+            let session = LanguageModelSession(
+                instructions:
+                    "You match a driver's spoken reply to one of the numbered options. "
+                    + "Answer with ONLY the option's number. If no option clearly "
+                    + "matches, answer 0.")
+            let prompt = "Options:\n\(list)\n\nDriver said: \"\(reply)\"\n\nNumber:"
+            guard let text = try? await session.respond(to: prompt).content
+            else { return nil }
+            return optionIndex(fromModelText: text, optionCount: options.count)
         #else
-        return nil
+            return nil
         #endif
     }
 
@@ -55,20 +57,20 @@ enum IntentClarifier {
     /// otherwise nothing to see).
     static var statusText: String {
         #if canImport(FoundationModels)
-        if #available(iOS 26.0, macOS 26.0, *) {
-            switch SystemLanguageModel.default.availability {
-            case .available:
-                return "Ready on this device."
-            case .unavailable(.appleIntelligenceNotEnabled):
-                return "Turn on Apple Intelligence in the device's own Settings to use it."
-            case .unavailable(.modelNotReady):
-                return "Apple Intelligence is still getting ready on this device — try again later."
-            case .unavailable(.deviceNotEligible):
-                return "This device can't run Apple Intelligence, so FLOWS just asks again."
-            default:
-                return "Not available on this device right now, so FLOWS just asks again."
+            if #available(iOS 26.0, macOS 26.0, *) {
+                switch SystemLanguageModel.default.availability {
+                case .available:
+                    return "Ready on this device."
+                case .unavailable(.appleIntelligenceNotEnabled):
+                    return "Turn on Apple Intelligence in the device's own Settings to use it."
+                case .unavailable(.modelNotReady):
+                    return "Apple Intelligence is still getting ready on this device — try again later."
+                case .unavailable(.deviceNotEligible):
+                    return "This device can't run Apple Intelligence, so FLOWS just asks again."
+                default:
+                    return "Not available on this device right now, so FLOWS just asks again."
+                }
             }
-        }
         #endif
         return "Needs a newer system with Apple Intelligence, so FLOWS just asks again."
     }

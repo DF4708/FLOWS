@@ -13,28 +13,34 @@ import XCTest
 final class ManeuverSymbolTests: XCTestCase {
 
     func testTurnsPointTheWayTheySay() {
-        XCTAssertEqual(ManeuverSymbol.symbol(for: "Turn left onto W Johnson St"),
-                       "arrow.turn.up.left")
-        XCTAssertEqual(ManeuverSymbol.symbol(for: "Turn right onto Park St"),
-                       "arrow.turn.up.right")
+        XCTAssertEqual(
+            ManeuverSymbol.symbol(for: "Turn left onto W Johnson St"),
+            "arrow.turn.up.left")
+        XCTAssertEqual(
+            ManeuverSymbol.symbol(for: "Turn right onto Park St"),
+            "arrow.turn.up.right")
     }
 
     func testAStreetNamedLeftDoesNotSteerTheArrow() {
         // The destination clause is stripped before matching, so a road
         // called "Left Fork" can't turn a right-hand maneuver around.
         XCTAssertEqual(ManeuverSymbol.side(of: "Turn right onto Left Fork Rd"), .right)
-        XCTAssertEqual(ManeuverSymbol.symbol(for: "Turn right onto Left Fork Rd"),
-                       "arrow.turn.up.right")
+        XCTAssertEqual(
+            ManeuverSymbol.symbol(for: "Turn right onto Left Fork Rd"),
+            "arrow.turn.up.right")
         XCTAssertEqual(ManeuverSymbol.side(of: "Turn left toward Right Bank Ave"), .left)
     }
 
     func testGentleAndSharpTurnsAreDistinct() {
-        XCTAssertEqual(ManeuverSymbol.symbol(for: "Slight left onto the ramp"),
-                       "arrow.up.left")
-        XCTAssertEqual(ManeuverSymbol.symbol(for: "Keep right at the fork"),
-                       "arrow.up.right")
-        XCTAssertEqual(ManeuverSymbol.symbol(for: "Sharp left onto Oak"),
-                       "arrow.turn.up.left")
+        XCTAssertEqual(
+            ManeuverSymbol.symbol(for: "Slight left onto the ramp"),
+            "arrow.up.left")
+        XCTAssertEqual(
+            ManeuverSymbol.symbol(for: "Keep right at the fork"),
+            "arrow.up.right")
+        XCTAssertEqual(
+            ManeuverSymbol.symbol(for: "Sharp left onto Oak"),
+            "arrow.turn.up.left")
         // No side named: straight on, not a guessed bear right.
         XCTAssertEqual(ManeuverSymbol.symbol(for: "Keep straight to stay on I-94 E"), "arrow.up")
         XCTAssertEqual(ManeuverSymbol.symbol(for: "Stay on US-12 W"), "arrow.up")
@@ -42,10 +48,12 @@ final class ManeuverSymbolTests: XCTestCase {
 
     func testSpecialManeuvers() {
         XCTAssertEqual(ManeuverSymbol.symbol(for: "Make a U-turn"), "arrow.uturn.down")
-        XCTAssertEqual(ManeuverSymbol.symbol(for: "At the roundabout, take the 2nd exit"),
-                       "arrow.triangle.turn.up.right.circle")
-        XCTAssertEqual(ManeuverSymbol.symbol(for: "You have arrived"),
-                       "mappin.circle.fill")
+        XCTAssertEqual(
+            ManeuverSymbol.symbol(for: "At the roundabout, take the 2nd exit"),
+            "arrow.triangle.turn.up.right.circle")
+        XCTAssertEqual(
+            ManeuverSymbol.symbol(for: "You have arrived"),
+            "mappin.circle.fill")
         XCTAssertEqual(ManeuverSymbol.symbol(for: "Continue on I-94 E"), "arrow.up")
     }
 
@@ -116,8 +124,9 @@ final class ManeuverSymbolTests: XCTestCase {
     func testTheLaneBoxDrawsEveryTaggedLaneAsItsOwnMovement() {
         // A U-turn lane, two through lanes and a right-turn lane; turning right.
         let lanes = LaneData.parse(turnLanes: "reverse|through|through|right")
-        let arrows = LaneBox.arrows(lanes: lanes, recommended: [3],
-                                    instruction: "Turn right onto Main St")
+        let arrows = LaneBox.arrows(
+            lanes: lanes, recommended: [3],
+            instruction: "Turn right onto Main St")
         XCTAssertEqual(arrows.map(\.turn), [.reverse, .through, .through, .right])
         XCTAssertEqual(arrows.map(\.lit), [false, false, false, true])
         XCTAssertTrue(arrows[0].uTurnLeft, "a U-turn lane on the left curls left")
@@ -129,8 +138,9 @@ final class ManeuverSymbolTests: XCTestCase {
         let left = LaneBox.arrows(lanes: [], recommended: [], instruction: "Turn left onto Oak St")
         XCTAssertEqual(left.map(\.turn), [.left])
         // Stated lanes: the lit ones show the turn, the rest go straight.
-        let stated = LaneBox.arrows(lanes: [], recommended: [],
-                                    instruction: "Use the right 2 lanes to take exit 142A")
+        let stated = LaneBox.arrows(
+            lanes: [], recommended: [],
+            instruction: "Use the right 2 lanes to take exit 142A")
         XCTAssertEqual(stated.count, 4)
         XCTAssertEqual(stated.filter(\.lit).map(\.turn), [.right, .right])
         XCTAssertEqual(stated.filter { !$0.lit }.map(\.turn), [.through, .through])

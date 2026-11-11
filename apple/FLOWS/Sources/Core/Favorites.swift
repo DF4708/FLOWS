@@ -48,12 +48,15 @@ struct FavoriteAddress: Codable, Identifiable, Equatable {
     /// two favorites in one town shared a name and the second replaced the
     /// first — and the star, matching the typed text, never filled. nil for
     /// a blank field.
-    static func typed(_ text: String, symbol: Symbol,
-                      at coordinate: CLLocationCoordinate2D) -> FavoriteAddress? {
+    static func typed(
+        _ text: String, symbol: Symbol,
+        at coordinate: CLLocationCoordinate2D
+    ) -> FavoriteAddress? {
         let name = text.trimmingCharacters(in: .whitespaces)
         guard !name.isEmpty else { return nil }
-        return FavoriteAddress(name: name, symbol: symbol,
-                               latitude: coordinate.latitude, longitude: coordinate.longitude)
+        return FavoriteAddress(
+            name: name, symbol: symbol,
+            latitude: coordinate.latitude, longitude: coordinate.longitude)
     }
 }
 
@@ -82,8 +85,10 @@ final class FavoritesStore: ObservableObject {
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         if defaults == UserDefaults.standard,
-           let dir = FileManager.default.urls(
-               for: .applicationSupportDirectory, in: .userDomainMask).first {
+            let dir = FileManager.default.urls(
+                for: .applicationSupportDirectory, in: .userDomainMask
+            ).first
+        {
             try? FileManager.default.createDirectory(
                 at: dir, withIntermediateDirectories: true)
             sealedURL = dir.appendingPathComponent("flows_favorites.json")
@@ -92,21 +97,25 @@ final class FavoritesStore: ObservableObject {
         }
         if let url = sealedURL {
             if let saved = SecureBehaviorStore.load(
-                [FavoriteAddress].self, from: url, keyspace: .favorites) {
+                [FavoriteAddress].self, from: url, keyspace: .favorites)
+            {
                 favorites = saved
             } else if let data = defaults.data(forKey: Self.key),
-                      let saved = try? JSONDecoder().decode([FavoriteAddress].self, from: data) {
+                let saved = try? JSONDecoder().decode([FavoriteAddress].self, from: data)
+            {
                 // One-time upgrade from the plist: seal it, then scrub the
                 // plaintext copy so the next backup no longer carries it.
                 favorites = saved
                 if SecureBehaviorStore.save(saved, to: url, keyspace: .favorites) {
                     defaults.removeObject(forKey: Self.key)
-                    FlowsDiag.log(.info, "privacy",
-                                  "favorites moved out of UserDefaults into sealed storage")
+                    FlowsDiag.log(
+                        .info, "privacy",
+                        "favorites moved out of UserDefaults into sealed storage")
                 }
             }
         } else if let data = defaults.data(forKey: Self.key),
-                  let saved = try? JSONDecoder().decode([FavoriteAddress].self, from: data) {
+            let saved = try? JSONDecoder().decode([FavoriteAddress].self, from: data)
+        {
             favorites = saved
         }
     }

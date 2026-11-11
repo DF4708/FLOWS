@@ -8,8 +8,9 @@
 
 import AVFoundation
 import Foundation
+
 #if canImport(Speech)
-import Speech
+    import Speech
 #endif
 
 // AN UNSAFE ISLAND (see UnsafeIslands.swift).
@@ -20,63 +21,67 @@ import Speech
 // borrow it without retaining.
 
 #if canImport(Speech)
-/// The audio tap that feeds decoded samples to the recognizer.
-///
-/// Kept in its own type because MTAudioProcessingTap callbacks are C
-/// function pointers: they cannot capture Swift context, so the request is
-/// passed through the tap's storage as an unmanaged reference.
-enum ScannerAudioTap {
-    private final class Box {
-        let request: SFSpeechAudioBufferRecognitionRequest
-        init(_ r: SFSpeechAudioBufferRecognitionRequest) { request = r }
-    }
-
-    static func attach(to params: AVMutableAudioMixInputParameters,
-                       request: SFSpeechAudioBufferRecognitionRequest) {
-        let box = Unmanaged.passRetained(Box(request)).toOpaque()
-        var callbacks = MTAudioProcessingTapCallbacks(
-            version: kMTAudioProcessingTapCallbacksVersion_0,
-            clientInfo: box,
-            init: { _, clientInfo, storageOut in storageOut.pointee = clientInfo },
-            finalize: { tap in
-                if let storage = MTAudioProcessingTapGetStorage(tap) as UnsafeMutableRawPointer? {
-                    Unmanaged<Box>.fromOpaque(storage).release()
-                }
-            },
-            prepare: nil, unprepare: nil,
-            process: { tap, numberFrames, flags, bufferListInOut, numberFramesOut, flagsOut in
-                let status = MTAudioProcessingTapGetSourceAudio(
-                    tap, numberFrames, bufferListInOut, flagsOut, nil, numberFramesOut)
-                guard status == noErr else { return }
-                let storage = MTAudioProcessingTapGetStorage(tap)
-                let box = Unmanaged<Box>.fromOpaque(storage).takeUnretainedValue()
-                guard let format = ScannerAudioTap.format(frames: numberFrames),
-                      let buffer = AVAudioPCMBuffer(
-                        pcmFormat: format,
-                        bufferListNoCopy: bufferListInOut) else { return }
-                box.request.append(buffer)
-            })
-        // The current SDK imports the out-parameter as a managed optional,
-        // so ARC balances the tap for us.
-        var tap: MTAudioProcessingTap?
-        let err = MTAudioProcessingTapCreate(
-            kCFAllocatorDefault, &callbacks,
-            kMTAudioProcessingTapCreationFlag_PostEffects, &tap)
-        guard err == noErr, let created = tap else {
-            Unmanaged<Box>.fromOpaque(box).release()
-            return
+    /// The audio tap that feeds decoded samples to the recognizer.
+    ///
+    /// Kept in its own type because MTAudioProcessingTap callbacks are C
+    /// function pointers: they cannot capture Swift context, so the request is
+    /// passed through the tap's storage as an unmanaged reference.
+    enum ScannerAudioTap {
+        private final class Box {
+            let request: SFSpeechAudioBufferRecognitionRequest
+            init(_ r: SFSpeechAudioBufferRecognitionRequest) { request = r }
         }
-        params.audioTapProcessor = created
-    }
 
-    /// The tap delivers 32-bit float, non-interleaved, at the stream's rate;
-    /// relay feeds are 22.05 kHz mono in practice.
-    private static let sharedFormat =
-        AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 22_050,
-                      channels: 1, interleaved: false)
+        static func attach(
+            to params: AVMutableAudioMixInputParameters,
+            request: SFSpeechAudioBufferRecognitionRequest
+        ) {
+            let box = Unmanaged.passRetained(Box(request)).toOpaque()
+            var callbacks = MTAudioProcessingTapCallbacks(
+                version: kMTAudioProcessingTapCallbacksVersion_0,
+                clientInfo: box,
+                init: { _, clientInfo, storageOut in storageOut.pointee = clientInfo },
+                finalize: { tap in
+                    if let storage = MTAudioProcessingTapGetStorage(tap) as UnsafeMutableRawPointer? {
+                        Unmanaged<Box>.fromOpaque(storage).release()
+                    }
+                },
+                prepare: nil, unprepare: nil,
+                process: { tap, numberFrames, flags, bufferListInOut, numberFramesOut, flagsOut in
+                    let status = MTAudioProcessingTapGetSourceAudio(
+                        tap, numberFrames, bufferListInOut, flagsOut, nil, numberFramesOut)
+                    guard status == noErr else { return }
+                    let storage = MTAudioProcessingTapGetStorage(tap)
+                    let box = Unmanaged<Box>.fromOpaque(storage).takeUnretainedValue()
+                    guard let format = ScannerAudioTap.format(frames: numberFrames),
+                        let buffer = AVAudioPCMBuffer(
+                            pcmFormat: format,
+                            bufferListNoCopy: bufferListInOut)
+                    else { return }
+                    box.request.append(buffer)
+                })
+            // The current SDK imports the out-parameter as a managed optional,
+            // so ARC balances the tap for us.
+            var tap: MTAudioProcessingTap?
+            let err = MTAudioProcessingTapCreate(
+                kCFAllocatorDefault, &callbacks,
+                kMTAudioProcessingTapCreationFlag_PostEffects, &tap)
+            guard err == noErr, let created = tap else {
+                Unmanaged<Box>.fromOpaque(box).release()
+                return
+            }
+            params.audioTapProcessor = created
+        }
 
-    nonisolated static func format(frames: CMItemCount) -> AVAudioFormat? {
-        sharedFormat
+        /// The tap delivers 32-bit float, non-interleaved, at the stream's rate;
+        /// relay feeds are 22.05 kHz mono in practice.
+        private static let sharedFormat =
+            AVAudioFormat(
+                commonFormat: .pcmFormatFloat32, sampleRate: 22_050,
+                channels: 1, interleaved: false)
+
+        nonisolated static func format(frames: CMItemCount) -> AVAudioFormat? {
+            sharedFormat
+        }
     }
-}
 #endif

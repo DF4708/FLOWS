@@ -38,8 +38,10 @@ enum RustLoans {
     /// empty loan points at real, aligned stack space with a count of zero,
     /// so nothing is ever read through it.
     @inline(__always)
-    static func sound<Element, R>(_ loan: UnsafeBufferPointer<Element>,
-                                  _ body: (RustLoan<Element>) throws -> R) rethrows -> R {
+    static func sound<Element, R>(
+        _ loan: UnsafeBufferPointer<Element>,
+        _ body: (RustLoan<Element>) throws -> R
+    ) rethrows -> R {
         if loan.baseAddress != nil { return try body(loan) }
         return try withUnsafeTemporaryAllocation(of: Element.self, capacity: 1) { spare in
             try body(UnsafeBufferPointer(start: spare.baseAddress, count: 0))
@@ -53,9 +55,11 @@ enum RustLoans {
     /// `0..<count` is dropped rather than written, and the storage does not
     /// outlive the call.
     @inline(__always)
-    static func slots<R>(_ count: Int, startingAt start: Double,
-                         fill: ((Int, Double) -> Void) -> Void,
-                         _ body: (RustLoan<Double>) -> R) -> R {
+    static func slots<R>(
+        _ count: Int, startingAt start: Double,
+        fill: ((Int, Double) -> Void) -> Void,
+        _ body: (RustLoan<Double>) -> R
+    ) -> R {
         withUnsafeTemporaryAllocation(of: Double.self, capacity: max(count, 1)) { buf in
             buf.initialize(repeating: start)
             fill { index, value in

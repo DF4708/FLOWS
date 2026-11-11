@@ -13,25 +13,32 @@ import XCTest
 /// vehicle IS, and does it hand off cleanly when the drive crosses into the
 /// next transmitter's coverage?
 final class RadioTuningTests: XCTestCase {
-    private func station(_ id: String, _ lat: Double, _ lon: Double,
-                         exact: Bool = true) -> RadioTuning.Station {
-        RadioTuning.Station(id: id,
-                            coordinate: CLLocationCoordinate2D(latitude: lat,
-                                                               longitude: lon),
-                            isExact: exact)
+    private func station(
+        _ id: String, _ lat: Double, _ lon: Double,
+        exact: Bool = true
+    ) -> RadioTuning.Station {
+        RadioTuning.Station(
+            id: id,
+            coordinate: CLLocationCoordinate2D(
+                latitude: lat,
+                longitude: lon),
+            isExact: exact)
     }
 
     /// Three real transmitters roughly along I-94 in Wisconsin.
     private var wisconsin: [RadioTuning.Station] {
-        [station("Madison", 43.07, -89.40),
-         station("Milwaukee", 43.04, -87.91),
-         station("Green Bay", 44.51, -88.02)]
+        [
+            station("Madison", 43.07, -89.40),
+            station("Milwaukee", 43.04, -87.91),
+            station("Green Bay", 44.51, -88.02),
+        ]
     }
 
     func testPicksTheTransmitterYouAreSittingUnder() {
         let atMadison = CLLocationCoordinate2D(latitude: 43.07, longitude: -89.40)
-        XCTAssertEqual(RadioTuning.nearest(to: atMadison, in: wisconsin)?.station.id,
-                       "Madison")
+        XCTAssertEqual(
+            RadioTuning.nearest(to: atMadison, in: wisconsin)?.station.id,
+            "Madison")
     }
 
     func testHandsOffOnceTheNextStationIsClearlyCloser() {
@@ -57,18 +64,20 @@ final class RadioTuningTests: XCTestCase {
 
     func testStaysPutWhenTheStationPlayingIsAlreadyTheClosest() {
         let atMadison = CLLocationCoordinate2D(latitude: 43.07, longitude: -89.40)
-        XCTAssertNil(RadioTuning.retarget(
-            playingID: "Madison",
-            playingCoordinate: CLLocationCoordinate2D(latitude: 43.07, longitude: -89.40),
-            position: atMadison, stations: wisconsin))
+        XCTAssertNil(
+            RadioTuning.retarget(
+                playingID: "Madison",
+                playingCoordinate: CLLocationCoordinate2D(latitude: 43.07, longitude: -89.40),
+                position: atMadison, stations: wisconsin))
     }
 
     func testNeverStartsPlayingOnItsOwn() {
         // Nothing on the air — driving anywhere must not begin audio.
-        XCTAssertNil(RadioTuning.retarget(
-            playingID: nil, playingCoordinate: nil,
-            position: CLLocationCoordinate2D(latitude: 43.04, longitude: -87.91),
-            stations: wisconsin))
+        XCTAssertNil(
+            RadioTuning.retarget(
+                playingID: nil, playingCoordinate: nil,
+                position: CLLocationCoordinate2D(latitude: 43.04, longitude: -87.91),
+                stations: wisconsin))
     }
 
     func testAnUnplaceableStationYieldsToAnyLocatedOne() {
@@ -83,34 +92,48 @@ final class RadioTuningTests: XCTestCase {
 
     func testAnExactListingWinsATieWithAStateFallback() {
         let here = CLLocationCoordinate2D(latitude: 43.07, longitude: -89.40)
-        let both = [station("guessed", 43.07, -89.40, exact: false),
-                    station("listed", 43.07, -89.40)]
+        let both = [
+            station("guessed", 43.07, -89.40, exact: false),
+            station("listed", 43.07, -89.40),
+        ]
         XCTAssertEqual(RadioTuning.nearest(to: here, in: both)?.station.id, "listed")
     }
 
     func testOnlyAWeatherStationOnTheAirFollowsTheDrive() {
-        XCTAssertTrue(RadioTuning.mayFollow(playingID: "Madison", isWeatherStation: true,
-                                            isPaused: false, pinnedID: nil))
+        XCTAssertTrue(
+            RadioTuning.mayFollow(
+                playingID: "Madison", isWeatherStation: true,
+                isPaused: false, pinnedID: nil))
         // Nothing on the air: moving would start audio on its own.
-        XCTAssertFalse(RadioTuning.mayFollow(playingID: nil, isWeatherStation: false,
-                                             isPaused: false, pinnedID: nil))
+        XCTAssertFalse(
+            RadioTuning.mayFollow(
+                playingID: nil, isWeatherStation: false,
+                isPaused: false, pinnedID: nil))
         // AM/FM music or a cab channel stays on its station.
-        XCTAssertFalse(RadioTuning.mayFollow(playingID: "KXYZ Rock", isWeatherStation: false,
-                                             isPaused: false, pinnedID: nil))
+        XCTAssertFalse(
+            RadioTuning.mayFollow(
+                playingID: "KXYZ Rock", isWeatherStation: false,
+                isPaused: false, pinnedID: nil))
     }
 
     func testAPausedStationWaitsForTheDriver() {
         // Moving a paused station restarts the sound — the driver paused it.
-        XCTAssertFalse(RadioTuning.mayFollow(playingID: "Madison", isWeatherStation: true,
-                                             isPaused: true, pinnedID: nil))
+        XCTAssertFalse(
+            RadioTuning.mayFollow(
+                playingID: "Madison", isWeatherStation: true,
+                isPaused: true, pinnedID: nil))
     }
 
     func testAStationPickedByHandStaysOnTheAir() {
-        XCTAssertFalse(RadioTuning.mayFollow(playingID: "Chicago", isWeatherStation: true,
-                                             isPaused: false, pinnedID: "Chicago"))
+        XCTAssertFalse(
+            RadioTuning.mayFollow(
+                playingID: "Chicago", isWeatherStation: true,
+                isPaused: false, pinnedID: "Chicago"))
         // The pin is for that station only; another one on the air follows.
-        XCTAssertTrue(RadioTuning.mayFollow(playingID: "Madison", isWeatherStation: true,
-                                            isPaused: false, pinnedID: "Chicago"))
+        XCTAssertTrue(
+            RadioTuning.mayFollow(
+                playingID: "Madison", isWeatherStation: true,
+                isPaused: false, pinnedID: "Chicago"))
     }
 
     func testAHandPickIsAStationOtherThanTheNearest() {
@@ -124,10 +147,15 @@ final class RadioTuningTests: XCTestCase {
     func testTheShippedStationListCoversTheCountry() {
         // The bundled relays are what auto-tune has to work with — every one
         // of them must carry a position, or it is invisible to the tuner.
-        guard let url = Bundle(for: Self.self)
-            .url(forResource: "nwr_stations", withExtension: "json")
+        guard
+            let url = Bundle(for: Self.self)
+                .url(forResource: "nwr_stations", withExtension: "json")
         else { return XCTFail("nwr_stations.json is not in the bundle") }
-        struct Row: Decodable { var name: String; var latitude: Double?; var longitude: Double? }
+        struct Row: Decodable {
+            var name: String
+            var latitude: Double?
+            var longitude: Double?
+        }
         let rows = try? JSONDecoder().decode([Row].self, from: Data(contentsOf: url))
         XCTAssertGreaterThan(rows?.count ?? 0, 50)
         XCTAssertTrue(rows?.allSatisfy { $0.latitude != nil && $0.longitude != nil } ?? false)

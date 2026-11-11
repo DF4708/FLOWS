@@ -60,7 +60,8 @@ enum TransitClock {
     static func dayStarts(serviceDate: Int, agencyZone: String) -> [Double] {
         let whole = (1...3).map { Double($0 * 86_400) }
         guard let tz = TimeZone(identifier: agencyZone),
-              let today = dayStart(serviceDate: serviceDate, agencyZone: agencyZone) else { return whole }
+            let today = dayStart(serviceDate: serviceDate, agencyZone: agencyZone)
+        else { return whole }
         var cal = Calendar(identifier: .gregorian)
         cal.timeZone = tz
         let noon = today.addingTimeInterval(12 * 3600)
@@ -85,7 +86,7 @@ enum TransitClock {
     /// with it in winter. Negative for a feed east of the reference.
     static func shift(from zone: String, into reference: String, serviceDate: Int) -> Int? {
         guard let feedStart = dayStart(serviceDate: serviceDate, agencyZone: zone),
-              let refStart = dayStart(serviceDate: serviceDate, agencyZone: reference)
+            let refStart = dayStart(serviceDate: serviceDate, agencyZone: reference)
         else { return nil }
         return Int(feedStart.timeIntervalSince(refStart))
     }
@@ -116,14 +117,17 @@ enum TransitClock {
     /// `locale` is injectable only so a test can pin a clock format; the app
     /// always takes the rider's own, which decides 12- vs 24-hour.
     static func clock(_ moment: Date, zone: String, locale: Locale = .current) -> String {
-        clockFaces.with(zone + "|" + locale.identifier, make: {
-            let f = DateFormatter()
-            f.locale = locale
-            f.timeZone = TimeZone(identifier: zone) ?? .current
-            f.dateStyle = .none
-            f.timeStyle = .short
-            return f
-        }) { $0.string(from: moment) }
+        clockFaces.with(
+            zone + "|" + locale.identifier,
+            make: {
+                let f = DateFormatter()
+                f.locale = locale
+                f.timeZone = TimeZone(identifier: zone) ?? .current
+                f.dateStyle = .none
+                f.timeStyle = .short
+                return f
+            }
+        ) { $0.string(from: moment) }
     }
 
     /// One formatter per zone and locale, kept (FormatterShelf).
@@ -135,7 +139,8 @@ enum TransitClock {
     /// say "Central time", so the seasonal half is dropped.
     static func zoneWord(_ zone: String, locale: Locale = .current) -> String {
         guard let tz = TimeZone(identifier: zone) else { return "" }
-        let name = tz.localizedName(for: .generic, locale: locale)
+        let name =
+            tz.localizedName(for: .generic, locale: locale)
             ?? tz.localizedName(for: .standard, locale: locale)
             ?? ""
         if name.isEmpty {
@@ -163,7 +168,7 @@ enum TransitClock {
         let days = daysLater(board, boardZone, alight, alightZone)
         let later = days == 1 ? " next day" : days > 1 ? " \(days) days later" : ""
         guard boardZone != alightZone,
-              TimeZone(identifier: boardZone)?.secondsFromGMT(for: board)
+            TimeZone(identifier: boardZone)?.secondsFromGMT(for: board)
                 != TimeZone(identifier: alightZone)?.secondsFromGMT(for: alight)
         else { return "\(a) – \(b)\(later)" }
         let word = zoneWord(alightZone, locale: locale)
@@ -172,8 +177,10 @@ enum TransitClock {
 
     /// How many calendar days after the boarding day, on each station's own
     /// calendar, the ride ends.
-    static func daysLater(_ board: Date, _ boardZone: String,
-                          _ alight: Date, _ alightZone: String) -> Int {
+    static func daysLater(
+        _ board: Date, _ boardZone: String,
+        _ alight: Date, _ alightZone: String
+    ) -> Int {
         func day(_ moment: Date, _ zone: String) -> Date? {
             var local = Calendar(identifier: .gregorian)
             local.timeZone = TimeZone(identifier: zone) ?? .current
@@ -191,14 +198,17 @@ enum TransitClock {
     /// whether to trust it. Empty when the feed did not say.
     static func publishedNote(_ yyyymmdd: Int) -> String {
         guard yyyymmdd > 0,
-              let day = dayStart(serviceDate: yyyymmdd, agencyZone: TimeZone.current.identifier)
+            let day = dayStart(serviceDate: yyyymmdd, agencyZone: TimeZone.current.identifier)
         else { return "" }
-        let text = publishedFaces.with(Locale.current.identifier, make: {
-            let f = DateFormatter()
-            f.locale = Locale.current
-            f.setLocalizedDateFormatFromTemplate("MMMd")
-            return f
-        }) { $0.string(from: day) }
+        let text = publishedFaces.with(
+            Locale.current.identifier,
+            make: {
+                let f = DateFormatter()
+                f.locale = Locale.current
+                f.setLocalizedDateFormatFromTemplate("MMMd")
+                return f
+            }
+        ) { $0.string(from: day) }
         return "Times as of \(text)"
     }
 }

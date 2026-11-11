@@ -24,12 +24,12 @@ struct PlannerPanel: View {
     /// most valuable map space, so the cards live at the bottom near the
     /// thumb. Regular layouts put the panel down the left side instead.
     #if os(iOS)
-    @Environment(\.horizontalSizeClass) private var sizeClass
-    private var panelEdge: CameraZoom.PanelEdge {
-        sizeClass == .compact ? .bottom : .leading
-    }
+        @Environment(\.horizontalSizeClass) private var sizeClass
+        private var panelEdge: CameraZoom.PanelEdge {
+            sizeClass == .compact ? .bottom : .leading
+        }
     #else
-    private let panelEdge = CameraZoom.PanelEdge.leading
+        private let panelEdge = CameraZoom.PanelEdge.leading
     #endif
 
     @State private var searchQuery = ""
@@ -71,17 +71,19 @@ struct PlannerPanel: View {
     /// The GPS switch: on by default; off, the planner asks "From where?".
     /// Off and greyed when there is no GPS to use.
     private var gpsToggle: some View {
-        Toggle(isOn: Binding(
-            get: { usingGPSSource },
-            set: { on in
-                model.plannerUseGPS = on
-                if on {
-                    model.plannerSource = ""
-                    model.plannerSourcePick = nil
-                } else {
-                    focusedField = .source
-                }
-            })) {
+        Toggle(
+            isOn: Binding(
+                get: { usingGPSSource },
+                set: { on in
+                    model.plannerUseGPS = on
+                    if on {
+                        model.plannerSource = ""
+                        model.plannerSourcePick = nil
+                    } else {
+                        focusedField = .source
+                    }
+                })
+        ) {
             Label("GPS", systemImage: "location.fill")
                 .scaledFont(.footnote, weight: .semibold)
         }
@@ -89,8 +91,10 @@ struct PlannerPanel: View {
         .controlSize(.small)
         .fixedSize()
         .disabled(!hasGPS)
-        .help(hasGPS ? "Start from where you are; off lets you type a start"
-                     : "No GPS on this device — type a start")
+        .help(
+            hasGPS
+                ? "Start from where you are; off lets you type a start"
+                : "No GPS on this device — type a start")
     }
 
     /// Plan the way back too: arriving offers "Head back".
@@ -152,11 +156,13 @@ struct PlannerPanel: View {
                     .onChange(of: focusedField) { _, field in
                         switch field {
                         case .destination:
-                            destSearch.update(fragment: model.plannerDestination,
-                                              near: model.location.coordinate)
+                            destSearch.update(
+                                fragment: model.plannerDestination,
+                                near: model.location.coordinate)
                         case .source:
-                            sourceSearch.update(fragment: model.plannerSource,
-                                                near: model.location.coordinate)
+                            sourceSearch.update(
+                                fragment: model.plannerSource,
+                                near: model.location.coordinate)
                         case nil:
                             break
                         }
@@ -195,9 +201,9 @@ struct PlannerPanel: View {
                 } label: {
                     Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
                         #if os(iOS)
-                        // A finger needs 44 pt; the icon alone is about 20. The
-                        // row keeps its height.
-                        .padding(12).contentShape(Rectangle()).padding(-12)
+                            // A finger needs 44 pt; the icon alone is about 20. The
+                            // row keeps its height.
+                            .padding(12).contentShape(Rectangle()).padding(-12)
                         #endif
                 }
                 .buttonStyle(.plain)
@@ -210,27 +216,29 @@ struct PlannerPanel: View {
                 sourceNote
                 // Same pill styling as the destination — the roundedBorder
                 // style had a near-unclickable hit target on macOS.
-                TextField(usingFallbackStart || (!hasGPS && model.bestKnownPosition != nil)
-                          ? "Start address — empty starts from \(model.bestKnownPosition?.label ?? "home")"
-                          : "Start address, place, city, or ZIP",
-                          text: $model.plannerSource)
-                    .textFieldStyle(.plain)
-                    .scaledFont(size: 16)
-                    .frame(minHeight: Theme.tapMinimum)
-                    .padding(.horizontal, 14)
-                    .background(Theme.fill(0.04))
-                    .clipShape(Capsule())
-                    .contentShape(Capsule())
-                    .focused($focusedField, equals: .source)
-                    .autocorrectionDisabled()
-                    .onSubmit {
-                        // Return walks on to Where to? until it is filled.
-                        if model.plannerDestination.trimmingCharacters(in: .whitespaces).isEmpty {
-                            focusedField = .destination
-                        } else {
-                            Task { await plan() }
-                        }
+                TextField(
+                    usingFallbackStart || (!hasGPS && model.bestKnownPosition != nil)
+                        ? "Start address — empty starts from \(model.bestKnownPosition?.label ?? "home")"
+                        : "Start address, place, city, or ZIP",
+                    text: $model.plannerSource
+                )
+                .textFieldStyle(.plain)
+                .scaledFont(size: 16)
+                .frame(minHeight: Theme.tapMinimum)
+                .padding(.horizontal, 14)
+                .background(Theme.fill(0.04))
+                .clipShape(Capsule())
+                .contentShape(Capsule())
+                .focused($focusedField, equals: .source)
+                .autocorrectionDisabled()
+                .onSubmit {
+                    // Return walks on to Where to? until it is filled.
+                    if model.plannerDestination.trimmingCharacters(in: .whitespaces).isEmpty {
+                        focusedField = .destination
+                    } else {
+                        Task { await plan() }
                     }
+                }
                 // The start field completes like the destination does.
                 if listUp == .source {
                     // Capped and scrolling like the destination's list: an
@@ -294,7 +302,8 @@ struct PlannerPanel: View {
                         // needed (no GPS and nothing to fall back on, or the
                         // driver asked to type one); otherwise it plans.
                         if showSourceField, !usingFallbackStart,
-                           model.plannerSource.trimmingCharacters(in: .whitespaces).isEmpty {
+                            model.plannerSource.trimmingCharacters(in: .whitespaces).isEmpty
+                        {
                             focusedField = .source
                         } else {
                             Task { await plan() }
@@ -320,8 +329,10 @@ struct PlannerPanel: View {
                         .background(Theme.fill(0.04))
                         .clipShape(Capsule())
                 }
-                .accessibilityLabel(destinationIsFavorite
-                                    ? "Saved as a favorite" : "Save as a favorite")
+                .accessibilityLabel(
+                    destinationIsFavorite
+                        ? "Saved as a favorite" : "Save as a favorite"
+                )
                 .menuIndicator(.hidden)
                 // Plain: on the Mac a Menu draws its own pull-down bezel,
                 // which put the star a different height from the field.
@@ -329,8 +340,10 @@ struct PlannerPanel: View {
                 .buttonStyle(.plain)
                 .fixedSize()
                 .disabled(model.plannerDestination.trimmingCharacters(in: .whitespaces).isEmpty)
-                .help(destinationIsFavorite ? "Saved as a favorite"
-                                            : "Save this destination as a favorite")
+                .help(
+                    destinationIsFavorite
+                        ? "Saved as a favorite"
+                        : "Save this destination as a favorite")
             }
             // Live lookup while typing: closest matches first (addresses,
             // places, partial words like "pharma"), the driver's recent
@@ -369,7 +382,8 @@ struct PlannerPanel: View {
                         // first — planning from an empty start only said
                         // "Couldn't find that place".
                         if showSourceField, !usingFallbackStart,
-                           model.plannerSource.trimmingCharacters(in: .whitespaces).isEmpty {
+                            model.plannerSource.trimmingCharacters(in: .whitespaces).isEmpty
+                        {
                             focusedField = .source
                         } else {
                             focusedField = nil
@@ -392,14 +406,14 @@ struct PlannerPanel: View {
             // nothing. The AppKit overlay receives the raw mouseUp ahead of
             // SwiftUI's text machinery and fires reliably on the FIRST click.
             #if os(macOS)
-            .overlay {
-                if planEnabled {
-                    FirstClickCatcher {
-                        focusedField = nil
-                        Task { await plan() }
+                .overlay {
+                    if planEnabled {
+                        FirstClickCatcher {
+                            focusedField = nil
+                            Task { await plan() }
+                        }
                     }
                 }
-            }
             #endif
 
             if let errorMessage {
@@ -411,7 +425,7 @@ struct PlannerPanel: View {
         }
         .onAppear {
             focusedField = .destination
-            listUp = .destination   // the focus change to a field raises it; this is the first one
+            listUp = .destination  // the focus change to a field raises it; this is the first one
         }
         .collapsibleMenu("planner")
         .floatingCard()
@@ -462,7 +476,7 @@ struct PlannerPanel: View {
                 // edit and the row's action never fires — which is why the
                 // first pick after launch did nothing.
                 #if os(macOS)
-                .overlay { FirstClickCatcher { onPick(sug) } }
+                    .overlay { FirstClickCatcher { onPick(sug) } }
                 #endif
                 if sug.id != suggestions.last?.id {
                     Divider()
@@ -509,9 +523,10 @@ struct PlannerPanel: View {
             let (coord, _) = try await model.router.geocode(
                 searchQuery, near: model.location.coordinate)
             withAnimation {
-                camera = .region(MKCoordinateRegion(
-                    center: coord,
-                    latitudinalMeters: 60_000, longitudinalMeters: 60_000))
+                camera = .region(
+                    MKCoordinateRegion(
+                        center: coord,
+                        latitudinalMeters: 60_000, longitudinalMeters: 60_000))
             }
         } catch {
             errorMessage = Self.friendlyError(error)
@@ -520,14 +535,16 @@ struct PlannerPanel: View {
 
     /// Frame a route for the choosing layout — the geometry lives in
     /// CameraZoom.framedRect (pure, tested).
-    static func choicesCameraRect(_ rect: MKMapRect,
-                                  panelEdge: CameraZoom.PanelEdge = .leading,
-                                  windowAspect: Double = 2.0,
-                                  panelFraction: Double
-                                    = CameraZoom.choicesPanelFraction) -> MKMapRect {
-        CameraZoom.framedRect(rect, panelEdge: panelEdge,
-                              windowAspect: windowAspect,
-                              panelFraction: panelFraction)
+    static func choicesCameraRect(
+        _ rect: MKMapRect,
+        panelEdge: CameraZoom.PanelEdge = .leading,
+        windowAspect: Double = 2.0,
+        panelFraction: Double = CameraZoom.choicesPanelFraction
+    ) -> MKMapRect {
+        CameraZoom.framedRect(
+            rect, panelEdge: panelEdge,
+            windowAspect: windowAspect,
+            panelFraction: panelFraction)
     }
 
     /// Plain-words error text — never surface raw framework errors like
@@ -540,16 +557,17 @@ struct PlannerPanel: View {
     /// The system page where FLOWS's location switch lives.
     private var locationSettingsURL: URL? {
         #if os(iOS)
-        URL(string: UIApplication.openSettingsURLString)
+            URL(string: UIApplication.openSettingsURLString)
         #else
-        URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_LocationServices")
+            URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_LocationServices")
         #endif
     }
 
     /// Where a field's text plans to: the picked row's own point while the
     /// field still holds its text, else a geocoder lookup.
     private func resolve(_ text: String, pick: PlannerPick?) async throws
-        -> (CLLocationCoordinate2D, String) {
+        -> (CLLocationCoordinate2D, String)
+    {
         if let pick, pick.stands(for: text) { return (pick.coordinate, pick.name) }
         return try await model.router.geocode(text, near: model.location.coordinate)
     }
@@ -567,20 +585,23 @@ struct PlannerPanel: View {
                 guard !isWorking else { return }
                 isWorking = true
                 defer { isWorking = false }
-                errorMessage = nil   // the last plan's failure is not this one's
+                errorMessage = nil  // the last plan's failure is not this one's
                 // The highlighted route, which the filters may have moved
                 // off the first.
                 if let planned = await model.planToFavorite(fav),
-                   let first = model.routeChoices.first(where: { $0.id == model.highlightedRouteID })
-                    ?? planned.first,
-                   let rect = CameraZoom.usableRect(first.route.polyline.boundingMapRect) {
+                    let first = model.routeChoices.first(where: { $0.id == model.highlightedRouteID })
+                        ?? planned.first,
+                    let rect = CameraZoom.usableRect(first.route.polyline.boundingMapRect)
+                {
                     withAnimation {
-                        camera = .rect(Self.choicesCameraRect(
-                        rect,
-                        panelEdge: panelEdge,
-                        windowAspect: golden.size.height / max(golden.size.width, 1),
-                        panelFraction: panelEdge == .bottom ? golden.choicesPanelFraction
-                                                  : CameraZoom.choicesPanelFraction))
+                        camera = .rect(
+                            Self.choicesCameraRect(
+                                rect,
+                                panelEdge: panelEdge,
+                                windowAspect: golden.size.height / max(golden.size.width, 1),
+                                panelFraction: panelEdge == .bottom
+                                    ? golden.choicesPanelFraction
+                                    : CameraZoom.choicesPanelFraction))
                     }
                 } else {
                     errorMessage = "Couldn't plan to \(fav.name) — no GPS fix or no route."
@@ -640,7 +661,7 @@ struct PlannerPanel: View {
     }
 
     private func plan() async {
-        destSearch.clear()   // suggestions down once a plan starts
+        destSearch.clear()  // suggestions down once a plan starts
         sourceSearch.clear()
         // Reentry guard: the button's action AND its simultaneous tap gesture
         // can both fire on one click — the second call must be a no-op.
@@ -656,7 +677,8 @@ struct PlannerPanel: View {
             // never queues behind a typed start.
             let from: (CLLocationCoordinate2D, String)
             let to: (CLLocationCoordinate2D, String)
-            FlowsDiag.log(.info, "plan", "start: source=\(usingGPSSource ? "gps" : usingFallbackStart ? "fallback" : "typed")")
+            FlowsDiag.log(
+                .info, "plan", "start: source=\(usingGPSSource ? "gps" : usingFallbackStart ? "fallback" : "typed")")
             // A field filled from a row with its own place (recent, map
             // point, prediction) plans to that point with no lookup.
             if usingGPSSource || usingFallbackStart {
@@ -685,14 +707,17 @@ struct PlannerPanel: View {
             // camera on 0,0 — the Atlantic off Africa.
             if let first = model.routeChoices.first(where: { $0.id == model.highlightedRouteID })
                 ?? planned.first,
-               let rect = CameraZoom.usableRect(first.route.polyline.boundingMapRect) {
+                let rect = CameraZoom.usableRect(first.route.polyline.boundingMapRect)
+            {
                 withAnimation {
-                    camera = .rect(Self.choicesCameraRect(
-                        rect,
-                        panelEdge: panelEdge,
-                        windowAspect: golden.size.height / max(golden.size.width, 1),
-                        panelFraction: panelEdge == .bottom ? golden.choicesPanelFraction
-                                                  : CameraZoom.choicesPanelFraction))
+                    camera = .rect(
+                        Self.choicesCameraRect(
+                            rect,
+                            panelEdge: panelEdge,
+                            windowAspect: golden.size.height / max(golden.size.width, 1),
+                            panelFraction: panelEdge == .bottom
+                                ? golden.choicesPanelFraction
+                                : CameraZoom.choicesPanelFraction))
                 }
             }
         } catch is CancellationError {
@@ -705,33 +730,33 @@ struct PlannerPanel: View {
 }
 
 #if os(macOS)
-/// AppKit-level click catcher for a button that sits next to text fields.
-/// SwiftUI-native fields CONSUME the click that ends their editing session —
-/// the button's action (and even simultaneous gestures) never see it, so the
-/// first click "does nothing". A real NSView receives the event from AppKit's
-/// dispatch BEFORE SwiftUI's text machinery, making the first click land
-/// every time. Fires on mouse-up inside bounds, like a normal button.
-private struct FirstClickCatcher: NSViewRepresentable {
-    let action: () -> Void
+    /// AppKit-level click catcher for a button that sits next to text fields.
+    /// SwiftUI-native fields CONSUME the click that ends their editing session —
+    /// the button's action (and even simultaneous gestures) never see it, so the
+    /// first click "does nothing". A real NSView receives the event from AppKit's
+    /// dispatch BEFORE SwiftUI's text machinery, making the first click land
+    /// every time. Fires on mouse-up inside bounds, like a normal button.
+    private struct FirstClickCatcher: NSViewRepresentable {
+        let action: () -> Void
 
-    func makeNSView(context: Context) -> ClickView {
-        let view = ClickView()
-        view.action = action
-        return view
-    }
+        func makeNSView(context: Context) -> ClickView {
+            let view = ClickView()
+            view.action = action
+            return view
+        }
 
-    func updateNSView(_ view: ClickView, context: Context) {
-        view.action = action
-    }
+        func updateNSView(_ view: ClickView, context: Context) {
+            view.action = action
+        }
 
-    final class ClickView: NSView {
-        var action: (() -> Void)?
-        override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
-        override func mouseDown(with event: NSEvent) {}   // claim the click
-        override func mouseUp(with event: NSEvent) {
-            let p = convert(event.locationInWindow, from: nil)
-            if bounds.contains(p) { action?() }
+        final class ClickView: NSView {
+            var action: (() -> Void)?
+            override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+            override func mouseDown(with event: NSEvent) {}  // claim the click
+            override func mouseUp(with event: NSEvent) {
+                let p = convert(event.locationInWindow, from: nil)
+                if bounds.contains(p) { action?() }
+            }
         }
     }
-}
 #endif

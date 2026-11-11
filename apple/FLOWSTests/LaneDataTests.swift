@@ -89,13 +89,16 @@ final class LaneDataTests: XCTestCase {
     func testSummaryNamesWhereTheLanesAre() {
         let lanes = LaneData.parse(turnLanes: "left|through|through;right|right")
         let lit = LaneData.recommended(lanes: lanes, maneuver: .right)
-        XCTAssertEqual(LaneData.summary(lanes: lanes, recommended: lit),
-                       "Use the 2 right lanes")
+        XCTAssertEqual(
+            LaneData.summary(lanes: lanes, recommended: lit),
+            "Use the 2 right lanes")
         let leftLanes = LaneData.parse(turnLanes: "left|through|through")
         XCTAssertEqual(
-            LaneData.summary(lanes: leftLanes,
-                             recommended: LaneData.recommended(lanes: leftLanes,
-                                                               maneuver: .left)),
+            LaneData.summary(
+                lanes: leftLanes,
+                recommended: LaneData.recommended(
+                    lanes: leftLanes,
+                    maneuver: .left)),
             "Use the 1 left lane")
     }
 

@@ -50,7 +50,7 @@ enum TripNeeds {
         }
 
         /// The stop's label, as the schedule orders it.
-        var label: String { flows_trip_vehicle_need_label(rustCode).text }   // .text: never traps on ""
+        var label: String { flows_trip_vehicle_need_label(rustCode).text }  // .text: never traps on ""
 
         var symbol: String {
             switch self {
@@ -120,8 +120,10 @@ enum TripNeeds {
     /// road, the way to an added stop) carries it on by the miles driven on
     /// the leg it replaces. Every replan used to restart it, so repeated
     /// reroutes could put the rest reminder off for good.
-    static func milesSinceStop(beforeLeg previous: Double, drivenOnLastLegMeters meters: Double,
-                               stopped: Bool) -> Double {
+    static func milesSinceStop(
+        beforeLeg previous: Double, drivenOnLastLegMeters meters: Double,
+        stopped: Bool
+    ) -> Double {
         stopped ? 0 : previous + max(meters, 0) / 1609.344
     }
 
@@ -129,8 +131,10 @@ enum TripNeeds {
     /// driver's habits — and of the TOWING range while towing. Towing burns
     /// fuel faster (TowingLimits.towingEconomyFactor), so a stop planned at
     /// 75% of the untowed range lands on an empty tank.
-    static func fuelIntervalMiles(ratedRangeMiles: Double, efficiencyFactor: Double,
-                                  towing: Bool) -> Double {
+    static func fuelIntervalMiles(
+        ratedRangeMiles: Double, efficiencyFactor: Double,
+        towing: Bool
+    ) -> Double {
         0.75 * ratedRangeMiles * efficiencyFactor
             * (towing ? TowingLimits.towingEconomyFactor : 1)
     }

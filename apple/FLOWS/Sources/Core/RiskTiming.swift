@@ -33,9 +33,11 @@ enum RiskTiming {
     /// this device has seen of the kind (AlertLengthMemory): how many
     /// events, and the mean logarithm of their lengths; a count of 0 is the
     /// measured table alone.
-    static func unknownEnd(event: String, severityScore: Double, zones: Int,
-                           certainty: String?, onset: Date?, message: Date,
-                           learned: (count: Int, meanLn: Double) = (0, 0)) -> Date {
+    static func unknownEnd(
+        event: String, severityScore: Double, zones: Int,
+        certainty: String?, onset: Date?, message: Date,
+        learned: (count: Int, meanLn: Double) = (0, 0)
+    ) -> Date {
         let word = certainty ?? ""
         let end = flows_alerts_unknown_end(
             event.isEmpty ? "Alert" : event, severityScore, Int64(max(zones, 1)),

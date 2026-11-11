@@ -36,7 +36,8 @@ enum LogoKeepRule {
     /// The uses that stay (their sightings start again from zero for the
     /// next week) and the domains whose cached logo goes.
     static func review(_ uses: [String: LogoUse], now: Date)
-        -> (kept: [String: LogoUse], dropped: [String]) {
+        -> (kept: [String: LogoUse], dropped: [String])
+    {
         var kept: [String: LogoUse] = [:]
         var dropped: [String] = []
         for (domain, use) in uses {
@@ -98,7 +99,8 @@ final class LogoCache {
     private var saveQueued = false
 
     init(directory: URL? = nil, now: Date = Date()) {
-        let dir = directory
+        let dir =
+            directory
             ?? (try? FileManager.default.url(
                 for: .applicationSupportDirectory, in: .userDomainMask,
                 appropriateFor: nil, create: true))
@@ -126,7 +128,7 @@ final class LogoCache {
             // Low priority: a logo never holds a route's scoring back.
             await ThrottledNet.$lowPriority.withValue(true) {
                 guard let (data, response) = try? await ThrottledNet.fetch(request),
-                      (response as? HTTPURLResponse)?.statusCode == 200, !data.isEmpty
+                    (response as? HTTPURLResponse)?.statusCode == 200, !data.isEmpty
                 else { return nil }
                 return data
             }
@@ -171,8 +173,10 @@ final class LogoCache {
     /// Once a week: logos not used since the last check leave the cache.
     func reviewIfDue(now: Date = Date()) {
         // A clock set back must not put the check off for good.
-        guard now.timeIntervalSince(reviewedAt) >= LogoKeepRule.reviewEvery
-                || now < reviewedAt else { return }
+        guard
+            now.timeIntervalSince(reviewedAt) >= LogoKeepRule.reviewEvery
+                || now < reviewedAt
+        else { return }
         let answer = LogoKeepRule.review(uses, now: now)
         uses = answer.kept
         reviewedAt = now

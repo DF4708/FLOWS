@@ -27,12 +27,12 @@ final class PlacesStoreTests: XCTestCase {
             withUnsafeBytes(of: lat.bitPattern.littleEndian) { body.append(contentsOf: $0) }
             withUnsafeBytes(of: lon.bitPattern.littleEndian) { body.append(contentsOf: $0) }
             body.append(group)
-            body.append(0)   // flags
+            body.append(0)  // flags
             str(name, into: &body)
             str("1 Main St", into: &body)
             str("Madison", into: &body)
-            str("", into: &body)     // website
-            str("", into: &body)     // tel
+            str("", into: &body)  // website
+            str("", into: &body)  // tel
             withUnsafeBytes(of: UInt32(53703).littleEndian) { body.append(contentsOf: $0) }
         }
         record(lat: 43.07, lon: -89.40, group: 0, name: "Test Fuel")
@@ -45,16 +45,19 @@ final class PlacesStoreTests: XCTestCase {
         withUnsafeBytes(of: UInt32(2).littleEndian) { body.append(contentsOf: $0) }
 
         var hash: UInt64 = 0xcbf2_9ce4_8422_2325
-        for b in body { hash ^= UInt64(b); hash = hash &* 0x0000_0100_0000_01b3 }
+        for b in body {
+            hash ^= UInt64(b)
+            hash = hash &* 0x0000_0100_0000_01b3
+        }
         if corrupt { hash &+= 1 }
 
         var d = Data("FPS1".utf8)
         func u32h(_ v: UInt32) { withUnsafeBytes(of: v.littleEndian) { d.append(contentsOf: $0) } }
-        u32h(1)                                   // version
-        u32h(2)                                   // records
+        u32h(1)  // version
+        u32h(2)  // records
         withUnsafeBytes(of: UInt64(32 + gridOffsetInBody).littleEndian) { d.append(contentsOf: $0) }
         withUnsafeBytes(of: hash.littleEndian) { d.append(contentsOf: $0) }
-        u32h(1)                                   // cells
+        u32h(1)  // cells
         d.append(body)
         return d
     }
@@ -63,20 +66,27 @@ final class PlacesStoreTests: XCTestCase {
         let shard = PlacesShard(data: fixture())
         XCTAssertNotNil(shard)
         let madison = CLLocationCoordinate2D(latitude: 43.07, longitude: -89.40)
-        let fuel = shard?.places(near: madison, groups: [0], radiusMeters: 5_000,
-                                 limit: 5) ?? []
+        let fuel =
+            shard?.places(
+                near: madison, groups: [0], radiusMeters: 5_000,
+                limit: 5) ?? []
         XCTAssertEqual(fuel.count, 1)
         XCTAssertEqual(fuel.first?.name, "Test Fuel")
         XCTAssertEqual(fuel.first?.city, "Madison")
         XCTAssertEqual(fuel.first?.postcode, 53703)
         // Group filter separates; both groups come back together.
-        let both = shard?.places(near: madison, groups: [0, 2], radiusMeters: 5_000,
-                                 limit: 5) ?? []
+        let both =
+            shard?.places(
+                near: madison, groups: [0, 2], radiusMeters: 5_000,
+                limit: 5) ?? []
         XCTAssertEqual(both.count, 2)
         // Far away → nothing.
         let phoenix = CLLocationCoordinate2D(latitude: 33.45, longitude: -112.07)
-        XCTAssertEqual(shard?.places(near: phoenix, groups: [0], radiusMeters: 5_000,
-                                     limit: 5).count ?? -1, 0)
+        XCTAssertEqual(
+            shard?.places(
+                near: phoenix, groups: [0], radiusMeters: 5_000,
+                limit: 5
+            ).count ?? -1, 0)
     }
 
     func testCorruptionRefused() {
@@ -97,11 +107,15 @@ final class PlacesStoreTests: XCTestCase {
         let shard = PlacesShard(data: data)
         XCTAssertNotNil(shard, "tool-built shard must parse + hash-validate")
         let capitol = CLLocationCoordinate2D(latitude: 43.0747, longitude: -89.3844)
-        let fuel = shard?.places(near: capitol, groups: [0], radiusMeters: 8_000,
-                                 limit: 10) ?? []
+        let fuel =
+            shard?.places(
+                near: capitol, groups: [0], radiusMeters: 8_000,
+                limit: 10) ?? []
         XCTAssertFalse(fuel.isEmpty, "central Madison must have fuel POIs")
-        let food = shard?.places(near: capitol, groups: [1], radiusMeters: 3_000,
-                                 limit: 10) ?? []
+        let food =
+            shard?.places(
+                near: capitol, groups: [1], radiusMeters: 3_000,
+                limit: 10) ?? []
         XCTAssertFalse(food.isEmpty, "downtown Madison must have restaurants")
         // Sanity: every result is inside the radius and the right group.
         for p in fuel {

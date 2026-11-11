@@ -130,14 +130,14 @@ enum GTFSZip {
         while i + 46 <= directory.count {
             guard u32(directory, i) == 0x0201_4B50 else { break }
             guard let flags = u16(directory, i + 8),
-                  let method = u16(directory, i + 10),
-                  let crc = u32(directory, i + 16),
-                  let compressed = u32(directory, i + 20),
-                  let uncompressed = u32(directory, i + 24),
-                  let nameLen = u16(directory, i + 28),
-                  let extraLen = u16(directory, i + 30),
-                  let commentLen = u16(directory, i + 32),
-                  let offset = u32(directory, i + 42)
+                let method = u16(directory, i + 10),
+                let crc = u32(directory, i + 16),
+                let compressed = u32(directory, i + 20),
+                let uncompressed = u32(directory, i + 24),
+                let nameLen = u16(directory, i + 28),
+                let extraLen = u16(directory, i + 30),
+                let commentLen = u16(directory, i + 32),
+                let offset = u32(directory, i + 42)
             else { throw Failure.truncated }
             let nameStart = directory.startIndex + i + 46
             guard nameStart + nameLen <= directory.endIndex else { throw Failure.truncated }
@@ -150,9 +150,11 @@ enum GTFSZip {
                 guard flags & 1 == 0 else {
                     throw Failure.unsupported("\(leaf) is locked with a password")
                 }
-                out.append(Entry(name: leaf, method: method, compressedSize: compressed,
-                                 uncompressedSize: uncompressed, headerOffset: offset,
-                                 crc32: UInt32(crc), pathLength: nameLen))
+                out.append(
+                    Entry(
+                        name: leaf, method: method, compressedSize: compressed,
+                        uncompressedSize: uncompressed, headerOffset: offset,
+                        crc32: UInt32(crc), pathLength: nameLen))
             }
             i += 46 + nameLen + extraLen + commentLen
         }
@@ -187,7 +189,8 @@ enum GTFSZip {
         guard entry.method == 8 else { return Data() }
         var header = packedMagic
         // Low byte first, written out by hand: no raw memory is read.
-        let crc = entry.crc32, size = UInt64(max(0, entry.uncompressedSize))
+        let crc = entry.crc32
+        let size = UInt64(max(0, entry.uncompressedSize))
         for shift in stride(from: 0, to: 32, by: 8) { header.append(UInt8((crc >> shift) & 0xFF)) }
         for shift in stride(from: 0, to: 64, by: 8) { header.append(UInt8((size >> shift) & 0xFF)) }
         return header
@@ -237,14 +240,16 @@ enum GTFSZip {
     /// present the larger counts — a budget should guess high.
     static func unpackedSize(of name: String, in folder: URL) -> Int {
         let plain = folder.appendingPathComponent(name).path
-        let plainSize = ((try? FileManager.default.attributesOfItem(atPath: plain))?[.size]
+        let plainSize =
+            ((try? FileManager.default.attributesOfItem(atPath: plain))?[.size]
             as? NSNumber)?.intValue ?? 0
         var packedSize = 0
         let packed = folder.appendingPathComponent(name + packedSuffix)
         if let handle = try? FileHandle(forReadingFrom: packed) {
             defer { try? handle.close() }
             if let head = try? handle.read(upToCount: 16), head.count == 16,
-               head.prefix(4) == packedMagic {
+                head.prefix(4) == packedMagic
+            {
                 var length: UInt64 = 0
                 for (i, byte) in head.suffix(8).enumerated() {
                     length |= UInt64(byte) << (8 * UInt64(i))
@@ -260,9 +265,10 @@ enum GTFSZip {
     /// timetable can be built from: stops, routes, trips, stop times, and a
     /// calendar of either kind.
     static func isWholeFeed(_ names: [String]) -> Bool {
-        let have = Set(names.map {
-            $0.hasSuffix(packedSuffix) ? String($0.dropLast(packedSuffix.count)) : $0
-        })
+        let have = Set(
+            names.map {
+                $0.hasSuffix(packedSuffix) ? String($0.dropLast(packedSuffix.count)) : $0
+            })
         return ["stops.txt", "routes.txt", "trips.txt", "stop_times.txt"]
             .allSatisfy(have.contains)
             && (have.contains("calendar.txt") || have.contains("calendar_dates.txt"))

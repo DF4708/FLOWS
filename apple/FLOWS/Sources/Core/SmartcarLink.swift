@@ -31,7 +31,8 @@ final class SmartcarLink: ObservableObject {
     // never plaintext UserDefaults (which is backed up and readable off
     // device). Migrated on first access.
     @Published var clientSecret: String =
-        SecureStore.migrateFromDefaults(key: "smartcar.secret", defaultsKey: "flows.smartcar.secret") {
+        SecureStore.migrateFromDefaults(key: "smartcar.secret", defaultsKey: "flows.smartcar.secret")
+    {
         didSet { SecureStore.set(clientSecret, for: "smartcar.secret") }
     }
     @Published private(set) var connected =
@@ -90,9 +91,10 @@ final class SmartcarLink: ObservableObject {
             .addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed)!
         let redirect = Self.redirectURI
             .addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed)!
-        return URL(string: "https://connect.smartcar.com/oauth/authorize?response_type=code"
-                   + "&client_id=\(sentID)&redirect_uri=\(redirect)&scope=\(scope)"
-                   + "&state=\(state)&mode=live")
+        return URL(
+            string: "https://connect.smartcar.com/oauth/authorize?response_type=code"
+                + "&client_id=\(sentID)&redirect_uri=\(redirect)&scope=\(scope)"
+                + "&state=\(state)&mode=live")
     }
 
     /// Handle the flows://smartcar?code=…&state=… callback.
@@ -112,8 +114,9 @@ final class SmartcarLink: ObservableObject {
             return
         }
         status = "Finishing sign-in…"
-        await exchange(body: "grant_type=authorization_code&code=\(code)"
-                       + "&redirect_uri=\(Self.redirectURI)")
+        await exchange(
+            body: "grant_type=authorization_code&code=\(code)"
+                + "&redirect_uri=\(Self.redirectURI)")
         if connected { await refreshData() }
     }
 
@@ -128,8 +131,10 @@ final class SmartcarLink: ObservableObject {
     /// 400 is OAuth's invalid_grant (revoked or expired) and 401 a client
     /// the server refuses; anything else — 5xx, 429, a 200 without a token —
     /// is the server having a bad moment.
-    nonisolated static func exchangeOutcome(statusCode: Int?,
-                                            hasAccessToken: Bool) -> ExchangeOutcome {
+    nonisolated static func exchangeOutcome(
+        statusCode: Int?,
+        hasAccessToken: Bool
+    ) -> ExchangeOutcome {
         switch statusCode {
         case 200? where hasAccessToken: return .ok
         case 400?, 401?: return .rejected
@@ -163,7 +168,8 @@ final class SmartcarLink: ObservableObject {
             statusCode: (answer?.1 as? HTTPURLResponse)?.statusCode,
             hasAccessToken: access != nil)
         guard outcome == .ok, let access else {
-            status = outcome == .rejected
+            status =
+                outcome == .rejected
                 ? "Smartcar said no — check the Client ID and Secret."
                 : "Can't reach Smartcar right now."
             return outcome
@@ -213,7 +219,7 @@ final class SmartcarLink: ObservableObject {
                 return
             }
         }
-        guard let token = accessToken else { return }   // not connected, or the exchange said why
+        guard let token = accessToken else { return }  // not connected, or the exchange said why
         guard let ids = await get("https://api.smartcar.com/v2.0/vehicles", token: token) else {
             // No answer (or an expired token, renewed next time) is not an
             // empty account — and on the road this runs in dead zones.
@@ -225,24 +231,31 @@ final class SmartcarLink: ObservableObject {
             return
         }
         guard let first = await pickVehicle(from: vehicles, token: token) else { return }
-        if let fuel = await get("https://api.smartcar.com/v2.0/vehicles/\(first)/fuel",
-                                token: token),
-           let percent = fuel["percentRemaining"] as? Double {
+        if let fuel = await get(
+            "https://api.smartcar.com/v2.0/vehicles/\(first)/fuel",
+            token: token),
+            let percent = fuel["percentRemaining"] as? Double
+        {
             fuelFraction = percent
             fuelReadAt = Date()
         } else if let battery = await get(
             "https://api.smartcar.com/v2.0/vehicles/\(first)/battery", token: token),
-                  let percent = battery["percentRemaining"] as? Double {
+            let percent = battery["percentRemaining"] as? Double
+        {
             // An electric car has no fuel endpoint: its charge is the tank
             // (the scope asked for read_battery all along; nothing read it).
             fuelFraction = percent
             fuelReadAt = Date()
         }
-        if let tires = await get("https://api.smartcar.com/v2.0/vehicles/\(first)/tires/pressure",
-                                 token: token) {
+        if let tires = await get(
+            "https://api.smartcar.com/v2.0/vehicles/\(first)/tires/pressure",
+            token: token)
+        {
             // kPa → psi.
-            let keys = ["frontLeft": "Front left", "frontRight": "Front right",
-                        "backLeft": "Rear left", "backRight": "Rear right"]
+            let keys = [
+                "frontLeft": "Front left", "frontRight": "Front right",
+                "backLeft": "Rear left", "backRight": "Rear right",
+            ]
             var out: [String: Double] = [:]
             for (key, label) in keys {
                 if let kPa = tires[key] as? Double {
@@ -254,7 +267,8 @@ final class SmartcarLink: ObservableObject {
                 tireReadAt = Date()
             }
         }
-        status = fuelFraction.map { String(format: "Fuel from your car: %.0f%%", $0 * 100) }
+        status =
+            fuelFraction.map { String(format: "Fuel from your car: %.0f%%", $0 * 100) }
             ?? "Connected — this car doesn't share its fuel level."
     }
 
@@ -269,15 +283,20 @@ final class SmartcarLink: ObservableObject {
             chosenVehicleID = vehicles.first
             return vehicles.first
         }
-        let make = wanted.make.lowercased(), model = wanted.model.lowercased()
+        let make = wanted.make.lowercased()
+        let model = wanted.model.lowercased()
         for id in vehicles.prefix(8) {
-            guard let attrs = await get("https://api.smartcar.com/v2.0/vehicles/\(id)",
-                                        token: token) else { continue }
+            guard
+                let attrs = await get(
+                    "https://api.smartcar.com/v2.0/vehicles/\(id)",
+                    token: token)
+            else { continue }
             let theirMake = (attrs["make"] as? String)?.lowercased() ?? ""
             let theirModel = (attrs["model"] as? String)?.lowercased() ?? ""
             if !make.isEmpty, theirMake == make,
-               model.isEmpty || theirModel == model || theirModel.contains(model)
-                || model.contains(theirModel) {
+                model.isEmpty || theirModel == model || theirModel.contains(model)
+                    || model.contains(theirModel)
+            {
                 chosenVehicleID = id
                 return id
             }
@@ -306,7 +325,7 @@ final class SmartcarLink: ObservableObject {
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         guard let (data, resp) = try? await ThrottledNet.fetch(request) else { return nil }
         if (resp as? HTTPURLResponse)?.statusCode == 401 {
-            accessToken = nil   // expired → next call refreshes
+            accessToken = nil  // expired → next call refreshes
             return nil
         }
         guard (resp as? HTTPURLResponse)?.statusCode == 200 else { return nil }

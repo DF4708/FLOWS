@@ -91,9 +91,10 @@ enum EnforcementCameras {
     /// `highway=traffic_signals` + `traffic_signals=camera`; a device
     /// enforcing both carries both markers.
     static func kind(fromTags tags: [String: String]) -> Kind? {
-        Kind(rustCode: flows_places_text_camera_kind(
-            tags["highway"] ?? "", tags["enforcement"] ?? "",
-            tags["traffic_signals"] ?? "", tags["red_light_camera"] ?? ""))
+        Kind(
+            rustCode: flows_places_text_camera_kind(
+                tags["highway"] ?? "", tags["enforcement"] ?? "",
+                tags["traffic_signals"] ?? "", tags["red_light_camera"] ?? ""))
     }
 
     /// The limit a camera enforces, from `maxspeed` on the device itself.
@@ -112,24 +113,33 @@ enum EnforcementCameras {
     /// metres behind on the other carriageway is closer than one four
     /// hundred metres up the road, and warning about the wrong one teaches
     /// the driver to ignore the warning.
-    static func imminent(among cameras: [Camera],
-                         at position: CLLocationCoordinate2D,
-                         headingDegrees: Double?) -> (camera: Camera,
-                                                      meters: Double)? {
+    static func imminent(
+        among cameras: [Camera],
+        at position: CLLocationCoordinate2D,
+        headingDegrees: Double?
+    ) -> (
+        camera: Camera,
+        meters: Double
+    )? {
         cameras
             .map { (camera: $0, meters: POIRanking.meters($0.coordinate, position)) }
             .filter { $0.meters <= warnMeters && $0.meters >= clearMeters }
-            .filter { isAhead($0.camera.coordinate, from: position,
-                              headingDegrees: headingDegrees) }
+            .filter {
+                isAhead(
+                    $0.camera.coordinate, from: position,
+                    headingDegrees: headingDegrees)
+            }
             .min { $0.meters < $1.meters }
     }
 
     /// Is a point in front of the vehicle? Within a 100° cone either side of
     /// the direction of travel. With no heading — stopped, or a fix with no
     /// course — everything counts, because there is nothing better to say.
-    static func isAhead(_ target: CLLocationCoordinate2D,
-                        from position: CLLocationCoordinate2D,
-                        headingDegrees: Double?) -> Bool {
+    static func isAhead(
+        _ target: CLLocationCoordinate2D,
+        from position: CLLocationCoordinate2D,
+        headingDegrees: Double?
+    ) -> Bool {
         guard let heading = headingDegrees, heading >= 0 else { return true }
         let bearing = bearingDegrees(from: position, to: target)
         var delta = (bearing - heading).truncatingRemainder(dividingBy: 360)
@@ -139,12 +149,15 @@ enum EnforcementCameras {
     }
 
     /// Compass bearing from one point to another, 0..<360.
-    static func bearingDegrees(from a: CLLocationCoordinate2D,
-                               to b: CLLocationCoordinate2D) -> Double {
+    static func bearingDegrees(
+        from a: CLLocationCoordinate2D,
+        to b: CLLocationCoordinate2D
+    ) -> Double {
         let rad = Double.pi / 180
         let dLon = (b.longitude - a.longitude) * rad
         let y = sin(dLon) * cos(b.latitude * rad)
-        let x = cos(a.latitude * rad) * sin(b.latitude * rad)
+        let x =
+            cos(a.latitude * rad) * sin(b.latitude * rad)
             - sin(a.latitude * rad) * cos(b.latitude * rad) * cos(dLon)
         let deg = atan2(y, x) / rad
         return deg < 0 ? deg + 360 : deg
@@ -154,8 +167,10 @@ enum EnforcementCameras {
     /// mapper recorded one, and the line only mentions speed when the driver
     /// is actually over it — a red-light camera has nothing to do with how
     /// fast a law-abiding driver is going.
-    static func warning(for camera: Camera, meters: Double,
-                        speedMph: Double, postedLimitMph: Double?) -> String {
+    static func warning(
+        for camera: Camera, meters: Double,
+        speedMph: Double, postedLimitMph: Double?
+    ) -> String {
         let feet = Int((meters * 3.28084 / 50).rounded() * 50)
         let limit = camera.limitMph ?? postedLimitMph
         var line = "\(camera.kind.title) in \(feet) feet"

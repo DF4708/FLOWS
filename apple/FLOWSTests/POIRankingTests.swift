@@ -61,14 +61,18 @@ final class POIRankingTests: XCTestCase {
         // Near but expensive vs farther-up-route but much cheaper: with a
         // 15-unit fill, $0.60/unit savings ($9) outweighs the extra ~8 min
         // detour (~$4 at $30/hr).
-        let nearExpensive = candidate("pricey", lon: -89.9, price: 3.80,
-                                      route: route, vehicleAlong: 0)!
-        let farCheap = candidate("cheap", lon: -89.0, latOffset: 0.02, price: 3.20,
-                                 route: route, vehicleAlong: 0)!
-        let ranked = POIRanking.rankFuel([nearExpensive, farCheap],
-                                         fillUnits: 15, averagePricePerUnit: 3.50)
-        XCTAssertEqual(ranked.first?.item, "cheap",
-                       "significantly cheaper fuel should win despite the longer range")
+        let nearExpensive = candidate(
+            "pricey", lon: -89.9, price: 3.80,
+            route: route, vehicleAlong: 0)!
+        let farCheap = candidate(
+            "cheap", lon: -89.0, latOffset: 0.02, price: 3.20,
+            route: route, vehicleAlong: 0)!
+        let ranked = POIRanking.rankFuel(
+            [nearExpensive, farCheap],
+            fillUnits: 15, averagePricePerUnit: 3.50)
+        XCTAssertEqual(
+            ranked.first?.item, "cheap",
+            "significantly cheaper fuel should win despite the longer range")
     }
 
     func testEqualPricesFallBackToShortestDetour() {
@@ -76,7 +80,8 @@ final class POIRankingTests: XCTestCase {
         let near = candidate("near", lon: -89.8, route: route, vehicleAlong: 0)!
         let off = candidate("off", lon: -89.8, latOffset: 0.05, route: route, vehicleAlong: 0)!
         let ranked = POIRanking.rankFuel([off, near], fillUnits: 15, averagePricePerUnit: 3.50)
-        XCTAssertEqual(ranked.first?.item, "near",
-                       "with no price signal, least detour time wins")
+        XCTAssertEqual(
+            ranked.first?.item, "near",
+            "with no price signal, least detour time wins")
     }
 }

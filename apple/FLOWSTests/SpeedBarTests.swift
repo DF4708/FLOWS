@@ -31,8 +31,9 @@ final class SpeedBarTests: XCTestCase {
     func testRedLineHasAnAbsoluteCeiling() {
         // On a 75 mph interstate, 20 over would be 95 — the absolute
         // excessive-speed floor catches it first.
-        XCTAssertEqual(SpeedLaw.federalThresholdMph(postedLimitMph: 75),
-                       SpeedLaw.excessAbsoluteMph)
+        XCTAssertEqual(
+            SpeedLaw.federalThresholdMph(postedLimitMph: 75),
+            SpeedLaw.excessAbsoluteMph)
     }
 
     func testNothingPostedMeansNothingViolated() {
@@ -46,11 +47,13 @@ final class SpeedBarTests: XCTestCase {
 
     func testBarTopUsesTheVehicleThenFallsBack() {
         XCTAssertEqual(SpeedLaw.barTopMph(vehicleTopSpeedMph: 95), 95)
-        XCTAssertEqual(SpeedLaw.barTopMph(vehicleTopSpeedMph: nil),
-                       SpeedLaw.defaultTopSpeedMph)
+        XCTAssertEqual(
+            SpeedLaw.barTopMph(vehicleTopSpeedMph: nil),
+            SpeedLaw.defaultTopSpeedMph)
         // A nonsense figure falls back rather than drawing a 5 mph bar.
-        XCTAssertEqual(SpeedLaw.barTopMph(vehicleTopSpeedMph: 3),
-                       SpeedLaw.defaultTopSpeedMph)
+        XCTAssertEqual(
+            SpeedLaw.barTopMph(vehicleTopSpeedMph: 3),
+            SpeedLaw.defaultTopSpeedMph)
     }
 
     func testThresholdsPlaceAlongTheBarAndDropOffTheEnd() {
@@ -65,17 +68,20 @@ final class SpeedBarTests: XCTestCase {
     func testScaleTightensAtTownSpeeds() {
         // Crawling a 25 mph street: the bar reads in tens near the driving,
         // not a mostly-empty 120.
-        let top = SpeedLaw.dynamicTopMph(speedMph: 28, postedLimitMph: 25,
-                                         vehicleTopSpeedMph: nil)
+        let top = SpeedLaw.dynamicTopMph(
+            speedMph: 28, postedLimitMph: 25,
+            vehicleTopSpeedMph: nil)
         XCTAssertLessThanOrEqual(top, 60)
         XCTAssertEqual(top.truncatingRemainder(dividingBy: 10), 0)
     }
 
     func testScaleStepsUpAtHighwaySpeeds() {
-        let town = SpeedLaw.dynamicTopMph(speedMph: 28, postedLimitMph: 25,
-                                          vehicleTopSpeedMph: nil)
-        let highway = SpeedLaw.dynamicTopMph(speedMph: 75, postedLimitMph: 70,
-                                             vehicleTopSpeedMph: nil)
+        let town = SpeedLaw.dynamicTopMph(
+            speedMph: 28, postedLimitMph: 25,
+            vehicleTopSpeedMph: nil)
+        let highway = SpeedLaw.dynamicTopMph(
+            speedMph: 75, postedLimitMph: 70,
+            vehicleTopSpeedMph: nil)
         XCTAssertGreaterThan(highway, town)
         XCTAssertEqual(highway.truncatingRemainder(dividingBy: 10), 0)
     }
@@ -83,31 +89,41 @@ final class SpeedBarTests: XCTestCase {
     func testScaleNeverExceedsTheVehiclesTopSpeed() {
         // Even flat out, and even where the excessive-speed line sits above
         // what the vehicle can do, the bar stops at the vehicle's maximum.
-        XCTAssertEqual(SpeedLaw.dynamicTopMph(speedMph: 200, postedLimitMph: 75,
-                                              vehicleTopSpeedMph: 85), 85)
-        XCTAssertEqual(SpeedLaw.dynamicTopMph(speedMph: 200, postedLimitMph: nil,
-                                              vehicleTopSpeedMph: nil),
-                       SpeedLaw.defaultTopSpeedMph)
+        XCTAssertEqual(
+            SpeedLaw.dynamicTopMph(
+                speedMph: 200, postedLimitMph: 75,
+                vehicleTopSpeedMph: 85), 85)
+        XCTAssertEqual(
+            SpeedLaw.dynamicTopMph(
+                speedMph: 200, postedLimitMph: nil,
+                vehicleTopSpeedMph: nil),
+            SpeedLaw.defaultTopSpeedMph)
     }
 
     func testScaleAlwaysKeepsSpeedAndBothLinesInView() {
         // Sweep a whole drive: at every speed, all three must be on the bar.
         for speed in stride(from: 0.0, through: 110.0, by: 5.0) {
-            let top = SpeedLaw.dynamicTopMph(speedMph: speed, postedLimitMph: 55,
-                                             vehicleTopSpeedMph: nil)
-            XCTAssertNotNil(SpeedLaw.barFraction(speed, topMph: top),
-                            "current speed \(speed) fell off the bar")
-            XCTAssertNotNil(SpeedLaw.barFraction(
-                SpeedLaw.stateThresholdMph(postedLimitMph: 55), topMph: top))
-            XCTAssertNotNil(SpeedLaw.barFraction(
-                SpeedLaw.federalThresholdMph(postedLimitMph: 55), topMph: top))
+            let top = SpeedLaw.dynamicTopMph(
+                speedMph: speed, postedLimitMph: 55,
+                vehicleTopSpeedMph: nil)
+            XCTAssertNotNil(
+                SpeedLaw.barFraction(speed, topMph: top),
+                "current speed \(speed) fell off the bar")
+            XCTAssertNotNil(
+                SpeedLaw.barFraction(
+                    SpeedLaw.stateThresholdMph(postedLimitMph: 55), topMph: top))
+            XCTAssertNotNil(
+                SpeedLaw.barFraction(
+                    SpeedLaw.federalThresholdMph(postedLimitMph: 55), topMph: top))
         }
     }
 
     func testScaleStaysReadableWhenStopped() {
-        XCTAssertEqual(SpeedLaw.dynamicTopMph(speedMph: 0, postedLimitMph: nil,
-                                              vehicleTopSpeedMph: nil),
-                       SpeedLaw.minTopMph)
+        XCTAssertEqual(
+            SpeedLaw.dynamicTopMph(
+                speedMph: 0, postedLimitMph: nil,
+                vehicleTopSpeedMph: nil),
+            SpeedLaw.minTopMph)
     }
 
     // MARK: the compass reading
@@ -131,28 +147,38 @@ final class SpeedBarTests: XCTestCase {
     // MARK: the leading efficiency icon
 
     func testSteadyLegalCruiseEarnsTheLeaf() {
-        XCTAssertEqual(DriveEfficiency.verdict(speedMph: 55, accelMphPerSec: 0,
-                                               gradePercent: 0), .efficient)
+        XCTAssertEqual(
+            DriveEfficiency.verdict(
+                speedMph: 55, accelMphPerSec: 0,
+                gradePercent: 0), .efficient)
     }
 
     func testHardThrottleIsWasteful() {
-        XCTAssertEqual(DriveEfficiency.verdict(speedMph: 40, accelMphPerSec: 4,
-                                               gradePercent: 0), .wasteful)
+        XCTAssertEqual(
+            DriveEfficiency.verdict(
+                speedMph: 40, accelMphPerSec: 4,
+                gradePercent: 0), .wasteful)
     }
 
     func testHighSpeedDragIsWasteful() {
         // Drag rises with the square of speed — 95 on the flat is not thrifty.
-        XCTAssertEqual(DriveEfficiency.verdict(speedMph: 95, accelMphPerSec: 0,
-                                               gradePercent: 0), .wasteful)
+        XCTAssertEqual(
+            DriveEfficiency.verdict(
+                speedMph: 95, accelMphPerSec: 0,
+                gradePercent: 0), .wasteful)
     }
 
     func testClimbingIsJudgedDifferentlyFromTheFlat() {
         // The same 65 mph is not the same act: holding it on the flat is
         // fine, dragging the vehicle up a 6% grade at that speed is not.
-        XCTAssertNotEqual(DriveEfficiency.verdict(speedMph: 65, accelMphPerSec: 0,
-                                                  gradePercent: 0), .wasteful)
-        XCTAssertEqual(DriveEfficiency.verdict(speedMph: 65, accelMphPerSec: 0,
-                                               gradePercent: 6), .wasteful)
+        XCTAssertNotEqual(
+            DriveEfficiency.verdict(
+                speedMph: 65, accelMphPerSec: 0,
+                gradePercent: 0), .wasteful)
+        XCTAssertEqual(
+            DriveEfficiency.verdict(
+                speedMph: 65, accelMphPerSec: 0,
+                gradePercent: 6), .wasteful)
         XCTAssertLessThan(
             DriveEfficiency.score(speedMph: 65, accelMphPerSec: 0, gradePercent: 0),
             DriveEfficiency.score(speedMph: 65, accelMphPerSec: 0, gradePercent: 6))
@@ -169,34 +195,46 @@ final class SpeedBarTests: XCTestCase {
 
     func testHeadwindCostsAndTailwindGivesBack() {
         // Heading east into an easterly: pure headwind.
-        XCTAssertEqual(DriveEfficiency.headwindMph(windMph: 20, windFromDegrees: 90,
-                                                   headingDegrees: 90), 20, accuracy: 0.01)
+        XCTAssertEqual(
+            DriveEfficiency.headwindMph(
+                windMph: 20, windFromDegrees: 90,
+                headingDegrees: 90), 20, accuracy: 0.01)
         // Same wind at your back.
-        XCTAssertEqual(DriveEfficiency.headwindMph(windMph: 20, windFromDegrees: 270,
-                                                   headingDegrees: 90), -20, accuracy: 0.01)
+        XCTAssertEqual(
+            DriveEfficiency.headwindMph(
+                windMph: 20, windFromDegrees: 270,
+                headingDegrees: 90), -20, accuracy: 0.01)
         // Pure crosswind neither helps nor hurts along the direction of travel.
-        XCTAssertEqual(DriveEfficiency.headwindMph(windMph: 20, windFromDegrees: 0,
-                                                   headingDegrees: 90), 0, accuracy: 0.01)
+        XCTAssertEqual(
+            DriveEfficiency.headwindMph(
+                windMph: 20, windFromDegrees: 0,
+                headingDegrees: 90), 0, accuracy: 0.01)
     }
 
     func testUnknownWindDirectionIsNotTreatedAsEvidence() {
-        XCTAssertEqual(DriveEfficiency.headwindMph(windMph: 30, windFromDegrees: nil,
-                                                   headingDegrees: 90), 0)
-        XCTAssertEqual(DriveEfficiency.headwindMph(windMph: 30, windFromDegrees: 90,
-                                                   headingDegrees: nil), 0)
+        XCTAssertEqual(
+            DriveEfficiency.headwindMph(
+                windMph: 30, windFromDegrees: nil,
+                headingDegrees: 90), 0)
+        XCTAssertEqual(
+            DriveEfficiency.headwindMph(
+                windMph: 30, windFromDegrees: 90,
+                headingDegrees: nil), 0)
     }
 
     func testDragKeysOffAIRSPEEDNotJustSpeedometer() {
         // 60 into a 25 mph headwind is aerodynamically 85.
         let calm = DriveEfficiency.Inputs(speedMph: 60, accelMphPerSec: 0)
-        let into = DriveEfficiency.Inputs(speedMph: 60, accelMphPerSec: 0,
-                                          windMph: 25, windFromDegrees: 90,
-                                          headingDegrees: 90)
+        let into = DriveEfficiency.Inputs(
+            speedMph: 60, accelMphPerSec: 0,
+            windMph: 25, windFromDegrees: 90,
+            headingDegrees: 90)
         XCTAssertGreaterThan(DriveEfficiency.score(into), DriveEfficiency.score(calm))
         // …and a tailwind of the same strength scores better than calm.
-        let behind = DriveEfficiency.Inputs(speedMph: 60, accelMphPerSec: 0,
-                                            windMph: 25, windFromDegrees: 270,
-                                            headingDegrees: 90)
+        let behind = DriveEfficiency.Inputs(
+            speedMph: 60, accelMphPerSec: 0,
+            windMph: 25, windFromDegrees: 270,
+            headingDegrees: 90)
         XCTAssertLessThan(DriveEfficiency.score(behind), DriveEfficiency.score(calm))
     }
 
@@ -211,8 +249,9 @@ final class SpeedBarTests: XCTestCase {
     }
 
     func testWeightTowingAndFuelLoadAllCost() {
-        let base = DriveEfficiency.Inputs(speedMph: 45, accelMphPerSec: 2,
-                                          gradePercent: 4)
+        let base = DriveEfficiency.Inputs(
+            speedMph: 45, accelMphPerSec: 2,
+            gradePercent: 4)
         var loaded = base
         loaded.vehicleWeightLbs = 5_000
         loaded.loadedWeightLbs = 9_000
@@ -226,8 +265,9 @@ final class SpeedBarTests: XCTestCase {
         brimmed.fuelFraction = 1.0
         var nearlyEmpty = base
         nearlyEmpty.fuelFraction = 0.05
-        XCTAssertGreaterThan(DriveEfficiency.score(brimmed),
-                             DriveEfficiency.score(nearlyEmpty))
+        XCTAssertGreaterThan(
+            DriveEfficiency.score(brimmed),
+            DriveEfficiency.score(nearlyEmpty))
     }
 
     func testLoadOnlyCostsWhenTheMassIsBEINGMOVED() {
@@ -236,8 +276,9 @@ final class SpeedBarTests: XCTestCase {
         var towingFlat = DriveEfficiency.Inputs(speedMph: 55, accelMphPerSec: 0)
         towingFlat.towing = true
         let soloFlat = DriveEfficiency.Inputs(speedMph: 55, accelMphPerSec: 0)
-        XCTAssertEqual(DriveEfficiency.score(towingFlat),
-                       DriveEfficiency.score(soloFlat), accuracy: 0.001)
+        XCTAssertEqual(
+            DriveEfficiency.score(towingFlat),
+            DriveEfficiency.score(soloFlat), accuracy: 0.001)
     }
 
     func testNoVehicleOnFileStillScoresFromAnAverage() {
@@ -269,10 +310,12 @@ final class SpeedBarTests: XCTestCase {
     func testTheEstimateTracksTheKindOfRoad() {
         // A neighbourhood street, a rural two-lane, and an interstate must
         // not all get the same guess.
-        XCTAssertLessThan(SpeedLaw.estimatedLimitMph(speedMph: 22),
-                          SpeedLaw.estimatedLimitMph(speedMph: 48))
-        XCTAssertLessThan(SpeedLaw.estimatedLimitMph(speedMph: 48),
-                          SpeedLaw.estimatedLimitMph(speedMph: 72))
+        XCTAssertLessThan(
+            SpeedLaw.estimatedLimitMph(speedMph: 22),
+            SpeedLaw.estimatedLimitMph(speedMph: 48))
+        XCTAssertLessThan(
+            SpeedLaw.estimatedLimitMph(speedMph: 48),
+            SpeedLaw.estimatedLimitMph(speedMph: 72))
     }
 
     func testBothLinesStayOnTheBarAsTheScaleZooms() {
@@ -280,9 +323,10 @@ final class SpeedBarTests: XCTestCase {
         // still have a place on the bar, and in the right order.
         let limit = 55.0
         for speed in stride(from: 0.0, through: 115.0, by: 5) {
-            let top = SpeedLaw.dynamicTopMph(speedMph: speed,
-                                             postedLimitMph: limit,
-                                             vehicleTopSpeedMph: nil)
+            let top = SpeedLaw.dynamicTopMph(
+                speedMph: speed,
+                postedLimitMph: limit,
+                vehicleTopSpeedMph: nil)
             let y = SpeedLaw.barFraction(
                 SpeedLaw.stateThresholdMph(postedLimitMph: limit), topMph: top)
             let r = SpeedLaw.barFraction(
@@ -296,18 +340,24 @@ final class SpeedBarTests: XCTestCase {
     func testALineSitsWhereItsNumberSays() {
         // The mark and the number under it are the same fraction of the same
         // width — that is what keeps them in line as the scale zooms.
-        let top = SpeedLaw.dynamicTopMph(speedMph: 40, postedLimitMph: 35,
-                                         vehicleTopSpeedMph: nil)
+        let top = SpeedLaw.dynamicTopMph(
+            speedMph: 40, postedLimitMph: 35,
+            vehicleTopSpeedMph: nil)
         let state = SpeedLaw.stateThresholdMph(postedLimitMph: 35)
-        XCTAssertEqual(SpeedLaw.barFraction(state, topMph: top) ?? 0,
-                       (state ?? 0) / top, accuracy: 0.0001)
+        XCTAssertEqual(
+            SpeedLaw.barFraction(state, topMph: top) ?? 0,
+            (state ?? 0) / top, accuracy: 0.0001)
     }
 
     func testIdlingIsAlwaysWasteful() {
-        XCTAssertEqual(DriveEfficiency.verdict(speedMph: 0, accelMphPerSec: 0,
-                                               gradePercent: 0), .wasteful)
+        XCTAssertEqual(
+            DriveEfficiency.verdict(
+                speedMph: 0, accelMphPerSec: 0,
+                gradePercent: 0), .wasteful)
         // …but pulling away from the light is not.
-        XCTAssertNotEqual(DriveEfficiency.verdict(speedMph: 1, accelMphPerSec: 1.5,
-                                                  gradePercent: 0), .wasteful)
+        XCTAssertNotEqual(
+            DriveEfficiency.verdict(
+                speedMph: 1, accelMphPerSec: 1.5,
+                gradePercent: 0), .wasteful)
     }
 }

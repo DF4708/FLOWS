@@ -101,7 +101,10 @@ extension RouteAttributes {
         let counts = limits.map { Int64($0.line.count) }
         var wayLats = limits.flatMap { $0.line.map(\.latitude) }
         var wayLons = limits.flatMap { $0.line.map(\.longitude) }
-        if wayLats.isEmpty { wayLats = [0]; wayLons = [0] }   // counts are all 0
+        if wayLats.isEmpty {
+            wayLats = [0]
+            wayLons = [0]
+        }  // counts are all 0
         let tagTexts = limits.map { limit in
             limit.tags.sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value)" }
                 .joined(separator: "\u{1F}")
@@ -136,11 +139,14 @@ actor RouteAttributeFetcher {
     // reaches five figures), so both carry the same overflow cap as
     // restrictionCache below. Undated caches → dropHalf.
     private var elevationCache: [String: Double?] = [:]
-    private var floodZoneCache: [String: Bool?] = [:]   // key -> high-risk?
-    private var restrictionCache: [String:
-        (fetched: Date,
-         clearances: [PostedLimit],
-         weights: [PostedLimit])] = [:]
+    private var floodZoneCache: [String: Bool?] = [:]  // key -> high-risk?
+    private var restrictionCache:
+        [String:
+            (
+                fetched: Date,
+                clearances: [PostedLimit],
+                weights: [PostedLimit]
+            )] = [:]
 
     private func key(_ c: CLLocationCoordinate2D) -> String {
         "\(Int((c.latitude * 100).rounded()))|\(Int((c.longitude * 100).rounded()))"
@@ -180,17 +186,19 @@ actor RouteAttributeFetcher {
             start += chunk.count
             let lats = chunk.map { String(format: "%.5f", $0.1.latitude) }.joined(separator: ",")
             let lons = chunk.map { String(format: "%.5f", $0.1.longitude) }.joined(separator: ",")
-            guard let url = URL(string:
-                "https://api.open-meteo.com/v1/elevation?latitude=\(lats)&longitude=\(lons)"),
-                  let (data, resp) = try? await ThrottledNet.fetch(url),
-                  (resp as? HTTPURLResponse)?.statusCode == 200,
-                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                  let elevs = json["elevation"] as? [Double], elevs.count == chunk.count
+            guard
+                let url = URL(
+                    string:
+                        "https://api.open-meteo.com/v1/elevation?latitude=\(lats)&longitude=\(lons)"),
+                let (data, resp) = try? await ThrottledNet.fetch(url),
+                (resp as? HTTPURLResponse)?.statusCode == 200,
+                let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                let elevs = json["elevation"] as? [Double], elevs.count == chunk.count
             else {
                 FlowsDiag.logThrottled(
                     key: "elev.batchFail", .warn, "elevation",
                     "Open-Meteo batch failed — \(chunk.count) points riding per-point EPQS")
-                continue   // whole chunk rides the EPQS fallback below
+                continue  // whole chunk rides the EPQS fallback below
             }
             for (j, (i, p)) in chunk.enumerated() {
                 out[i] = elevs[j]
@@ -217,14 +225,18 @@ actor RouteAttributeFetcher {
         let k = key(c)
         if let cached = elevationCache[k] { return cached }
         if let running = elevationInFlight[k] { return await running.value }
-        let lat = c.latitude, lon = c.longitude
+        let lat = c.latitude
+        let lon = c.longitude
         let task = Task<Double?, Never> {
-            guard let url = URL(string: String(
-                format: "https://epqs.nationalmap.gov/v1/json?x=%.5f&y=%.5f&wkid=4326&units=Meters&includeDate=false",
-                lon, lat)),
-               let (data, resp) = try? await ThrottledNet.fetch(url),
-               (resp as? HTTPURLResponse)?.statusCode == 200,
-               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+            guard
+                let url = URL(
+                    string: String(
+                        format:
+                            "https://epqs.nationalmap.gov/v1/json?x=%.5f&y=%.5f&wkid=4326&units=Meters&includeDate=false",
+                        lon, lat)),
+                let (data, resp) = try? await ThrottledNet.fetch(url),
+                (resp as? HTTPURLResponse)?.statusCode == 200,
+                let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
             else { return nil }
             if let v = json["value"] as? Double { return v }
             if let s = json["value"] as? String { return Double(s) }
@@ -245,17 +257,19 @@ actor RouteAttributeFetcher {
         let k = key(c)
         if let cached = floodZoneCache[k] { return cached }
         if let running = floodZoneInFlight[k] { return await running.value }
-        let lat = c.latitude, lon = c.longitude
+        let lat = c.latitude
+        let lon = c.longitude
         let task = Task<Bool?, Never> {
-            let urlString = "https://hazards.fema.gov/arcgis/rest/services/public/NFHL/MapServer/28/query"
+            let urlString =
+                "https://hazards.fema.gov/arcgis/rest/services/public/NFHL/MapServer/28/query"
                 + String(format: "?geometry=%.5f,%.5f", lon, lat)
                 + "&geometryType=esriGeometryPoint&inSR=4326&spatialRel=esriSpatialRelIntersects"
                 + "&outFields=FLD_ZONE&returnGeometry=false&f=json"
             guard let url = URL(string: urlString),
-               let (data, resp) = try? await ThrottledNet.fetch(url),
-               (resp as? HTTPURLResponse)?.statusCode == 200,
-               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-               let features = json["features"] as? [[String: Any]]
+                let (data, resp) = try? await ThrottledNet.fetch(url),
+                (resp as? HTTPURLResponse)?.statusCode == 200,
+                let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                let features = json["features"] as? [[String: Any]]
             else { return nil }
             let zones = features.compactMap {
                 ($0["attributes"] as? [String: Any])?["FLD_ZONE"] as? String
@@ -286,7 +300,8 @@ actor RouteAttributeFetcher {
     /// crossing under or over the route (a 6 ft garage bar was failing whole
     /// interstates like I-65, and every route into downtown Milwaukee).
     func postedRestrictions(inBoxes boxes: [(s: Double, w: Double, n: Double, e: Double)])
-        async -> (clearances: [PostedLimit], weights: [PostedLimit])? {
+        async -> (clearances: [PostedLimit], weights: [PostedLimit])?
+    {
         guard !boxes.isEmpty else { return ([], []) }
         // Bridges are static infrastructure — re-scoring the same route (same
         // corridor boxes) must not re-query Overpass, which is strictly
@@ -296,7 +311,8 @@ actor RouteAttributeFetcher {
         let cacheKey = boxes.map { String(format: "%.2f,%.2f,%.2f,%.2f", $0.s, $0.w, $0.n, $0.e) }
             .joined(separator: ";")
         if let c = restrictionCache[cacheKey],
-           Date().timeIntervalSince(c.fetched) < AdaptiveTuning.shared.ttl(6 * 3600) {
+            Date().timeIntervalSince(c.fetched) < AdaptiveTuning.shared.ttl(6 * 3600)
+        {
             return (c.clearances, c.weights)
         }
         let clauses = boxes.map {
@@ -324,12 +340,14 @@ actor RouteAttributeFetcher {
                     return CLLocationCoordinate2D(latitude: lat, longitude: lon)
                 }
             if let mh = tags["maxheight"],
-               let m = RouteAttributes.clearanceMeters(fromOSM: mh), m < 5.5 {
+                let m = RouteAttributes.clearanceMeters(fromOSM: mh), m < 5.5
+            {
                 clearanceHits.append(PostedLimit(value: m, line: line, tags: tags))
             }
             if let mw = tags["maxweight"],
-               let lbs = RouteAttributes.weightLimitLbs(fromOSM: mw),
-               lbs < RouteAttributes.weightLimitCapLbs {
+                let lbs = RouteAttributes.weightLimitLbs(fromOSM: mw),
+                lbs < RouteAttributes.weightLimitCapLbs
+            {
                 weightHits.append(PostedLimit(value: lbs, line: line, tags: tags))
             }
         }

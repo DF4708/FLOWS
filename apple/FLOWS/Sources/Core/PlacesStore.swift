@@ -50,9 +50,9 @@ struct PlacesShard: Sendable {
     /// (a corrupt shard is refused, never "repaired").
     init?(data: Data) {
         guard !data.isEmpty,
-              let index = data.lentBytes({ bytes -> FlowsPlacesIndex? in
-                  flows_places_index_parse(bytes)
-              })
+            let index = data.lentBytes({ bytes -> FlowsPlacesIndex? in
+                flows_places_index_parse(bytes)
+            })
         else { return nil }
         self.data = data
         self.shared = RustShared(index)
@@ -69,8 +69,10 @@ struct PlacesShard: Sendable {
     /// All places of the given groups within `radiusMeters` of `center`,
     /// nearest-first, capped. Walks only the 0.2° cells the radius covers,
     /// peeking each record's position and group before decoding its texts.
-    func places(near center: CLLocationCoordinate2D, groups: Set<UInt8>,
-                radiusMeters: CLLocationDistance, limit: Int) -> [Place] {
+    func places(
+        near center: CLLocationCoordinate2D, groups: Set<UInt8>,
+        radiusMeters: CLLocationDistance, limit: Int
+    ) -> [Place] {
         guard !groups.isEmpty else { return [] }
         let wanted = Array(groups)
         return data.lentBytes { bytes -> [Place] in
@@ -85,8 +87,9 @@ struct PlacesShard: Sendable {
         let numbers = index.place_numbers(bytes, i)
         let texts = index.place_texts(bytes, i).map { $0.text }
         guard numbers.count == 4, texts.count == 5,
-              let group = UInt8(exactly: numbers[2]),
-              let postcode = UInt32(exactly: numbers[3]) else { return nil }
+            let group = UInt8(exactly: numbers[2]),
+            let postcode = UInt32(exactly: numbers[3])
+        else { return nil }
         return Place(
             coordinate: CLLocationCoordinate2D(latitude: numbers[0], longitude: numbers[1]),
             group: group, name: texts[0], street: texts[1], city: texts[2],
@@ -116,14 +119,17 @@ final class PlacesStore: ObservableObject {
     /// (Group bytes: 0=fuel 1=food 2=stores 3=hotel 4=medical 5=tourist
     /// 6=transit 7=rest/truckstop; the POIService.Kind mapping lives with
     /// POIService so this reader stays dependency-free.)
-    func places(near center: CLLocationCoordinate2D, groups: Set<UInt8>,
-                radiusMeters: CLLocationDistance, limit: Int = 12) async -> [PlacesShard.Place] {
+    func places(
+        near center: CLLocationCoordinate2D, groups: Set<UInt8>,
+        radiusMeters: CLLocationDistance, limit: Int = 12
+    ) async -> [PlacesShard.Place] {
         guard !groups.isEmpty else { return [] }
         var out: [PlacesShard.Place] = []
         for state in Self.states(containing: center) {
             guard let shard = await shard(for: state) else { continue }
-            out.append(contentsOf: shard.places(
-                near: center, groups: groups, radiusMeters: radiusMeters, limit: limit))
+            out.append(
+                contentsOf: shard.places(
+                    near: center, groups: groups, radiusMeters: radiusMeters, limit: limit))
         }
         return POIRanking.byDistance(out.map(\.coordinate), from: center, limit: limit)
             .map { out[$0.index] }
@@ -154,10 +160,15 @@ final class PlacesStore: ObservableObject {
                 // them instead of jetsamming the app; .mappedIfSafe falls
                 // back to a read on filesystems where mapping is unsafe.
                 let sp = flowsSignposter.beginInterval("shard-parse")
-                guard let data = try? Data(contentsOf: URL(fileURLWithPath: path),
-                                           options: .mappedIfSafe),
-                      let shard = PlacesShard(data: data)
-                else { flowsSignposter.endInterval("shard-parse", sp); continue }
+                guard
+                    let data = try? Data(
+                        contentsOf: URL(fileURLWithPath: path),
+                        options: .mappedIfSafe),
+                    let shard = PlacesShard(data: data)
+                else {
+                    flowsSignposter.endInterval("shard-parse", sp)
+                    continue
+                }
                 flowsSignposter.endInterval("shard-parse", sp)
                 return shard
             }
@@ -170,7 +181,7 @@ final class PlacesStore: ObservableObject {
         if cache[state] == nil {
             cache[state] = shard
             lru.append(state)
-            if lru.count > 3 {                    // LRU cap: 3 parsed states
+            if lru.count > 3 {  // LRU cap: 3 parsed states
                 // Never evict the pinned (home/current) state's shard.
                 if let evict = lru.firstIndex(where: { $0 != pinnedState }) {
                     cache.removeValue(forKey: lru.remove(at: evict))
@@ -184,15 +195,16 @@ final class PlacesStore: ObservableObject {
 
     nonisolated private static func candidateRoots() -> [String] {
         #if os(macOS)
-        let repo = ProcessInfo.processInfo.environment["FLOWS_REPO"]
-            ?? "\(NSHomeDirectory())/Documents/Coding_Files/FLOWS"
-        return [
-            "\(repo)/data/places",
-            "/Users/Shared/flows/repo/data/places",
-            Bundle.main.resourcePath.map { "\($0)/places" },
-        ].compactMap { $0 }
+            let repo =
+                ProcessInfo.processInfo.environment["FLOWS_REPO"]
+                ?? "\(NSHomeDirectory())/Documents/Coding_Files/FLOWS"
+            return [
+                "\(repo)/data/places",
+                "/Users/Shared/flows/repo/data/places",
+                Bundle.main.resourcePath.map { "\($0)/places" },
+            ].compactMap { $0 }
         #else
-        return [Bundle.main.resourcePath.map { "\($0)/places" }].compactMap { $0 }
+            return [Bundle.main.resourcePath.map { "\($0)/places" }].compactMap { $0 }
         #endif
     }
 

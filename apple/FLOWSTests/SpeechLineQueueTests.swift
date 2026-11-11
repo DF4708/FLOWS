@@ -123,8 +123,9 @@ final class SpeechLineQueueTests: XCTestCase {
         _ = fresh.enqueue("tornado", topic: SpeechTopic.imminent("A"))
         let first = fresh.current!.serial
         _ = fresh.enqueue("turn left", topic: SpeechTopic.turn)
-        XCTAssertEqual(fresh.finished(serial: first, now: Date().addingTimeInterval(5))?.line,
-                       "turn left")
+        XCTAssertEqual(
+            fresh.finished(serial: first, now: Date().addingTimeInterval(5))?.line,
+            "turn left")
     }
 
     func testAWarningDuringTheCrashQuestionWaitsAndOtherLinesDoNot() {

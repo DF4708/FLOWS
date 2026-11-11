@@ -9,8 +9,9 @@
 import AVFoundation
 import CoreLocation
 import Foundation
+
 #if canImport(Speech)
-import Speech
+    import Speech
 #endif
 
 /// A dispatch feed the app may listen to.
@@ -32,7 +33,8 @@ struct ScannerFeed: Codable, Identifiable, Equatable {
     var id: String { name }
 
     var streamURL: URL? {
-        let secured = url.hasPrefix("http://")
+        let secured =
+            url.hasPrefix("http://")
             ? "https://" + url.dropFirst("http://".count) : url
         return URL(string: secured)
     }
@@ -47,18 +49,24 @@ struct ScannerFeed: Codable, Identifiable, Equatable {
 /// the feature off until someone with a listening agreement turns it on.
 enum ScannerFeedStore {
     static func load() -> [ScannerFeed] {
-        guard let dir = FileManager.default.urls(for: .applicationSupportDirectory,
-                                                 in: .userDomainMask).first,
-              let data = try? Data(contentsOf:
-                dir.appendingPathComponent("scanner_feeds.json")),
-              let parsed = try? JSONDecoder().decode([ScannerFeed].self, from: data)
+        guard
+            let dir = FileManager.default.urls(
+                for: .applicationSupportDirectory,
+                in: .userDomainMask
+            ).first,
+            let data = try? Data(
+                contentsOf:
+                    dir.appendingPathComponent("scanner_feeds.json")),
+            let parsed = try? JSONDecoder().decode([ScannerFeed].self, from: data)
         else { return [] }
         return parsed
     }
 
     /// The feed covering a position — nearest by the agency's own anchor.
-    static func nearest(to position: CLLocationCoordinate2D,
-                        in feeds: [ScannerFeed]) -> ScannerFeed? {
+    static func nearest(
+        to position: CLLocationCoordinate2D,
+        in feeds: [ScannerFeed]
+    ) -> ScannerFeed? {
         feeds
             .compactMap { f -> (ScannerFeed, Double)? in
                 guard let c = f.coordinate else { return nil }
@@ -89,11 +97,12 @@ final class ScannerListener: ObservableObject {
     /// fix to start it); turning it off takes its pins and its "Listening
     /// to…" line with it, instead of leaving them up for up to an hour.
     @Published var enabled: Bool =
-        UserDefaults.standard.bool(forKey: "flows.scannerEnabled") {
+        UserDefaults.standard.bool(forKey: "flows.scannerEnabled")
+    {
         didSet {
             UserDefaults.standard.set(enabled, forKey: "flows.scannerEnabled")
             if enabled {
-                retryAfter = .distantPast   // the driver's own retry
+                retryAfter = .distantPast  // the driver's own retry
                 listen(near: lastPosition)
             } else {
                 stop()
@@ -132,10 +141,10 @@ final class ScannerListener: ObservableObject {
     private var endObserver: NSObjectProtocol?
 
     #if canImport(Speech)
-    private var recognizer: SFSpeechRecognizer?
-    private var request: SFSpeechAudioBufferRecognitionRequest?
-    private var task: SFSpeechRecognitionTask?
-    private var tap: MTAudioProcessingTap?
+        private var recognizer: SFSpeechRecognizer?
+        private var request: SFSpeechAudioBufferRecognitionRequest?
+        private var task: SFSpeechRecognitionTask?
+        private var tap: MTAudioProcessingTap?
     #endif
 
     init() {
@@ -154,15 +163,18 @@ final class ScannerListener: ObservableObject {
         // One line per state change, so a feed that never starts can say
         // why — this path had no journal line before its first callback.
         if !enabled {
-            FlowsDiag.logThrottled(key: "scanner.off", .info, "scanner",
-                                   "off (\(feeds.count) feed(s) configured)")
+            FlowsDiag.logThrottled(
+                key: "scanner.off", .info, "scanner",
+                "off (\(feeds.count) feed(s) configured)")
             return
         }
         // Position chooses BETWEEN feeds. Without one (a Mac with no fix,
         // the first seconds after launch) the first feed is still worth
         // hearing — this used to wait for a fix that a desk never gets.
-        guard let feed = position.flatMap({ ScannerFeedStore.nearest(to: $0, in: feeds) })
-                ?? feeds.first else { return }
+        guard
+            let feed = position.flatMap({ ScannerFeedStore.nearest(to: $0, in: feeds) })
+                ?? feeds.first
+        else { return }
         guard feed.id != currentFeed?.id || (!isListening && !starting) else { return }
         guard Date() >= retryAfter else { return }
         start(feed)
@@ -170,7 +182,7 @@ final class ScannerListener: ObservableObject {
 
     func stop() {
         session += 1
-        starting = false   // a pending authorization answer is for the old session
+        starting = false  // a pending authorization answer is for the old session
         if let endObserver { NotificationCenter.default.removeObserver(endObserver) }
         endObserver = nil
         player?.pause()
@@ -180,10 +192,10 @@ final class ScannerListener: ObservableObject {
         sweepTimer?.invalidate()
         sweepTimer = nil
         #if canImport(Speech)
-        task?.cancel()
-        task = nil
-        request?.endAudio()
-        request = nil
+            task?.cancel()
+            task = nil
+            request?.endAudio()
+            request = nil
         #endif
     }
 
@@ -205,135 +217,142 @@ final class ScannerListener: ObservableObject {
         currentFeed = feed
         starting = true
         #if canImport(Speech)
-        let mine = session
-        SFSpeechRecognizer.requestAuthorization { [weak self] auth in
-            Task { @MainActor in
-                guard let self, self.session == mine else { return }
-                self.starting = false
-                guard auth == .authorized else {
-                    self.status = "Speech recognition is off in Settings."
-                    // Asked again in a minute, not on the next fix: every
-                    // fix tore the feed down and asked again.
-                    self.retryAfter = Date().addingTimeInterval(60)
-                    FlowsDiag.log(.warn, "scanner", "speech recognition not authorized — feed idle")
-                    return
+            let mine = session
+            SFSpeechRecognizer.requestAuthorization { [weak self] auth in
+                Task { @MainActor in
+                    guard let self, self.session == mine else { return }
+                    self.starting = false
+                    guard auth == .authorized else {
+                        self.status = "Speech recognition is off in Settings."
+                        // Asked again in a minute, not on the next fix: every
+                        // fix tore the feed down and asked again.
+                        self.retryAfter = Date().addingTimeInterval(60)
+                        FlowsDiag.log(.warn, "scanner", "speech recognition not authorized — feed idle")
+                        return
+                    }
+                    FlowsDiag.log(.info, "scanner", "listening: \(self.journalName(feed))")
+                    self.beginRecognition(url: url, feed: feed)
                 }
-                FlowsDiag.log(.info, "scanner", "listening: \(self.journalName(feed))")
-                self.beginRecognition(url: url, feed: feed)
             }
-        }
         #else
-        status = "Not available on this device."
+            status = "Not available on this device."
         #endif
     }
 
     #if canImport(Speech)
-    private func beginRecognition(url: URL, feed: ScannerFeed) {
-        let recognizer = SFSpeechRecognizer()
-        guard let recognizer, recognizer.isAvailable,
-              recognizer.supportsOnDeviceRecognition else {
-            // Without on-device recognition the audio would be sent to
-            // Apple for transcription — which is exactly the off-device
-            // handling this feature promises not to do. So it stays off.
-            status = "This device can't transcribe without sending audio away."
-            retryAfter = Date().addingTimeInterval(60)   // as for a refusal, above
-            FlowsDiag.log(.warn, "scanner", "no on-device recognizer — feed idle")
-            return
-        }
-        self.recognizer = recognizer
-        let request = SFSpeechAudioBufferRecognitionRequest()
-        request.requiresOnDeviceRecognition = true   // never leaves the device
-        request.shouldReportPartialResults = true
-        self.request = request
-
-        let item = AVPlayerItem(url: url)
-        installTap(on: item, request: request)
-        let p = AVPlayer(playerItem: item)
-        p.volume = 0            // transcribed, not played aloud
-        p.isMuted = true
-        p.play()
-        player = p
-        isListening = true
-        status = "Listening to \(feed.name)"
-        // A live stream never ends; a recorded feed (the test file, an
-        // archived call) does — and without endAudio() at that point the
-        // recognizer never delivers its FINAL result, so the last partial
-        // was all a file could ever produce.
-        endObserver = NotificationCenter.default.addObserver(
-            forName: .AVPlayerItemDidPlayToEndTime, object: item, queue: .main) { [weak self] _ in
-            Task { @MainActor in
-                guard let self else { return }
-                FlowsDiag.log(.info, "scanner", "\(self.journalName(feed)): ended — finalizing")
-                self.request?.endAudio()
+        private func beginRecognition(url: URL, feed: ScannerFeed) {
+            let recognizer = SFSpeechRecognizer()
+            guard let recognizer, recognizer.isAvailable,
+                recognizer.supportsOnDeviceRecognition
+            else {
+                // Without on-device recognition the audio would be sent to
+                // Apple for transcription — which is exactly the off-device
+                // handling this feature promises not to do. So it stays off.
+                status = "This device can't transcribe without sending audio away."
+                retryAfter = Date().addingTimeInterval(60)  // as for a refusal, above
+                FlowsDiag.log(.warn, "scanner", "no on-device recognizer — feed idle")
+                return
             }
-        }
+            self.recognizer = recognizer
+            let request = SFSpeechAudioBufferRecognitionRequest()
+            request.requiresOnDeviceRecognition = true  // never leaves the device
+            request.shouldReportPartialResults = true
+            self.request = request
 
-        let mine = session
-        task = recognizer.recognitionTask(with: request) { [weak self] result, error in
-            Task { @MainActor in
-                guard let self, self.session == mine else { return }
-                if let error {
-                    self.status = "Feed dropped."; self.isListening = false
-                    self.retryAfter = Date().addingTimeInterval(60)
-                    FlowsDiag.log(.warn, "scanner", "recognition ended: \(error.localizedDescription) — retry in 60 s")
-                }
-                guard let result else { return }
-                let text = result.bestTranscription.formattedString
-                // Only act on a settled phrase, not every partial guess.
-                guard result.isFinal || text.count > 60 else { return }
-                // The count, never the words: dispatch audio is not the
-                // driver's, but the journal is exportable all the same.
-                let before = self.incidents.count
-// The transcript grows for as long as the feed plays. Read whole,
-                // its first call matched every time: that pin never aged out
-                // and later calls were never seen. Only the newest words count.
-                self.consider(transcript: String(text.suffix(200)), feed: feed)
-                FlowsDiag.log(.info, "scanner",
-                              "heard \(text.count) chars (final: \(result.isFinal)); "
-                              + "incidents \(before) → \(self.incidents.count)")
-            }
-        }
-        // Sweep expired pins so nothing stale sits on the map.
-        sweepTimer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) {
-            [weak self] _ in
-            Task { @MainActor in
-                guard let self else { return }
-                self.incidents = self.incidents.filter {
-                    !ScannerIncidents.isExpired($0)
+            let item = AVPlayerItem(url: url)
+            installTap(on: item, request: request)
+            let p = AVPlayer(playerItem: item)
+            p.volume = 0  // transcribed, not played aloud
+            p.isMuted = true
+            p.play()
+            player = p
+            isListening = true
+            status = "Listening to \(feed.name)"
+            // A live stream never ends; a recorded feed (the test file, an
+            // archived call) does — and without endAudio() at that point the
+            // recognizer never delivers its FINAL result, so the last partial
+            // was all a file could ever produce.
+            endObserver = NotificationCenter.default.addObserver(
+                forName: .AVPlayerItemDidPlayToEndTime, object: item, queue: .main
+            ) { [weak self] _ in
+                Task { @MainActor in
+                    guard let self else { return }
+                    FlowsDiag.log(.info, "scanner", "\(self.journalName(feed)): ended — finalizing")
+                    self.request?.endAudio()
                 }
             }
-        }
-    }
 
-    /// Fan the decoded audio into the recognizer without playing it.
-    private func installTap(on item: AVPlayerItem,
-                            request: SFSpeechAudioBufferRecognitionRequest) {
-        // AVPlayer gives no direct buffer access, so the audio mix's tap is
-        // the supported route to sample buffers.
-        let asset = item.asset
-        Task {
-            guard let track = try? await asset.loadTracks(withMediaType: .audio).first
-            else { return }
-            await MainActor.run {
-                let params = AVMutableAudioMixInputParameters(track: track)
-                let mix = AVMutableAudioMix()
-                mix.inputParameters = [params]
-                // The tap callbacks are C function pointers and cannot
-                // capture Swift context, so the recognizer request rides
-                // through the tap's storage as an unmanaged box.
-                ScannerAudioTap.attach(to: params, request: request)
-                item.audioMix = mix
+            let mine = session
+            task = recognizer.recognitionTask(with: request) { [weak self] result, error in
+                Task { @MainActor in
+                    guard let self, self.session == mine else { return }
+                    if let error {
+                        self.status = "Feed dropped."
+                        self.isListening = false
+                        self.retryAfter = Date().addingTimeInterval(60)
+                        FlowsDiag.log(
+                            .warn, "scanner", "recognition ended: \(error.localizedDescription) — retry in 60 s")
+                    }
+                    guard let result else { return }
+                    let text = result.bestTranscription.formattedString
+                    // Only act on a settled phrase, not every partial guess.
+                    guard result.isFinal || text.count > 60 else { return }
+                    // The count, never the words: dispatch audio is not the
+                    // driver's, but the journal is exportable all the same.
+                    let before = self.incidents.count
+                    // The transcript grows for as long as the feed plays. Read whole,
+                    // its first call matched every time: that pin never aged out
+                    // and later calls were never seen. Only the newest words count.
+                    self.consider(transcript: String(text.suffix(200)), feed: feed)
+                    FlowsDiag.log(
+                        .info, "scanner",
+                        "heard \(text.count) chars (final: \(result.isFinal)); "
+                            + "incidents \(before) → \(self.incidents.count)")
+                }
+            }
+            // Sweep expired pins so nothing stale sits on the map.
+            sweepTimer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) {
+                [weak self] _ in
+                Task { @MainActor in
+                    guard let self else { return }
+                    self.incidents = self.incidents.filter {
+                        !ScannerIncidents.isExpired($0)
+                    }
+                }
             }
         }
-    }
+
+        /// Fan the decoded audio into the recognizer without playing it.
+        private func installTap(
+            on item: AVPlayerItem,
+            request: SFSpeechAudioBufferRecognitionRequest
+        ) {
+            // AVPlayer gives no direct buffer access, so the audio mix's tap is
+            // the supported route to sample buffers.
+            let asset = item.asset
+            Task {
+                guard let track = try? await asset.loadTracks(withMediaType: .audio).first
+                else { return }
+                await MainActor.run {
+                    let params = AVMutableAudioMixInputParameters(track: track)
+                    let mix = AVMutableAudioMix()
+                    mix.inputParameters = [params]
+                    // The tap callbacks are C function pointers and cannot
+                    // capture Swift context, so the recognizer request rides
+                    // through the tap's storage as an unmanaged box.
+                    ScannerAudioTap.attach(to: params, request: request)
+                    item.audioMix = mix
+                }
+            }
+        }
     #endif
 
     // MARK: transcript → map pin
 
     private func consider(transcript: String, feed: ScannerFeed) {
         guard let kind = ScannerIncidents.kind(inTranscript: transcript),
-              let place = ScannerIncidents.placePhrase(inTranscript: transcript)
-        else { return }   // no kind or no place = nothing trustworthy to draw
+            let place = ScannerIncidents.placePhrase(inTranscript: transcript)
+        else { return }  // no kind or no place = nothing trustworthy to draw
         if let cached = placeCache[place] {
             add(kind: kind, at: cached, place: place)
             return
@@ -354,8 +373,10 @@ final class ScannerListener: ObservableObject {
         }
     }
 
-    private func add(kind: ScannerIncidents.Kind,
-                     at coordinate: CLLocationCoordinate2D, place: String) {
+    private func add(
+        kind: ScannerIncidents.Kind,
+        at coordinate: CLLocationCoordinate2D, place: String
+    ) {
         let incident = ScannerIncidents.Incident(
             id: "\(kind.rawValue)|\(place)|\(Int(Date().timeIntervalSince1970 / 60))",
             kind: kind, coordinate: coordinate, placeText: place, heardAt: Date())

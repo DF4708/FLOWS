@@ -17,8 +17,9 @@ final class RiskEquationsTests: XCTestCase {
     func testPiecewiseScoreMatchesR() {
         for (v, lo, me, hi, expected) in RiskEquationVectors.piecewise {
             let got = RiskEquations.piecewiseScore(v, low: lo, medium: me, high: hi)
-            XCTAssertEqual(got, expected, accuracy: 1e-12,
-                           "piecewise(\(v), \(lo), \(me), \(hi))")
+            XCTAssertEqual(
+                got, expected, accuracy: 1e-12,
+                "piecewise(\(v), \(lo), \(me), \(hi))")
         }
     }
 
@@ -33,8 +34,9 @@ final class RiskEquationsTests: XCTestCase {
 
     func testForecastCompositeMatchesR() {
         for (a, b, c, expected) in RiskEquationVectors.forecastComposite {
-            XCTAssertEqual(RiskEquations.forecastComposite(temp: a, wind: b, pop: c),
-                           expected, accuracy: 1e-12)
+            XCTAssertEqual(
+                RiskEquations.forecastComposite(temp: a, wind: b, pop: c),
+                expected, accuracy: 1e-12)
         }
     }
 

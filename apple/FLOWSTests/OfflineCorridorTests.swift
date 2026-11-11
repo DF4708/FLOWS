@@ -14,16 +14,19 @@ import XCTest
 final class OfflineCorridorTests: XCTestCase {
 
     /// A corridor running east from Madison toward Milwaukee.
-    private func corridor(savedAt: Date = Date(),
-                          from: (Double, Double) = (43.07, -89.40),
-                          to: (Double, Double) = (43.04, -87.91)) -> SavedCorridor {
+    private func corridor(
+        savedAt: Date = Date(),
+        from: (Double, Double) = (43.07, -89.40),
+        to: (Double, Double) = (43.04, -87.91)
+    ) -> SavedCorridor {
         var pts: [[Double]] = []
         for i in 0...20 {
             let f = Double(i) / 20
             pts.append([from.0 + (to.0 - from.0) * f, from.1 + (to.1 - from.1) * f])
         }
-        return SavedCorridor(id: UUID(), savedAt: savedAt,
-                             destinationName: "Milwaukee", points: pts)
+        return SavedCorridor(
+            id: UUID(), savedAt: savedAt,
+            destinationName: "Milwaukee", points: pts)
     }
 
     private func at(_ lat: Double, _ lon: Double) -> CLLocationCoordinate2D {
@@ -63,8 +66,9 @@ final class OfflineCorridorTests: XCTestCase {
 
     func testDroppedOnceTheDestinationIsReached() {
         let c = corridor()
-        XCTAssertFalse(CorridorRetention.keep(c, now: Date(), position: at(43.04, -87.91)),
-                       "arrived — the corridor did its job")
+        XCTAssertFalse(
+            CorridorRetention.keep(c, now: Date(), position: at(43.04, -87.91)),
+            "arrived — the corridor did its job")
     }
 
     func testDroppedOnceTheWholeStretchIsBehindYou() {
@@ -75,8 +79,9 @@ final class OfflineCorridorTests: XCTestCase {
 
     func testDegradesAfterOneWeek() {
         let stale = corridor(savedAt: Date().addingTimeInterval(-8 * 24 * 3600))
-        XCTAssertFalse(CorridorRetention.keep(stale, now: Date(), position: at(43.07, -89.40)),
-                       "a week-old corridor is a stale map, not a lifeline")
+        XCTAssertFalse(
+            CorridorRetention.keep(stale, now: Date(), position: at(43.07, -89.40)),
+            "a week-old corridor is a stale map, not a lifeline")
         let fresh = corridor(savedAt: Date().addingTimeInterval(-6 * 24 * 3600))
         XCTAssertTrue(CorridorRetention.keep(fresh, now: Date(), position: at(43.07, -89.40)))
     }
@@ -96,14 +101,15 @@ final class OfflineCorridorTests: XCTestCase {
         let new = corridor()
         XCTAssertTrue(CorridorRetention.supersedes(new, old))
         // A corridor to somewhere else does not.
-        let elsewhere = corridor(to: (41.88, -87.63))   // Chicago
+        let elsewhere = corridor(to: (41.88, -87.63))  // Chicago
         XCTAssertFalse(CorridorRetention.supersedes(elsewhere, old))
     }
 
     func testPruneKeepsNewestAndCaps() {
         let many = (0..<8).map {
-            corridor(savedAt: Date().addingTimeInterval(-Double($0) * 60),
-                     to: (43.04, -87.91 - Double($0)))
+            corridor(
+                savedAt: Date().addingTimeInterval(-Double($0) * 60),
+                to: (43.04, -87.91 - Double($0)))
         }
         let kept = CorridorRetention.prune(many, now: Date(), position: at(43.07, -89.40))
         XCTAssertLessThanOrEqual(kept.count, CorridorRetention.maxStored)
@@ -115,7 +121,10 @@ final class OfflineCorridorTests: XCTestCase {
         let old = (0..<3).map { _ in
             corridor(savedAt: Date().addingTimeInterval(-10 * 24 * 3600))
         }
-        XCTAssertTrue(CorridorRetention.prune(old, now: Date(),
-                                              position: at(43.07, -89.40)).isEmpty)
+        XCTAssertTrue(
+            CorridorRetention.prune(
+                old, now: Date(),
+                position: at(43.07, -89.40)
+            ).isEmpty)
     }
 }

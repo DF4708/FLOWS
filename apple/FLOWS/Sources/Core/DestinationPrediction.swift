@@ -106,8 +106,10 @@ enum DestinationPrediction {
         while i + 2 < flat.len() {
             if let index = Int(exactly: flat[i]), index < evidence.count {
                 let e = evidence[index]
-                out.append(Candidate(id: e.id, name: e.name, coordinate: e.coordinate,
-                                     score: flat[i + 1], reason: reasonWords(UInt8(exactly: flat[i + 2]) ?? 4)))
+                out.append(
+                    Candidate(
+                        id: e.id, name: e.name, coordinate: e.coordinate,
+                        score: flat[i + 1], reason: reasonWords(UInt8(exactly: flat[i + 2]) ?? 4)))
             }
             i += 3
         }

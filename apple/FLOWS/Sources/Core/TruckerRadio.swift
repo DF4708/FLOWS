@@ -9,9 +9,10 @@
 import AVFoundation
 import CoreLocation
 import Foundation
+
 #if os(iOS)
-import MediaPlayer
-import UIKit
+    import MediaPlayer
+    import UIKit
 #endif
 
 /// Trucker radio: play highway-relevant broadcasts through the app.
@@ -43,7 +44,8 @@ final class TruckerRadio: ObservableObject {
         /// serve the same stream over TLS, so upgrade the scheme here.
         var streamURL: URL? {
             guard !url.isEmpty else { return nil }
-            let secured = url.hasPrefix("http://")
+            let secured =
+                url.hasPrefix("http://")
                 ? "https://" + url.dropFirst("http://".count)
                 : url
             return URL(string: secured)
@@ -189,7 +191,7 @@ final class TruckerRadio: ObservableObject {
     /// counted as FLOWS's own sound so it was never handed back).
     private func handBackSession() {
         #if os(iOS)
-        VoiceAnnouncer.shared.releaseSessionWhenQuiet()
+            VoiceAnnouncer.shared.releaseSessionWhenQuiet()
         #endif
     }
 
@@ -202,32 +204,33 @@ final class TruckerRadio: ObservableObject {
     private var pausedByInterruption = false
     private func observeInterruptions() {
         #if os(iOS)
-        interruptionObserver = NotificationCenter.default.addObserver(
-            forName: AVAudioSession.interruptionNotification, object: nil, queue: .main
-        ) { [weak self] note in
-            let info = note.userInfo
-            let type = (info?[AVAudioSessionInterruptionTypeKey] as? UInt)
-                .flatMap(AVAudioSession.InterruptionType.init(rawValue:))
-            let options = (info?[AVAudioSessionInterruptionOptionKey] as? UInt)
-                .map(AVAudioSession.InterruptionOptions.init(rawValue:)) ?? []
-            Task { @MainActor in
-                guard let self else { return }
-                switch type {
-                case .began?:
-                    guard self.playingChannelID != nil, !self.isPaused else { return }
-                    self.player?.pause()
-                    self.isPaused = true
-                    self.pausedByInterruption = true
-                    self.status = "Paused — press play to go back on air."
-                case .ended?:
-                    guard self.pausedByInterruption else { return }
-                    self.pausedByInterruption = false
-                    if options.contains(.shouldResume), self.isPaused { self.pauseOrResume() }
-                default:
-                    break
+            interruptionObserver = NotificationCenter.default.addObserver(
+                forName: AVAudioSession.interruptionNotification, object: nil, queue: .main
+            ) { [weak self] note in
+                let info = note.userInfo
+                let type = (info?[AVAudioSessionInterruptionTypeKey] as? UInt)
+                    .flatMap(AVAudioSession.InterruptionType.init(rawValue:))
+                let options =
+                    (info?[AVAudioSessionInterruptionOptionKey] as? UInt)
+                    .map(AVAudioSession.InterruptionOptions.init(rawValue:)) ?? []
+                Task { @MainActor in
+                    guard let self else { return }
+                    switch type {
+                    case .began?:
+                        guard self.playingChannelID != nil, !self.isPaused else { return }
+                        self.player?.pause()
+                        self.isPaused = true
+                        self.pausedByInterruption = true
+                        self.status = "Paused — press play to go back on air."
+                    case .ended?:
+                        guard self.pausedByInterruption else { return }
+                        self.pausedByInterruption = false
+                        if options.contains(.shouldResume), self.isPaused { self.pauseOrResume() }
+                    default:
+                        break
+                    }
                 }
             }
-        }
         #endif
     }
 
@@ -241,12 +244,15 @@ final class TruckerRadio: ObservableObject {
     private let usingCustomList: Bool
 
     init() {
-        let dir = FileManager.default.urls(for: .applicationSupportDirectory,
-                                           in: .userDomainMask).first
-        usingCustomList = dir.map {
-            FileManager.default.fileExists(
-                atPath: $0.appendingPathComponent("trucker_radio.json").path)
-        } ?? false
+        let dir = FileManager.default.urls(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask
+        ).first
+        usingCustomList =
+            dir.map {
+                FileManager.default.fileExists(
+                    atPath: $0.appendingPathComponent("trucker_radio.json").path)
+            } ?? false
         channels = Self.loadChannels()
         if let data = UserDefaults.standard.data(forKey: Self.lastPlayedKey) {
             lastPlayed = try? JSONDecoder().decode(Channel.self, from: data)
@@ -263,49 +269,49 @@ final class TruckerRadio: ObservableObject {
     /// background-audio session shows a dead now-playing card.
     private func configureRemoteCommands() {
         #if os(iOS)
-        let center = MPRemoteCommandCenter.shared()
-        center.playCommand.addTarget { [weak self] _ in
-            Task { @MainActor in
-                if let self, self.playingChannelID == nil, let last = self.lastPlayed {
-                    self.play(last)
+            let center = MPRemoteCommandCenter.shared()
+            center.playCommand.addTarget { [weak self] _ in
+                Task { @MainActor in
+                    if let self, self.playingChannelID == nil, let last = self.lastPlayed {
+                        self.play(last)
+                    }
                 }
+                return .success
             }
-            return .success
-        }
-        center.pauseCommand.addTarget { [weak self] _ in
-            Task { @MainActor in self?.stop() }
-            return .success
-        }
-        center.stopCommand.addTarget { [weak self] _ in
-            Task { @MainActor in self?.stop() }
-            return .success
-        }
-        center.togglePlayPauseCommand.addTarget { [weak self] _ in
-            Task { @MainActor in
-                guard let self else { return }
-                if self.playingChannelID != nil {
-                    self.stop()
-                } else if let last = self.lastPlayed {
-                    self.play(last)
+            center.pauseCommand.addTarget { [weak self] _ in
+                Task { @MainActor in self?.stop() }
+                return .success
+            }
+            center.stopCommand.addTarget { [weak self] _ in
+                Task { @MainActor in self?.stop() }
+                return .success
+            }
+            center.togglePlayPauseCommand.addTarget { [weak self] _ in
+                Task { @MainActor in
+                    guard let self else { return }
+                    if self.playingChannelID != nil {
+                        self.stop()
+                    } else if let last = self.lastPlayed {
+                        self.play(last)
+                    }
                 }
+                return .success
             }
-            return .success
-        }
         #endif
     }
 
     /// The lock-screen card: station name + live-stream flag (no scrubber).
     private func updateNowPlaying(_ channel: Channel?) {
         #if os(iOS)
-        guard let channel else {
-            MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
-            return
-        }
-        MPNowPlayingInfoCenter.default().nowPlayingInfo = [
-            MPMediaItemPropertyTitle: channel.name,
-            MPMediaItemPropertyArtist: channel.detail,
-            MPNowPlayingInfoPropertyIsLiveStream: true,
-        ]
+            guard let channel else {
+                MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
+                return
+            }
+            MPNowPlayingInfoCenter.default().nowPlayingInfo = [
+                MPMediaItemPropertyTitle: channel.name,
+                MPMediaItemPropertyArtist: channel.detail,
+                MPNowPlayingInfoPropertyIsLiveStream: true,
+            ]
         #endif
     }
 
@@ -313,12 +319,12 @@ final class TruckerRadio: ObservableObject {
     /// stations move hosts); keeps the bundle as fallback.
     func refreshStations() async {
         guard let url = URL(string: "https://www.weatherusa.net/radio"),
-              let (data, resp) = try? await ThrottledNet.fetch(url),
-              (resp as? HTTPURLResponse)?.statusCode == 200,
-              let html = String(data: data, encoding: .utf8),
-              // A user's own list wins: the scrape must not replace it.
-              !usingCustomList,
-              let refreshed = Self.relayChannels(fromDirectory: html, bundled: Self.loadChannels())
+            let (data, resp) = try? await ThrottledNet.fetch(url),
+            (resp as? HTTPURLResponse)?.statusCode == 200,
+            let html = String(data: data, encoding: .utf8),
+            // A user's own list wins: the scrape must not replace it.
+            !usingCustomList,
+            let refreshed = Self.relayChannels(fromDirectory: html, bundled: Self.loadChannels())
         else { return }
         channels = refreshed
     }
@@ -329,14 +335,18 @@ final class TruckerRadio: ObservableObject {
     /// the page lists fewer than ten, which is a page that did not parse
     /// rather than a directory that shrank. Pure, so a frozen oracle can pin
     /// it without building a TruckerRadio (whose init reads the user's files).
-    nonisolated static func relayChannels(fromDirectory html: String,
-                                          bundled: [Channel]) -> [Channel]? {
+    nonisolated static func relayChannels(
+        fromDirectory html: String,
+        bundled: [Channel]
+    ) -> [Channel]? {
         // flows_core::recents_and_rides::relay_spans: 1, then per relay the
         // link's and the label's byte ranges in the page and the bundled
         // station whose coordinates it carries (-1 for none); 0 for a page
         // that did not parse.
         let names = RustTextColumn(bundled.map(\.name))
-        let located: [UInt8] = bundled.isEmpty ? [0]
+        let located: [UInt8] =
+            bundled.isEmpty
+            ? [0]
             : bundled.map { $0.latitude != nil && $0.longitude != nil ? 1 : 0 }
         let answer = names.with { joined, lengths, _ in
             located.lent { l in
@@ -349,9 +359,10 @@ final class TruckerRadio: ObservableObject {
             String(decoding: bytes[Int(a)..<Int(b)], as: UTF8.self)
         }
         return stride(from: 1, to: answer.count, by: 5).map { i in
-            var c = Channel(name: "NOAA WX " + text(answer[i + 2], answer[i + 3]),
-                            detail: "NOAA Weather Radio relay (weatherusa.net)",
-                            url: text(answer[i], answer[i + 1]))
+            var c = Channel(
+                name: "NOAA WX " + text(answer[i + 2], answer[i + 3]),
+                detail: "NOAA Weather Radio relay (weatherusa.net)",
+                url: text(answer[i], answer[i + 1]))
             let k = Int(answer[i + 4])
             if k >= 0 {
                 c.latitude = bundled[k].latitude
@@ -363,27 +374,32 @@ final class TruckerRadio: ObservableObject {
 
     private static func loadChannels() -> [Channel] {
         // User-supplied list wins (Application Support/trucker_radio.json).
-        if let dir = FileManager.default.urls(for: .applicationSupportDirectory,
-                                              in: .userDomainMask).first {
+        if let dir = FileManager.default.urls(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask
+        ).first {
             let custom = dir.appendingPathComponent("trucker_radio.json")
             if let data = try? Data(contentsOf: custom),
-               let parsed = try? JSONDecoder().decode([Channel].self, from: data),
-               !parsed.isEmpty {
+                let parsed = try? JSONDecoder().decode([Channel].self, from: data),
+                !parsed.isEmpty
+            {
                 return parsed
             }
         }
         // Bundled defaults: the weatherusa.net public NOAA Weather Radio
         // relays (67 stations, verified streaming audio/mpeg at build time).
         if let url = Bundle.main.url(forResource: "nwr_stations", withExtension: "json"),
-           let data = try? Data(contentsOf: url),
-           let parsed = try? JSONDecoder().decode([Channel].self, from: data),
-           !parsed.isEmpty {
+            let data = try? Data(contentsOf: url),
+            let parsed = try? JSONDecoder().decode([Channel].self, from: data),
+            !parsed.isEmpty
+        {
             return parsed
         }
         return [
-            Channel(name: "NOAA Weather Radio",
-                    detail: "Add your area's relay stream URL (trucker_radio.json)",
-                    url: ""),
+            Channel(
+                name: "NOAA Weather Radio",
+                detail: "Add your area's relay stream URL (trucker_radio.json)",
+                url: "")
         ]
     }
 
@@ -411,7 +427,8 @@ final class TruckerRadio: ObservableObject {
     /// nil when nothing is playing or the range isn't known yet.
     var bufferedSecondsAhead: Double? {
         guard let item = player?.currentItem,
-              let range = item.loadedTimeRanges.first?.timeRangeValue else { return nil }
+            let range = item.loadedTimeRanges.first?.timeRangeValue
+        else { return nil }
         let loadedEnd = CMTimeGetSeconds(range.start + range.duration)
         let position = CMTimeGetSeconds(item.currentTime())
         guard loadedEnd.isFinite, position.isFinite else { return nil }
@@ -430,7 +447,8 @@ final class TruckerRadio: ObservableObject {
             queueLabel = ""
         }
         guard let url = channel.streamURL else {
-            status = "\(channel.name): no stream configured — see the frequency guide "
+            status =
+                "\(channel.name): no stream configured — see the frequency guide "
                 + "for the cab radio, or add a relay URL in trucker_radio.json."
             return
         }
@@ -441,11 +459,11 @@ final class TruckerRadio: ObservableObject {
         stop()
         pinnedChannelID = keepPin ? channel.id : nil
         #if os(iOS)
-        // Without an active playback session iOS keeps AVPlayer SILENT —
-        // the "no stream works" failure mode. (.playback + the audio
-        // background mode also keep the stream alive at screen lock.)
-        try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .default)
-        try? AVAudioSession.sharedInstance().setActive(true)
+            // Without an active playback session iOS keeps AVPlayer SILENT —
+            // the "no stream works" failure mode. (.playback + the audio
+            // background mode also keep the stream alive at screen lock.)
+            try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .default)
+            try? AVAudioSession.sharedInstance().setActive(true)
         #endif
         status = "Tuning \(channel.name)…"
         playingChannelID = channel.id
@@ -475,9 +493,10 @@ final class TruckerRadio: ObservableObject {
                     // journal keeps the detail for a post-trip look, but not
                     // the station: the tuner follows the nearest transmitter,
                     // so its names in a plaintext log would trace the drive.
-                    FlowsDiag.log(.fail, "radio",
-                                  "stream failed (current station) — "
-                                  + "\(item.error?.localizedDescription ?? "no detail")")
+                    FlowsDiag.log(
+                        .fail, "radio",
+                        "stream failed (current station) — "
+                            + "\(item.error?.localizedDescription ?? "no detail")")
                     self.status = "Station is offline right now."
                     self.playingChannelID = nil
                 default: break
@@ -486,24 +505,29 @@ final class TruckerRadio: ObservableObject {
         }
         p.play()
         player = p
-        observers.set("stall", NotificationCenter.default.addObserver(
-            forName: .AVPlayerItemPlaybackStalled, object: item, queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor in
-                FlowsDiag.logThrottled(key: "radio.stall", interval: 60, .warn,
-                                       "radio", "stream stalled (current station)")
-                self?.onStall?()
-            }
-        })
-        observers.set("failure", NotificationCenter.default.addObserver(
-            forName: .AVPlayerItemFailedToPlayToEndTime, object: item, queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor in
-                guard let self, self.player?.currentItem === item else { return }
-                self.status = "Station cut out. Press play to try again."
-                self.playingChannelID = nil
-            }
-        })
+        observers.set(
+            "stall",
+            NotificationCenter.default.addObserver(
+                forName: .AVPlayerItemPlaybackStalled, object: item, queue: .main
+            ) { [weak self] _ in
+                Task { @MainActor in
+                    FlowsDiag.logThrottled(
+                        key: "radio.stall", interval: 60, .warn,
+                        "radio", "stream stalled (current station)")
+                    self?.onStall?()
+                }
+            })
+        observers.set(
+            "failure",
+            NotificationCenter.default.addObserver(
+                forName: .AVPlayerItemFailedToPlayToEndTime, object: item, queue: .main
+            ) { [weak self] _ in
+                Task { @MainActor in
+                    guard let self, self.player?.currentItem === item else { return }
+                    self.status = "Station cut out. Press play to try again."
+                    self.playingChannelID = nil
+                }
+            })
     }
 
     /// State code parsed from the relay name ("AL-Mobile: KEC61" → "AL").
@@ -515,7 +539,8 @@ final class TruckerRadio: ObservableObject {
     /// Nearest-by-state station: same state first, else first available.
     func nearestChannel(stateCode: String?) -> Channel? {
         if let code = stateCode,
-           let match = channels.first(where: { Self.stateCode(of: $0) == code }) {
+            let match = channels.first(where: { Self.stateCode(of: $0) == code })
+        {
             return match
         }
         return channels.first
@@ -531,12 +556,14 @@ final class TruckerRadio: ObservableObject {
     /// a listed one two states away. A state centre is coarse, but it is on
     /// the right side of the country.
     nonisolated static func position(of channel: Channel)
-        -> (coordinate: CLLocationCoordinate2D, isExact: Bool)? {
+        -> (coordinate: CLLocationCoordinate2D, isExact: Bool)?
+    {
         // flows_core::recents_and_rides::radio_position, with the state
         // boxes of flows_core::hazard_feeds.
-        let p = flows_rides_radio_position(channel.name,
-                                           channel.latitude ?? 0, channel.latitude != nil,
-                                           channel.longitude ?? 0, channel.longitude != nil)
+        let p = flows_rides_radio_position(
+            channel.name,
+            channel.latitude ?? 0, channel.latitude != nil,
+            channel.longitude ?? 0, channel.longitude != nil)
         return p.has ? (CLLocationCoordinate2D(latitude: p.lat, longitude: p.lon), p.exact) : nil
     }
 
@@ -545,8 +572,9 @@ final class TruckerRadio: ObservableObject {
         if let stationCache { return stationCache }
         let built = channels.compactMap { ch -> RadioTuning.Station? in
             guard let p = Self.position(of: ch) else { return nil }
-            return RadioTuning.Station(id: ch.id, coordinate: p.coordinate,
-                                       isExact: p.isExact)
+            return RadioTuning.Station(
+                id: ch.id, coordinate: p.coordinate,
+                isExact: p.isExact)
         }
         stationCache = built
         return built
@@ -557,7 +585,7 @@ final class TruckerRadio: ObservableObject {
     /// Returns (channel, meters); nil when no channel can be placed at all.
     func nearestChannel(to c: CLLocationCoordinate2D) -> (channel: Channel, meters: Double)? {
         guard let best = RadioTuning.nearest(to: c, in: tunableStations),
-              let channel = channels.first(where: { $0.id == best.station.id })
+            let channel = channels.first(where: { $0.id == best.station.id })
         else { return nil }
         return (channel: channel, meters: best.meters)
     }
@@ -573,9 +601,10 @@ final class TruckerRadio: ObservableObject {
 
     /// True while auto-tune may move what is on the air (RadioTuning.mayFollow).
     var followsTheDrive: Bool {
-        RadioTuning.mayFollow(playingID: playingChannelID,
-                              isWeatherStation: isWeatherStation(playingChannelID),
-                              isPaused: isPaused, pinnedID: pinnedChannelID)
+        RadioTuning.mayFollow(
+            playingID: playingChannelID,
+            isWeatherStation: isWeatherStation(playingChannelID),
+            isPaused: isPaused, pinnedID: pinnedChannelID)
     }
 
     /// The station the tuner should move to for this position, or nil to
@@ -589,13 +618,15 @@ final class TruckerRadio: ObservableObject {
         // The result was that a driver listening to music had it swapped for
         // weather radio on the next GPS fix, every fix, forever.
         guard followsTheDrive, let playingChannelID,
-              let playing = channels.first(where: { $0.id == playingChannelID })
+            let playing = channels.first(where: { $0.id == playingChannelID })
         else { return nil }
         let coordinate = Self.position(of: playing)?.coordinate
-        guard let id = RadioTuning.retarget(playingID: playingChannelID,
-                                            playingCoordinate: coordinate,
-                                            position: position,
-                                            stations: tunableStations)
+        guard
+            let id = RadioTuning.retarget(
+                playingID: playingChannelID,
+                playingCoordinate: coordinate,
+                position: position,
+                stations: tunableStations)
         else { return nil }
         return channels.first { $0.id == id }
     }

@@ -19,22 +19,38 @@ final class RiskSummaryTextTests: XCTestCase {
 
     func testEveryOldLineTheShippedBundleCarriesReadsPlainly() {
         let cases = [
-            ("Seasonal baseline: elevated convective risk (climatology)",
-             "Storms are common here in some seasons."),
-            ("Seasonal baseline: elevated heat risk (climatology)",
-             "Very hot days are common here in some seasons."),
-            ("Historical baseline: elevated convective risk (20-yr storm climatology)",
-             "Storms have been common here over the last 20 years."),
-            ("Historical baseline: elevated flood risk (20-yr storm climatology)",
-             "Flooding has been common here over the last 20 years."),
-            ("Historical baseline: elevated heat risk (20-yr storm climatology)",
-             "Very hot days have been common here over the last 20 years."),
-            ("Historical baseline: elevated wind risk (20-yr storm climatology)",
-             "Strong winds have been common here over the last 20 years."),
-            ("Historical baseline: elevated fire risk (20-yr storm climatology)",
-             "Wildfires have been common here over the last 20 years."),
-            ("Historical baseline: elevated air risk (20-yr storm climatology)",
-             "Very dry weather has been common here over the last 20 years."),
+            (
+                "Seasonal baseline: elevated convective risk (climatology)",
+                "Storms are common here in some seasons."
+            ),
+            (
+                "Seasonal baseline: elevated heat risk (climatology)",
+                "Very hot days are common here in some seasons."
+            ),
+            (
+                "Historical baseline: elevated convective risk (20-yr storm climatology)",
+                "Storms have been common here over the last 20 years."
+            ),
+            (
+                "Historical baseline: elevated flood risk (20-yr storm climatology)",
+                "Flooding has been common here over the last 20 years."
+            ),
+            (
+                "Historical baseline: elevated heat risk (20-yr storm climatology)",
+                "Very hot days have been common here over the last 20 years."
+            ),
+            (
+                "Historical baseline: elevated wind risk (20-yr storm climatology)",
+                "Strong winds have been common here over the last 20 years."
+            ),
+            (
+                "Historical baseline: elevated fire risk (20-yr storm climatology)",
+                "Wildfires have been common here over the last 20 years."
+            ),
+            (
+                "Historical baseline: elevated air risk (20-yr storm climatology)",
+                "Very dry weather has been common here over the last 20 years."
+            ),
         ]
         for (old, plain) in cases {
             XCTAssertEqual(RiskSummaryText.plain(old), plain, old)
@@ -43,8 +59,9 @@ final class RiskSummaryTextTests: XCTestCase {
 
     func testOtherTextIsShownAsWrittenAndNoTextIsNoLine() {
         XCTAssertEqual(RiskSummaryText.plain("windy"), "windy")
-        XCTAssertEqual(RiskSummaryText.plain("Flooding is likely near the river."),
-                       "Flooding is likely near the river.")
+        XCTAssertEqual(
+            RiskSummaryText.plain("Flooding is likely near the river."),
+            "Flooding is likely near the river.")
         XCTAssertNil(RiskSummaryText.plain(""))
         // Reading a plain line again changes nothing.
         let once = RiskSummaryText.plain("Seasonal baseline: elevated wind risk (climatology)")
@@ -52,8 +69,10 @@ final class RiskSummaryTextTests: XCTestCase {
     }
 
     func testAnOldLineWithAnUnreadableFamilyStillNeverShows() throws {
-        for old in ["Seasonal baseline: elevated risk (climatology)",
-                    "Historical baseline: something else"] {
+        for old in [
+            "Seasonal baseline: elevated risk (climatology)",
+            "Historical baseline: something else",
+        ] {
             let line = try XCTUnwrap(RiskSummaryText.plain(old), old).lowercased()
             for word in jargon {
                 XCTAssertFalse(line.contains(word), "\(old) → \(line)")
@@ -78,8 +97,10 @@ final class RiskSummaryTextTests: XCTestCase {
             RiskFieldService.ZipEntry(
                 zip: "58102", centroid: fargo, scores: [0.1], summary: nil, ring: nil),
         ]
-        let field = try XCTUnwrap(RiskField(generated: "2026-07-04T11:39:45Z",
-                                            families: ["convective"], entries: entries))
+        let field = try XCTUnwrap(
+            RiskField(
+                generated: "2026-07-04T11:39:45Z",
+                families: ["convective"], entries: entries))
         let near = { (c: CLLocationCoordinate2D) in field.nearest(c).flatMap(field.summary(at:)) }
         XCTAssertEqual(near(madison), "Storms are common here in some seasons.")
         XCTAssertEqual(near(milwaukee), "Flooding has been common here over the last 20 years.")

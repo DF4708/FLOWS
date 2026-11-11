@@ -68,8 +68,8 @@ final class NavigationEngine: ObservableObject {
 
     // Route geometry, flattened once at start (not per fix).
     private var points: [CLLocationCoordinate2D] = []
-    private var cumulative: [CLLocationDistance] = []   // meters from origin to points[i]
-    private var stepEndIndex: [Int] = []                // index into points at each step's end
+    private var cumulative: [CLLocationDistance] = []  // meters from origin to points[i]
+    private var stepEndIndex: [Int] = []  // index into points at each step's end
     private var stepInstructions: [String] = []
     private var currentStep = 0
     private var offRouteFixes = 0
@@ -97,10 +97,11 @@ final class NavigationEngine: ObservableObject {
     /// stale closure (reentrantly consuming the previous trip's chain).
     func start(route: PlannedRoute, onArrival: (() -> Void)? = nil) {
         lastNearestIndex = 0
-        rerouteTask?.cancel()   // a reroute for the OLD leg must not clobber this one
+        rerouteTask?.cancel()  // a reroute for the OLD leg must not clobber this one
         self.route = route
         self.onArrival = onArrival
-        isWalkingRoute = route.isWalkingEstimate
+        isWalkingRoute =
+            route.isWalkingEstimate
             || route.route.transportType == .walking
         flatten(route: route.route)
         currentStep = firstRealStep()
@@ -165,7 +166,10 @@ final class NavigationEngine: ObservableObject {
             var bestD = CLLocationDistance.greatestFiniteMagnitude
             for i in range {
                 let d = POIRanking.meters(points[i], fix.coordinate)
-                if d < bestD { bestD = d; bestI = i }
+                if d < bestD {
+                    bestD = d
+                    bestI = i
+                }
             }
             return (bestI, bestD)
         }
@@ -175,7 +179,7 @@ final class NavigationEngine: ObservableObject {
         let hi = min(lastNearestIndex + 80, points.count)
         let lo = min(max(lastNearestIndex - 12, 0), hi)
         var (nearest, nearestDist) = scan(lo..<hi)
-        if nearestDist > 250 {   // window lost the vehicle → one full rescan
+        if nearestDist > 250 {  // window lost the vehicle → one full rescan
             (nearest, nearestDist) = scan(0..<points.count)
         }
         lastNearestIndex = nearest
@@ -221,11 +225,12 @@ final class NavigationEngine: ObservableObject {
             // `nearest`) says so — otherwise the multi-leg onArrival chain could
             // fire while the driver is still far out.
             let dest = points.last!
-            let destDist = fix.distance(from: CLLocation(
-                latitude: dest.latitude, longitude: dest.longitude))
+            let destDist = fix.distance(
+                from: CLLocation(
+                    latitude: dest.latitude, longitude: dest.longitude))
             if destDist < 200 {
                 arrivalFired = true
-                rerouteTask?.cancel()   // a replan in flight must not re-arm the finished leg
+                rerouteTask?.cancel()  // a replan in flight must not re-arm the finished leg
                 onArrival?()
             }
         }
@@ -268,8 +273,9 @@ final class NavigationEngine: ObservableObject {
         // Not after arrival: circling the lot or GPS drift indoors would
         // start a fresh leg and fire arrival a second time.
         guard !isRerouting, !arrivalFired, let current = route,
-              let destination = points.last,
-              Date() >= nextRerouteAt else { return }
+            let destination = points.last,
+            Date() >= nextRerouteAt
+        else { return }
         isRerouting = true
         // The off-route count stays up until a new road is in hand (it is
         // cleared with the new route below, or by start()). Cleared here, a
@@ -304,11 +310,12 @@ final class NavigationEngine: ObservableObject {
                 }
             }
             let response = try? await MKDirections(request: request).calculate()
-            guard !Task.isCancelled else { return }   // stop()/new leg superseded this reroute
+            guard !Task.isCancelled else { return }  // stop()/new leg superseded this reroute
             guard let response,
-                  let newRoute = walkingEstimate
+                let newRoute = walkingEstimate
                     ? response.routes.first(where: { !$0.hasHighways }) ?? response.routes.first
-                    : response.routes.first else {
+                    : response.routes.first
+            else {
                 self?.rerouteFailed()
                 return
             }
@@ -384,8 +391,10 @@ final class DriveTick: ObservableObject {
     /// Whether going from `old` to `new` moved only the running numbers:
     /// the same step, the same words, still on (or off) the route. Anything
     /// else is a change the whole screen may show.
-    nonisolated static func onlyNumbersMoved(from old: NavigationEngine.Guidance?,
-                                             to new: NavigationEngine.Guidance?) -> Bool {
+    nonisolated static func onlyNumbersMoved(
+        from old: NavigationEngine.Guidance?,
+        to new: NavigationEngine.Guidance?
+    ) -> Bool {
         guard let old, let new else { return false }
         return old.stepIndex == new.stepIndex
             && old.instruction == new.instruction

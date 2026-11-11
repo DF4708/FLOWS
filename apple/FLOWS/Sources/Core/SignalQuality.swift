@@ -7,8 +7,9 @@
 // -----------------------------------------------------------------------------
 
 import Foundation
+
 #if os(iOS)
-import CoreTelephony
+    import CoreTelephony
 #endif
 
 /// Reading the link's health BEFORE the music dies, so the switch can be
@@ -32,19 +33,23 @@ import CoreTelephony
 /// original by rust/flows-bridge/tests/fixtures/swift_modes_oracle.tsv.
 enum SignalQuality {
     enum Tier: String, Equatable {
-        case strong    // 5G / LTE / Wi-Fi
-        case fair      // 3G-class
-        case weak      // EDGE / GPRS — the classic dead-zone approach
+        case strong  // 5G / LTE / Wi-Fi
+        case fair  // 3G-class
+        case weak  // EDGE / GPRS — the classic dead-zone approach
         case offline
     }
 
     /// Radio access technology string → tier. The constants are matched by
     /// suffix so a new `CTRadioAccessTechnology…` name doesn't silently
     /// read as unknown.
-    static func tier(radioTechnology: String?, onWiFi: Bool,
-                     offline: Bool) -> Tier {
-        Tier(rustCode: flows_modes_signal_tier(radioTechnology ?? "", radioTechnology != nil,
-                                               onWiFi, offline))
+    static func tier(
+        radioTechnology: String?, onWiFi: Bool,
+        offline: Bool
+    ) -> Tier {
+        Tier(
+            rustCode: flows_modes_signal_tier(
+                radioTechnology ?? "", radioTechnology != nil,
+                onWiFi, offline))
     }
 
     /// Should FLOWS get the fallback ready NOW, while there's still signal
@@ -58,8 +63,10 @@ enum SignalQuality {
     ///   * our own buffer is draining / the stream has already stuttered —
     ///     the mechanism of failure, actually observed.
     /// Never when already offline: too late to fetch anything.
-    static func shouldPreStage(tier: Tier, bufferDraining: Bool,
-                               recentStalls: Int) -> Bool {
+    static func shouldPreStage(
+        tier: Tier, bufferDraining: Bool,
+        recentStalls: Int
+    ) -> Bool {
         flows_modes_should_pre_stage(tier.rustCode, bufferDraining, Int64(recentStalls))
     }
 
@@ -94,19 +101,20 @@ extension SignalQuality.Tier {
 /// The phone's current radio access technology, or nil off-cellular.
 enum CellularRadio {
     #if os(iOS)
-    /// One handle for the process. This was allocated on every GPS fix
-    /// while audio played; the object is documented as safe to read from
-    /// any thread and there is no reason to make a new one.
-    private static let info = CTTelephonyNetworkInfo()
+        /// One handle for the process. This was allocated on every GPS fix
+        /// while audio played; the object is documented as safe to read from
+        /// any thread and there is no reason to make a new one. Every caller is
+        /// on the main actor, so the handle stays there.
+        @MainActor private static let info = CTTelephonyNetworkInfo()
     #endif
 
-    static var currentTechnology: String? {
+    @MainActor static var currentTechnology: String? {
         #if os(iOS)
-        // Multi-SIM phones report per-service; any active data radio will
-        // do, and they are near-always the same technology in practice.
-        return info.serviceCurrentRadioAccessTechnology?.values.first
+            // Multi-SIM phones report per-service; any active data radio will
+            // do, and they are near-always the same technology in practice.
+            return info.serviceCurrentRadioAccessTechnology?.values.first
         #else
-        return nil
+            return nil
         #endif
     }
 }

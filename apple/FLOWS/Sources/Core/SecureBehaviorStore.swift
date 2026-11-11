@@ -66,7 +66,8 @@ enum SecureBehaviorStore {
         ]
         var out: AnyObject?
         if SecItemCopyMatching(query as CFDictionary, &out) == errSecSuccess,
-           let data = out as? Data, data.count == 32 {
+            let data = out as? Data, data.count == 32
+        {
             return SymmetricKey(data: data)
         }
         // First run (or the item was purged): mint one.
@@ -87,10 +88,13 @@ enum SecureBehaviorStore {
     /// Seal and write atomically. `false` means nothing was written — callers
     /// must treat that as "this learning did not persist", never as success.
     @discardableResult
-    static func write(_ data: Data, to url: URL,
-                      keyspace: Keyspace = .behavior) -> Bool {
+    static func write(
+        _ data: Data, to url: URL,
+        keyspace: Keyspace = .behavior
+    ) -> Bool {
         guard let key = key(keyspace),
-              let sealed = try? AES.GCM.seal(data, using: key).combined else {
+            let sealed = try? AES.GCM.seal(data, using: key).combined
+        else {
             FlowsDiag.logThrottled(
                 key: "behavior.sealFail", .warn, "privacy",
                 "could not seal behavior data — not persisted this time")
@@ -117,10 +121,10 @@ enum SecureBehaviorStore {
     /// read (files sealed before this existed).
     private static func keepOutOfBackups(_ url: URL) {
         #if os(macOS)
-        var values = URLResourceValues()
-        values.isExcludedFromBackup = true
-        var target = url
-        try? target.setResourceValues(values)
+            var values = URLResourceValues()
+            values.isExcludedFromBackup = true
+            var target = url
+            try? target.setResourceValues(values)
         #endif
     }
 
@@ -146,19 +150,24 @@ enum SecureBehaviorStore {
     }
 
     private static func logUnauthenticated(_ url: URL) {
-        FlowsDiag.log(.warn, "privacy",
-                      "behavior file did not authenticate — ignoring \(url.lastPathComponent)")
+        FlowsDiag.log(
+            .warn, "privacy",
+            "behavior file did not authenticate — ignoring \(url.lastPathComponent)")
     }
 
     /// Codable convenience.
-    static func load<T: Decodable>(_ type: T.Type, from url: URL,
-                                   keyspace: Keyspace = .behavior) -> T? {
+    static func load<T: Decodable>(
+        _ type: T.Type, from url: URL,
+        keyspace: Keyspace = .behavior
+    ) -> T? {
         read(url, keyspace: keyspace).flatMap { try? JSONDecoder().decode(type, from: $0) }
     }
 
     @discardableResult
-    static func save<T: Encodable>(_ value: T, to url: URL,
-                                   keyspace: Keyspace = .behavior) -> Bool {
+    static func save<T: Encodable>(
+        _ value: T, to url: URL,
+        keyspace: Keyspace = .behavior
+    ) -> Bool {
         guard let data = try? JSONEncoder().encode(value) else { return false }
         let saved = write(data, to: url, keyspace: keyspace)
         // Said once in a while, never the contents: most callers (the learned
@@ -200,8 +209,9 @@ enum SecureBehaviorStore {
         let noise = RawBytes.secureRandom(raw.count) ?? Data(count: raw.count)
         try? noise.write(to: url, options: .atomic)
         guard write(raw, to: url) else { return raw }
-        FlowsDiag.log(.info, "privacy",
-                      "upgraded \(url.lastPathComponent) to encrypted storage")
+        FlowsDiag.log(
+            .info, "privacy",
+            "upgraded \(url.lastPathComponent) to encrypted storage")
         return raw
     }
 
@@ -210,8 +220,10 @@ enum SecureBehaviorStore {
     /// guarantee the old blocks are gone — it removes the easy recovery, and
     /// the encryption above is what actually protects the data.
     static func shred(_ url: URL) {
-        if let size = (try? FileManager.default
-            .attributesOfItem(atPath: url.path)[.size] as? Int) ?? nil, size > 0 {
+        if let size =
+            (try? FileManager.default
+                .attributesOfItem(atPath: url.path)[.size] as? Int) ?? nil, size > 0
+        {
             // If the random source refuses, zeros still overwrite the file.
             let noise = RawBytes.secureRandom(size) ?? Data(count: size)
             try? noise.write(to: url, options: .atomic)
@@ -245,11 +257,12 @@ enum SecureBehaviorStore {
     /// driver's own typed addresses and is not part of "what FLOWS learned".
     static func destroyKey() {
         persistQueue.async {
-            SecItemDelete([
-                kSecClass as String: kSecClassGenericPassword,
-                kSecAttrService as String: service,
-                kSecAttrAccount as String: Keyspace.behavior.rawValue,
-            ] as CFDictionary)
+            SecItemDelete(
+                [
+                    kSecClass as String: kSecClassGenericPassword,
+                    kSecAttrService as String: service,
+                    kSecAttrAccount as String: Keyspace.behavior.rawValue,
+                ] as CFDictionary)
             FlowsDiag.log(.info, "privacy", "behavior data erased and key destroyed")
         }
     }

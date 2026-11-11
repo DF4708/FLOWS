@@ -17,7 +17,8 @@ final class SafetyAndGradeTests: XCTestCase {
     // MARK: red-alert entities — "red Toyota truck" → red truck + TOYOTA
 
     func testVehicleDescriptionParses() throws {
-        let amber = "AMBER Alert: suspect last seen driving a red Toyota pickup "
+        let amber =
+            "AMBER Alert: suspect last seen driving a red Toyota pickup "
             + "truck northbound on I-39. The child was wearing a blue jacket."
         let v = try XCTUnwrap(AlertEntityParser.vehicle(in: amber))
         XCTAssertEqual(v.colorName, "red")
@@ -42,8 +43,9 @@ final class SafetyAndGradeTests: XCTestCase {
         XCTAssertEqual(p.colorName, "blue")
         XCTAssertEqual(p.symbol, "figure.child")
 
-        let adult = try XCTUnwrap(AlertEntityParser.person(
-            in: "Suspect is an adult male wearing a black hoodie."))
+        let adult = try XCTUnwrap(
+            AlertEntityParser.person(
+                in: "Suspect is an adult male wearing a black hoodie."))
         XCTAssertFalse(adult.isChild)
         XCTAssertEqual(adult.colorName, "black")
         XCTAssertEqual(adult.symbol, "figure.stand")
@@ -57,84 +59,107 @@ final class SafetyAndGradeTests: XCTestCase {
         // you watch the road for a described vehicle or person — so the
         // AMBER family reads as `.lookout` and offers no shelter button.
         let now = Date(timeIntervalSince1970: 1_750_000_000)
-        for event in ["Child Abduction Emergency", "AMBER Alert",
-                      "Law Enforcement Warning", "Blue Alert", "Civil Emergency Message"] {
+        for event in [
+            "Child Abduction Emergency", "AMBER Alert",
+            "Law Enforcement Warning", "Blue Alert", "Civil Emergency Message",
+        ] {
             let action = ImminentAlerts.classify(
                 event: event, severityScore: 0.5, expires: nil, now: now)
-            XCTAssertTrue(action == .shelter || action == .lookout,
-                          "\(event) must go red (press-to-dismiss card)")
+            XCTAssertTrue(
+                action == .shelter || action == .lookout,
+                "\(event) must go red (press-to-dismiss card)")
         }
         // …and a civil emergency, which is a hazard rather than a person to
         // look for, stays on the shelter side.
         XCTAssertEqual(
-            ImminentAlerts.classify(event: "Civil Emergency Message",
-                                    severityScore: 0.5, expires: nil, now: now),
+            ImminentAlerts.classify(
+                event: "Civil Emergency Message",
+                severityScore: 0.5, expires: nil, now: now),
             .shelter)
     }
 
     // MARK: crash logic
 
     func testImpactThresholdAndReplies() {
-        XCTAssertFalse(CrashLogic.isImpact(accelerationG: 1.0))   // normal driving
-        XCTAssertFalse(CrashLogic.isImpact(accelerationG: 2.5))   // hard braking/pothole
-        XCTAssertFalse(CrashLogic.isImpact(accelerationG: 4.0))   // rough road / thrill ride
-        XCTAssertTrue(CrashLogic.isImpact(accelerationG: 5.0))    // crash pulse
+        XCTAssertFalse(CrashLogic.isImpact(accelerationG: 1.0))  // normal driving
+        XCTAssertFalse(CrashLogic.isImpact(accelerationG: 2.5))  // hard braking/pothole
+        XCTAssertFalse(CrashLogic.isImpact(accelerationG: 4.0))  // rough road / thrill ride
+        XCTAssertTrue(CrashLogic.isImpact(accelerationG: 5.0))  // crash pulse
         XCTAssertTrue(CrashLogic.isImpact(accelerationG: 9.0))
 
         // Windowed detector: a hard spike fires even if isolated (never miss a
         // violent crash); a moderate spike needs corroboration; a lone 5 g
         // spike that settles to rest (phone drop) does NOT fire.
         let rest = [Double](repeating: 1.0, count: 24)
-        XCTAssertTrue(CrashLogic.isImpact(window: rest + [8.5]),
-                      "a hard >=8 g spike must fire immediately")
-        XCTAssertFalse(CrashLogic.isImpact(window: rest + [5.5]),
-                       "a lone moderate spike then rest must NOT fire (phone drop)")
+        XCTAssertTrue(
+            CrashLogic.isImpact(window: rest + [8.5]),
+            "a hard >=8 g spike must fire immediately")
+        XCTAssertFalse(
+            CrashLogic.isImpact(window: rest + [5.5]),
+            "a lone moderate spike then rest must NOT fire (phone drop)")
         // Real crash: 5.5 g peak with continued disturbance (tumble/skid).
         let crash = [1.0, 1.2, 5.5, 3.1, 2.8, 2.6, 1.5] + [Double](repeating: 1.0, count: 18)
-        XCTAssertTrue(CrashLogic.isImpact(window: crash),
-                      "a corroborated moderate impact must fire")
-        XCTAssertFalse(CrashLogic.isImpact(window: rest),
-                       "calm driving never fires")
+        XCTAssertTrue(
+            CrashLogic.isImpact(window: crash),
+            "a corroborated moderate impact must fire")
+        XCTAssertFalse(
+            CrashLogic.isImpact(window: rest),
+            "calm driving never fires")
 
         // A crash is not g-force alone: a road-speed vehicle ON A ROAD has
         // to suddenly stop. These are the cases that used to false-fire.
-        let crashWindow = [1.0, 1.2, 5.5, 3.1, 2.8, 2.6, 1.5]
+        let crashWindow =
+            [1.0, 1.2, 5.5, 3.1, 2.8, 2.6, 1.5]
             + [Double](repeating: 1.0, count: 18)
 
         // Real crash: 65 mph → stopped, on the road corridor.
-        XCTAssertTrue(CrashLogic.isCrash(.init(
-            window: crashWindow, speedBeforeMps: 29, speedAfterMps: 0,
-            metersFromRoad: 5)))
+        XCTAssertTrue(
+            CrashLogic.isCrash(
+                .init(
+                    window: crashWindow, speedBeforeMps: 29, speedAfterMps: 0,
+                    metersFromRoad: 5)))
 
         // Rollercoaster: the same g-loads (and real speed), but nowhere near
         // a road and still moving through the loop.
-        XCTAssertFalse(CrashLogic.isCrash(.init(
-            window: crashWindow, speedBeforeMps: 25, speedAfterMps: 22,
-            metersFromRoad: 900)), "a thrill ride keeps its speed")
-        XCTAssertFalse(CrashLogic.isCrash(.init(
-            window: crashWindow, speedBeforeMps: 25, speedAfterMps: 0,
-            metersFromRoad: 900)), "a ride's brake run is not on a road")
+        XCTAssertFalse(
+            CrashLogic.isCrash(
+                .init(
+                    window: crashWindow, speedBeforeMps: 25, speedAfterMps: 22,
+                    metersFromRoad: 900)), "a thrill ride keeps its speed")
+        XCTAssertFalse(
+            CrashLogic.isCrash(
+                .init(
+                    window: crashWindow, speedBeforeMps: 25, speedAfterMps: 0,
+                    metersFromRoad: 900)), "a ride's brake run is not on a road")
 
         // Phone knocked around in a parked or crawling car.
-        XCTAssertFalse(CrashLogic.isCrash(.init(
-            window: crashWindow, speedBeforeMps: 1.5, speedAfterMps: 0,
-            metersFromRoad: 3)), "no road speed beforehand, no crash")
+        XCTAssertFalse(
+            CrashLogic.isCrash(
+                .init(
+                    window: crashWindow, speedBeforeMps: 1.5, speedAfterMps: 0,
+                    metersFromRoad: 3)), "no road speed beforehand, no crash")
 
         // Hard braking that does NOT stop the vehicle.
-        XCTAssertFalse(CrashLogic.isCrash(.init(
-            window: crashWindow, speedBeforeMps: 30, speedAfterMps: 20,
-            metersFromRoad: 4)), "slowing down is not crashing")
+        XCTAssertFalse(
+            CrashLogic.isCrash(
+                .init(
+                    window: crashWindow, speedBeforeMps: 30, speedAfterMps: 20,
+                    metersFromRoad: 4)), "slowing down is not crashing")
 
         // Corridor unknown (off-route, or before the first match): the speed
         // evidence still has to hold, but we do not refuse to detect.
-        XCTAssertTrue(CrashLogic.isCrash(.init(
-            window: crashWindow, speedBeforeMps: 29, speedAfterMps: 0,
-            metersFromRoad: nil)))
+        XCTAssertTrue(
+            CrashLogic.isCrash(
+                .init(
+                    window: crashWindow, speedBeforeMps: 29, speedAfterMps: 0,
+                    metersFromRoad: nil)))
 
         // Calm window can never be a crash no matter the speed profile.
-        XCTAssertFalse(CrashLogic.isCrash(.init(
-            window: rest, speedBeforeMps: 29, speedAfterMps: 0,
-            metersFromRoad: 5)))
+        XCTAssertFalse(
+            CrashLogic.isCrash(
+                .init(
+                    window: rest, speedBeforeMps: 29, speedAfterMps: 0,
+                    metersFromRoad: 5)))
 
         XCTAssertEqual(CrashLogic.interpretReply("Yes I need help"), true)
         XCTAssertEqual(CrashLogic.interpretReply("call 911"), true)
@@ -146,8 +171,9 @@ final class SafetyAndGradeTests: XCTestCase {
     }
 
     func testEmergencyMessageTemplate() {
-        let vehicle = VehicleProfile(make: "Ford", model: "Transit", fuelType: .diesel,
-                                     tankCapacityUnits: 25, ratedMilesPerUnit: 20)
+        let vehicle = VehicleProfile(
+            make: "Ford", model: "Transit", fuelType: .diesel,
+            tankCapacityUnits: 25, ratedMilesPerUnit: 20)
         let msg = CrashLogic.emergencyMessage(
             latitude: 43.07295, longitude: -89.40123,
             address: "123 W Main St, Madison, WI",
@@ -171,8 +197,9 @@ final class SafetyAndGradeTests: XCTestCase {
 
     func testHOSCheckpoints() {
         XCTAssertEqual(HOSRules.status(drivingSeconds: 3 * 3600), .ok)
-        XCTAssertEqual(HOSRules.status(drivingSeconds: 7.5 * 3600 + 60),
-                       .breakSoon(secondsUntilDue: 0.5 * 3600 - 60))
+        XCTAssertEqual(
+            HOSRules.status(drivingSeconds: 7.5 * 3600 + 60),
+            .breakSoon(secondsUntilDue: 0.5 * 3600 - 60))
         XCTAssertEqual(HOSRules.status(drivingSeconds: 8 * 3600), .breakDue)
         XCTAssertEqual(HOSRules.status(drivingSeconds: 11 * 3600), .limitReached)
         XCTAssertEqual(HOSRules.breakResetSeconds, 30 * 60)
@@ -213,18 +240,22 @@ final class SafetyAndGradeTests: XCTestCase {
     // MARK: speed-interpolated economy (city ↔ highway)
 
     func testEconomyInterpolatesBetweenCityAndHighway() {
-        let camry = VehicleProfile(make: "Toyota", model: "Camry", fuelType: .gas,
-                                   tankCapacityUnits: 15.8, ratedMilesPerUnit: 32,
-                                   cityMilesPerUnit: 28, highwayMilesPerUnit: 39)
-        XCTAssertEqual(camry.milesPerUnit(atSpeedMph: 20), 28)          // city
-        XCTAssertEqual(camry.milesPerUnit(atSpeedMph: 42.5), 33.5,      // midpoint of ramp
-                       accuracy: 1e-9)
-        XCTAssertEqual(camry.milesPerUnit(atSpeedMph: 60), 39)          // highway
-        XCTAssertEqual(camry.milesPerUnit(atSpeedMph: 75), 39 * 0.88,   // drag past 65
-                       accuracy: 1e-9)
+        let camry = VehicleProfile(
+            make: "Toyota", model: "Camry", fuelType: .gas,
+            tankCapacityUnits: 15.8, ratedMilesPerUnit: 32,
+            cityMilesPerUnit: 28, highwayMilesPerUnit: 39)
+        XCTAssertEqual(camry.milesPerUnit(atSpeedMph: 20), 28)  // city
+        XCTAssertEqual(
+            camry.milesPerUnit(atSpeedMph: 42.5), 33.5,  // midpoint of ramp
+            accuracy: 1e-9)
+        XCTAssertEqual(camry.milesPerUnit(atSpeedMph: 60), 39)  // highway
+        XCTAssertEqual(
+            camry.milesPerUnit(atSpeedMph: 75), 39 * 0.88,  // drag past 65
+            accuracy: 1e-9)
         // Hand-entered vehicle (no split) → flat rated number at any speed.
-        let custom = VehicleProfile(make: "Custom", model: "vehicle", fuelType: .gas,
-                                    tankCapacityUnits: 20, ratedMilesPerUnit: 25)
+        let custom = VehicleProfile(
+            make: "Custom", model: "vehicle", fuelType: .gas,
+            tankCapacityUnits: 20, ratedMilesPerUnit: 25)
         XCTAssertEqual(custom.milesPerUnit(atSpeedMph: 20), 25)
         XCTAssertEqual(custom.milesPerUnit(atSpeedMph: 75), 25)
     }
@@ -235,12 +266,16 @@ final class SafetyAndGradeTests: XCTestCase {
 final class TowingSafetyFeedTests: XCTestCase {
 
     func testBroadCrashVocabulary() {
-        for phrase in ["yeah please hurry", "I'm bleeding", "send help now",
-                       "yep", "call an ambulance", "mayday mayday"] {
+        for phrase in [
+            "yeah please hurry", "I'm bleeding", "send help now",
+            "yep", "call an ambulance", "mayday mayday",
+        ] {
             XCTAssertEqual(CrashLogic.interpretReply(phrase), true, phrase)
         }
-        for phrase in ["nah all good", "false alarm sorry", "we're fine thanks",
-                       "nope", "stop asking", "never mind, don't call"] {
+        for phrase in [
+            "nah all good", "false alarm sorry", "we're fine thanks",
+            "nope", "stop asking", "never mind, don't call",
+        ] {
             XCTAssertEqual(CrashLogic.interpretReply(phrase), false, phrase)
         }
         // Word boundaries: "know" is not "no", "yesterday" is not "yes".
@@ -252,26 +287,36 @@ final class TowingSafetyFeedTests: XCTestCase {
     }
 
     func testTowingLimitChecks() {
-        let f150 = TowingLimits.Ratings(gvwrLbs: 7050, towCapacityLbs: 11200,
-                                        gcwrLbs: 17100)
+        let f150 = TowingLimits.Ratings(
+            gvwrLbs: 7050, towCapacityLbs: 11200,
+            gcwrLbs: 17100)
         // Inside every rating → no violations.
-        XCTAssertTrue(TowingLimits.check(vehicleWeightLbs: 6500,
-                                         towedWeightLbs: 8000, ratings: f150).isEmpty)
+        XCTAssertTrue(
+            TowingLimits.check(
+                vehicleWeightLbs: 6500,
+                towedWeightLbs: 8000, ratings: f150
+            ).isEmpty)
         // Over GVWR by 450.
-        let overG = TowingLimits.check(vehicleWeightLbs: 7500,
-                                       towedWeightLbs: 1000, ratings: f150)
+        let overG = TowingLimits.check(
+            vehicleWeightLbs: 7500,
+            towedWeightLbs: 1000, ratings: f150)
         XCTAssertEqual(overG, [.overGVWR(by: 450)])
-        XCTAssertTrue(overG[0].consequences.contains("brake") || overG[0].consequences.contains("Brake")
-                      || overG[0].consequences.lowercased().contains("brakes"))
+        XCTAssertTrue(
+            overG[0].consequences.contains("brake") || overG[0].consequences.contains("Brake")
+                || overG[0].consequences.lowercased().contains("brakes"))
         // Over tow capacity AND combined GCWR.
-        let overT = TowingLimits.check(vehicleWeightLbs: 7000,
-                                       towedWeightLbs: 12000, ratings: f150)
+        let overT = TowingLimits.check(
+            vehicleWeightLbs: 7000,
+            towedWeightLbs: 12000, ratings: f150)
         XCTAssertTrue(overT.contains(.overTowCapacity(by: 800)))
         XCTAssertTrue(overT.contains(.overGCWR(by: 1900)))
         // Unknown ratings never fabricate violations.
         let unrated = TowingLimits.Ratings(gvwrLbs: nil, towCapacityLbs: nil, gcwrLbs: nil)
-        XCTAssertTrue(TowingLimits.check(vehicleWeightLbs: 99999,
-                                         towedWeightLbs: 99999, ratings: unrated).isEmpty)
+        XCTAssertTrue(
+            TowingLimits.check(
+                vehicleWeightLbs: 99999,
+                towedWeightLbs: 99999, ratings: unrated
+            ).isEmpty)
     }
 
     func testRefuelLearningAccuracyGate() {
@@ -291,16 +336,18 @@ final class TowingSafetyFeedTests: XCTestCase {
 
     func testPursuitReachGrowsWithTimeAndSpeed() {
         // 25 min at 55 mph ≈ 36.9 km.
-        XCTAssertEqual(PursuitReach.radiusMeters(elapsedSeconds: 25 * 60, speedMph: 55),
-                       25 * 60 * 55 * 0.44704, accuracy: 1)
+        XCTAssertEqual(
+            PursuitReach.radiusMeters(elapsedSeconds: 25 * 60, speedMph: 55),
+            25 * 60 * 55 * 0.44704, accuracy: 1)
         // Just happened → still a visible circle.
-        XCTAssertEqual(PursuitReach.radiusMeters(elapsedSeconds: 0, speedMph: 55),
-                       PursuitReach.minimumRadiusMeters)
+        XCTAssertEqual(
+            PursuitReach.radiusMeters(elapsedSeconds: 0, speedMph: 55),
+            PursuitReach.minimumRadiusMeters)
         // Capped at 3 h so the circle keeps meaning something.
-        XCTAssertEqual(PursuitReach.radiusMeters(elapsedSeconds: 10 * 3600, speedMph: 55),
-                       PursuitReach.radiusMeters(elapsedSeconds: 3 * 3600, speedMph: 55))
+        XCTAssertEqual(
+            PursuitReach.radiusMeters(elapsedSeconds: 10 * 3600, speedMph: 55),
+            PursuitReach.radiusMeters(elapsedSeconds: 3 * 3600, speedMph: 55))
     }
-
 
     func testLiveFeedScoreMappings() {
         // AQI category edges (EPA).
@@ -321,8 +368,9 @@ final class TowingSafetyFeedTests: XCTestCase {
         let swarm = (0..<50).map { i in
             (lat: 43.07 + Double(i) * 0.0002, lon: -89.63, frp: 1.0)  // ~18 km west
         }
-        XCTAssertLessThan(HazardFeedScores.fireScore(hotspots: swarm, at: madison), FlowsCore.riskYellowMin,
-                          "50 weak distant detections must not saturate the fire family to red")
+        XCTAssertLessThan(
+            HazardFeedScores.fireScore(hotspots: swarm, at: madison), FlowsCore.riskYellowMin,
+            "50 weak distant detections must not saturate the fire family to red")
         // Seismic: fresh M6 at 20 km is serious; a 30-hour-old quake is not.
         let m6 = [(lat: 43.25, lon: -89.40, magnitude: 6.0, ageHours: 1.0)]
         XCTAssertGreaterThan(HazardFeedScores.seismicScore(quakes: m6, at: madison), 0.5)
@@ -335,10 +383,12 @@ final class TowingSafetyFeedTests: XCTestCase {
         // hit ITS city figure in town and ITS highway figure at speed.
         for spec in VehicleSpecs.all {
             let profile = spec.profile
-            XCTAssertEqual(profile.milesPerUnit(atSpeedMph: 20), spec.cityMPU,
-                           accuracy: 1e-9, spec.id)
-            XCTAssertEqual(profile.milesPerUnit(atSpeedMph: 60), spec.highwayMPU,
-                           accuracy: 1e-9, spec.id)
+            XCTAssertEqual(
+                profile.milesPerUnit(atSpeedMph: 20), spec.cityMPU,
+                accuracy: 1e-9, spec.id)
+            XCTAssertEqual(
+                profile.milesPerUnit(atSpeedMph: 60), spec.highwayMPU,
+                accuracy: 1e-9, spec.id)
         }
         // Type fallback exists for unlisted vehicles ("trucks" vs "sedans" vs "bus").
         XCTAssertNotNil(VehicleSpecs.spec(make: "Generic", model: "Pickup truck"))
@@ -358,29 +408,37 @@ final class TelemetryAndRatingsTests: XCTestCase {
         var temp = UInt32(2_500).littleEndian
         data.replaceSubrange(8..<12, with: Data(bytes: &pressure, count: 4))
         data.replaceSubrange(12..<16, with: Data(bytes: &temp, count: 4))
-        let parsed = VehicleLink.parseTPMSAdvertisement(name: "TPMS3_A1B2C3",
-                                                        manufacturerData: data)
+        let parsed = VehicleLink.parseTPMSAdvertisement(
+            name: "TPMS3_A1B2C3",
+            manufacturerData: data)
         XCTAssertEqual(parsed?.psi ?? 0, 32.0, accuracy: 0.05)
         XCTAssertEqual(parsed?.celsius ?? 0, 25.0, accuracy: 0.01)
         XCTAssertEqual(parsed?.id, "Tire 3")
         // Non-TPMS device → nil; absurd pressure → nil.
-        XCTAssertNil(VehicleLink.parseTPMSAdvertisement(name: "JBL Speaker",
-                                                        manufacturerData: data))
+        XCTAssertNil(
+            VehicleLink.parseTPMSAdvertisement(
+                name: "JBL Speaker",
+                manufacturerData: data))
         var zero = Data(repeating: 0, count: 16)
-        XCTAssertNil(VehicleLink.parseTPMSAdvertisement(name: "TPMS1_X",
-                                                        manufacturerData: zero))
+        XCTAssertNil(
+            VehicleLink.parseTPMSAdvertisement(
+                name: "TPMS1_X",
+                manufacturerData: zero))
         zero.removeAll()
-        XCTAssertNil(VehicleLink.parseTPMSAdvertisement(name: "TPMS1_X",
-                                                        manufacturerData: zero))
+        XCTAssertNil(
+            VehicleLink.parseTPMSAdvertisement(
+                name: "TPMS1_X",
+                manufacturerData: zero))
     }
 
     func testOBDFuelReplyParsing() {
         // SAE 01 2F: A/255. 0x80 = 50.2%.
         XCTAssertEqual(VehicleLink.parseFuelReply("41 2F 80") ?? 0, 128.0 / 255, accuracy: 1e-9)
-        XCTAssertEqual(VehicleLink.parseFuelReply("SEARCHING...\r41 2F FF\r>") ?? 0, 1.0,
-                       accuracy: 1e-9)
+        XCTAssertEqual(
+            VehicleLink.parseFuelReply("SEARCHING...\r41 2F FF\r>") ?? 0, 1.0,
+            accuracy: 1e-9)
         XCTAssertNil(VehicleLink.parseFuelReply("NO DATA"))
-        XCTAssertNil(VehicleLink.parseFuelReply("41 0C 1A F8"))   // that's RPM
+        XCTAssertNil(VehicleLink.parseFuelReply("41 0C 1A F8"))  // that's RPM
     }
 
     func testIncomeAnchoredCostTiers() {
@@ -445,21 +503,24 @@ final class CountryCostAndShowerTests: XCTestCase {
         // Same casual-dinner spend, three economies.
         XCTAssertEqual(RatingsAndCost.costTier(averageCheck: 25, country: .us), 2)
         XCTAssertEqual(RatingsAndCost.costTier(averageCheck: 25, country: .canada), 2)
-        XCTAssertEqual(RatingsAndCost.costTier(averageCheck: 25, country: .mexico), 1,
-                       "MX$25 is street-food territory — tier 1 in pesos")
+        XCTAssertEqual(
+            RatingsAndCost.costTier(averageCheck: 25, country: .mexico), 1,
+            "MX$25 is street-food territory — tier 1 in pesos")
         // Tier 5 = top-percentile territory in each currency.
         XCTAssertEqual(RatingsAndCost.costTier(averageCheck: 200, country: .us), 5)
         XCTAssertEqual(RatingsAndCost.costTier(averageCheck: 200, country: .canada), 5)
-        XCTAssertEqual(RatingsAndCost.costTier(averageCheck: 200, country: .mexico), 2,
-                       "MX$200 is a solid sit-down meal — tier 2 in pesos")
+        XCTAssertEqual(
+            RatingsAndCost.costTier(averageCheck: 200, country: .mexico), 2,
+            "MX$200 is a solid sit-down meal — tier 2 in pesos")
         XCTAssertEqual(RatingsAndCost.costTier(averageCheck: 2000, country: .mexico), 5)
         // GPS → country: Madison, Toronto (below 49!), Monterrey, Vancouver.
         XCTAssertEqual(RatingsAndCost.Country.forCoordinate(latitude: 43.07, longitude: -89.40), .us)
         XCTAssertEqual(RatingsAndCost.Country.forCoordinate(latitude: 43.65, longitude: -79.38), .canada)
         XCTAssertEqual(RatingsAndCost.Country.forCoordinate(latitude: 25.67, longitude: -100.31), .mexico)
         XCTAssertEqual(RatingsAndCost.Country.forCoordinate(latitude: 49.28, longitude: -123.12), .canada)
-        XCTAssertEqual(RatingsAndCost.Country.forCoordinate(latitude: 25.76, longitude: -80.19), .us,
-                       "Miami is south of 32.7 but east of the Mexico box")
+        XCTAssertEqual(
+            RatingsAndCost.Country.forCoordinate(latitude: 25.76, longitude: -80.19), .us,
+            "Miami is south of 32.7 but east of the Mexico box")
         XCTAssertEqual(RatingsAndCost.Country.us.currencySymbol, "US$")
         XCTAssertEqual(RatingsAndCost.Country.canada.currencySymbol, "C$")
         XCTAssertEqual(RatingsAndCost.Country.mexico.currencySymbol, "MX$")
@@ -468,26 +529,34 @@ final class CountryCostAndShowerTests: XCTestCase {
     func testShowerResolutionLadder() {
         // Driver report beats everything.
         ShowerAvailability.disprove(lat: 41.111, lon: -95.222)
-        XCTAssertEqual(ShowerAvailability.forStop(named: "Love's Travel Stop",
-                                                  lat: 41.111, lon: -95.222,
-                                                  table: nil),
-                       .disproven)
+        XCTAssertEqual(
+            ShowerAvailability.forStop(
+                named: "Love's Travel Stop",
+                lat: 41.111, lon: -95.222,
+                table: nil),
+            .disproven)
         // Explicit table tag beats the brand default.
         let table = ShowerAvailability.LocationTable(entries: [
             .init(lat: 42.5, lon: -90.5, brand: "Love's", shower: "no"),
             .init(lat: 43.5, lon: -91.5, brand: "Pilot", shower: "yes"),
         ])
-        XCTAssertEqual(ShowerAvailability.forStop(named: "Love's Travel Stop",
-                                                  lat: 42.5001, lon: -90.5001,
-                                                  table: table),
-                       .none)
-        XCTAssertEqual(ShowerAvailability.forStop(named: "Pilot Travel Center",
-                                                  lat: 43.5, lon: -91.5, table: table),
-                       .standard)
+        XCTAssertEqual(
+            ShowerAvailability.forStop(
+                named: "Love's Travel Stop",
+                lat: 42.5001, lon: -90.5001,
+                table: table),
+            .none)
+        XCTAssertEqual(
+            ShowerAvailability.forStop(
+                named: "Pilot Travel Center",
+                lat: 43.5, lon: -91.5, table: table),
+            .standard)
         // No report, no tag → the brand assumption ("Love's unless disproven").
-        XCTAssertEqual(ShowerAvailability.forStop(named: "Love's Travel Stop #99",
-                                                  lat: 44.0, lon: -92.0, table: table),
-                       .standard)
+        XCTAssertEqual(
+            ShowerAvailability.forStop(
+                named: "Love's Travel Stop #99",
+                lat: 44.0, lon: -92.0, table: table),
+            .standard)
         // Cleanup the report.
         UserDefaults.standard.removeObject(forKey: "flows.showersDisproved")
     }
@@ -497,7 +566,8 @@ final class CountryCostAndShowerTests: XCTestCase {
 /// the live files probed at publicacionexterna.azurewebsites.net.
 final class PrimarySourceTests: XCTestCase {
     func testCREPriceParsing() {
-        let prices = MexicoFuelParsing.parsePrices("""
+        let prices = MexicoFuelParsing.parsePrices(
+            """
             <places><place place_id="11702">\
             <gas_price type="regular">24.9</gas_price>\
             <gas_price type="premium">30.5</gas_price>\
@@ -512,7 +582,8 @@ final class PrimarySourceTests: XCTestCase {
     }
 
     func testCREPlaceParsing() {
-        let places = MexicoFuelParsing.parsePlaces("""
+        let places = MexicoFuelParsing.parsePlaces(
+            """
             <places><place place_id="2039"><name>E10</name>\
             <location><x>-116.9214</x><y>32.47641</y></location>\
             </place><place place_id="9999"><name>BAD</name>\
@@ -533,8 +604,9 @@ final class PrimaryHazardFeedTests: XCTestCase {
         XCTAssertEqual(HazardFeedScores.floodCategoryScore("out_of_service"), 0)
         XCTAssertEqual(HazardFeedScores.floodCategoryScore("action"), 0.25, accuracy: 1e-9)
         XCTAssertEqual(HazardFeedScores.floodCategoryScore("major"), 1.0, accuracy: 1e-9)
-        XCTAssertGreaterThan(HazardFeedScores.floodCategoryScore("moderate"),
-                             HazardFeedScores.floodCategoryScore("minor"))
+        XCTAssertGreaterThan(
+            HazardFeedScores.floodCategoryScore("moderate"),
+            HazardFeedScores.floodCategoryScore("minor"))
     }
 
     func testFloodGaugeProximityAndReach() {
@@ -543,12 +615,14 @@ final class PrimaryHazardFeedTests: XCTestCase {
         let atGauge = HazardFeedScores.floodGaugeScore(
             gauges: [(43.0, -89.0, "major")], at: here)
         XCTAssertEqual(atGauge, 1.0, accuracy: 0.02)
-        XCTAssertEqual(HazardFeedScores.floodGaugeScore(
-            gauges: [(43.0, -89.0, "no_flooding")], at: here), 0)
+        XCTAssertEqual(
+            HazardFeedScores.floodGaugeScore(
+                gauges: [(43.0, -89.0, "no_flooding")], at: here), 0)
         // A flooding gauge >20 km away is out of reach.
-        let far = CLLocationCoordinate2D(latitude: 43.5, longitude: -89.0) // ~55 km
-        XCTAssertEqual(HazardFeedScores.floodGaugeScore(
-            gauges: [(43.0, -89.0, "major")], at: far), 0)
+        let far = CLLocationCoordinate2D(latitude: 43.5, longitude: -89.0)  // ~55 km
+        XCTAssertEqual(
+            HazardFeedScores.floodGaugeScore(
+                gauges: [(43.0, -89.0, "major")], at: far), 0)
     }
 
     func testFirePerimeterInsideAndBuffer() {
@@ -571,7 +645,7 @@ final class PrimaryHazardFeedTests: XCTestCase {
         // the bounding-box reject doesn't skip a ring whose edge is in reach.
         // ~5.6 km north of the ring's top edge (43.1°): (1 - 5.56/12) * 0.7.
         let fringe = CLLocationCoordinate2D(latitude: 43.15, longitude: -89.0)
-        let expected = (1 - 5_566.0 / 12_000) * 0.7   // 0.05° lat ≈ 5,566 m
+        let expected = (1 - 5_566.0 / 12_000) * 0.7  // 0.05° lat ≈ 5,566 m
         XCTAssertEqual(
             HazardFeedScores.firePerimeterScore(perimeters: [ring], at: fringe),
             expected, accuracy: 0.02)
@@ -586,8 +660,9 @@ final class PrimaryHazardFeedTests: XCTestCase {
 
     func testSpaceWeatherScaleAndLatitude() {
         // Quiet space weather contributes nothing.
-        XCTAssertEqual(HazardFeedScores.radiationSpaceWeatherScore(
-            sScale: 0, gScale: 0, latitude: 45), 0)
+        XCTAssertEqual(
+            HazardFeedScores.radiationSpaceWeatherScore(
+                sScale: 0, gScale: 0, latitude: 45), 0)
         // A strong solar radiation storm (S4) is felt everywhere.
         XCTAssertEqual(HazardFeedScores.spaceWeatherScore(scale: 4), 0.78, accuracy: 1e-9)
         // A severe geomagnetic storm hits high latitudes harder than low ones.
@@ -611,43 +686,51 @@ final class AcuteFamilyTests: XCTestCase {
         XCTAssertEqual(HazardFeedScores.volcanoAlertScore("ADVISORY"), 0.42, accuracy: 1e-9)
         XCTAssertEqual(HazardFeedScores.volcanoAlertScore("WARNING"), 1.0, accuracy: 1e-9)
         // A WATCH volcano right here scores ~0.72; one >80 km away is out of reach.
-        XCTAssertEqual(HazardFeedScores.volcanicScore(
-            volcanoes: [(46.85, -121.76, "WATCH")], at: here), 0.72, accuracy: 0.02)
-        XCTAssertEqual(HazardFeedScores.volcanicScore(
-            volcanoes: [(48.0, -121.76, "WARNING")], at: here), 0) // ~128 km away
+        XCTAssertEqual(
+            HazardFeedScores.volcanicScore(
+                volcanoes: [(46.85, -121.76, "WATCH")], at: here), 0.72, accuracy: 0.02)
+        XCTAssertEqual(
+            HazardFeedScores.volcanicScore(
+                volcanoes: [(48.0, -121.76, "WARNING")], at: here), 0)  // ~128 km away
     }
 
     func testAvalancheRatingAndZone() {
         XCTAssertEqual(HazardFeedScores.avalancheRatingScore(0), 0)
-        XCTAssertGreaterThan(HazardFeedScores.avalancheRatingScore(4),
-                             HazardFeedScores.avalancheRatingScore(2))
+        XCTAssertGreaterThan(
+            HazardFeedScores.avalancheRatingScore(4),
+            HazardFeedScores.avalancheRatingScore(2))
         let ring = [
             CLLocationCoordinate2D(latitude: 46.8, longitude: -121.9),
             CLLocationCoordinate2D(latitude: 46.9, longitude: -121.9),
             CLLocationCoordinate2D(latitude: 46.9, longitude: -121.6),
             CLLocationCoordinate2D(latitude: 46.8, longitude: -121.6),
         ]
-        XCTAssertEqual(HazardFeedScores.avalancheScore(
-            zones: [(rings: [ring], rating: 4)], at: here), 0.90, accuracy: 1e-9)
+        XCTAssertEqual(
+            HazardFeedScores.avalancheScore(
+                zones: [(rings: [ring], rating: 4)], at: here), 0.90, accuracy: 1e-9)
         // Considerable (3) is dangerous enough to land in the yellow band.
-        XCTAssertGreaterThanOrEqual(HazardFeedScores.avalancheRatingScore(3),
-                                    FlowsCore.riskYellowMin)
+        XCTAssertGreaterThanOrEqual(
+            HazardFeedScores.avalancheRatingScore(3),
+            FlowsCore.riskYellowMin)
         let outside = CLLocationCoordinate2D(latitude: 40.0, longitude: -105.0)
-        XCTAssertEqual(HazardFeedScores.avalancheScore(
-            zones: [(rings: [ring], rating: 4)], at: outside), 0)
+        XCTAssertEqual(
+            HazardFeedScores.avalancheScore(
+                zones: [(rings: [ring], rating: 4)], at: outside), 0)
     }
 
     func testTropicalIntensityAndReach() {
-        XCTAssertGreaterThan(HazardFeedScores.tropicalIntensityScore(maxWindKt: 130),
-                             HazardFeedScores.tropicalIntensityScore(maxWindKt: 40))
+        XCTAssertGreaterThan(
+            HazardFeedScores.tropicalIntensityScore(maxWindKt: 130),
+            HazardFeedScores.tropicalIntensityScore(maxWindKt: 40))
         // A category-4 storm at the point scores near 1; the same storm far
         // outside its (intensity-scaled) reach scores 0.
         let atStorm = HazardFeedScores.tropicalScore(
             storms: [(46.85, -121.76, 120)], at: here)
         XCTAssertGreaterThan(atStorm, 0.85)
-        let far = CLLocationCoordinate2D(latitude: 40.0, longitude: -121.76) // ~760 km
-        XCTAssertEqual(HazardFeedScores.tropicalScore(
-            storms: [(46.85, -121.76, 120)], at: far), 0)
+        let far = CLLocationCoordinate2D(latitude: 40.0, longitude: -121.76)  // ~760 km
+        XCTAssertEqual(
+            HazardFeedScores.tropicalScore(
+                storms: [(46.85, -121.76, 120)], at: far), 0)
     }
 
     func testTsunamiLevelAndReach() {
@@ -655,17 +738,19 @@ final class AcuteFamilyTests: XCTestCase {
         XCTAssertEqual(HazardFeedScores.tsunamiLevelScore("Tsunami Warning Number 1"), 1.0, accuracy: 1e-9)
         XCTAssertEqual(HazardFeedScores.tsunamiLevelScore("Tsunami Advisory"), 0.82, accuracy: 1e-9)
         // A warning at the coast scores high; an information statement never scores.
-        XCTAssertGreaterThan(HazardFeedScores.tsunamiScore(
-            events: [(46.85, -121.76, "Tsunami Warning")], at: here), 0.9)
-        XCTAssertEqual(HazardFeedScores.tsunamiScore(
-            events: [(46.85, -121.76, "Tsunami Information Statement")], at: here), 0)
+        XCTAssertGreaterThan(
+            HazardFeedScores.tsunamiScore(
+                events: [(46.85, -121.76, "Tsunami Warning")], at: here), 0.9)
+        XCTAssertEqual(
+            HazardFeedScores.tsunamiScore(
+                events: [(46.85, -121.76, "Tsunami Information Statement")], at: here), 0)
     }
 
     func testConvectiveOutlookScore() {
         // SPC categories map proportionally: SLGT reaches green→yellow edge,
         // MDT and HIGH (tornado-outbreak potential) are red.
         XCTAssertEqual(HazardFeedScores.spcCategoricalScore(dn: 2), 0.35, accuracy: 1e-9)
-        XCTAssertGreaterThan(HazardFeedScores.spcCategoricalScore(dn: 6), 0.8751) // MDT = red
+        XCTAssertGreaterThan(HazardFeedScores.spcCategoricalScore(dn: 6), 0.8751)  // MDT = red
         XCTAssertEqual(HazardFeedScores.spcCategoricalScore(dn: 8), 1.0, accuracy: 1e-9)
         let ring = [
             CLLocationCoordinate2D(latitude: 34.9, longitude: -98.1),
@@ -674,11 +759,13 @@ final class AcuteFamilyTests: XCTestCase {
             CLLocationCoordinate2D(latitude: 34.9, longitude: -97.9),
         ]
         let inside = CLLocationCoordinate2D(latitude: 35.0, longitude: -98.0)
-        XCTAssertEqual(HazardFeedScores.outlookScore(
-            zones: [(rings: [ring], score: 0.88)], at: inside), 0.88, accuracy: 1e-9)
-        XCTAssertEqual(HazardFeedScores.outlookScore(
-            zones: [(rings: [ring], score: 0.88)],
-            at: CLLocationCoordinate2D(latitude: 40, longitude: -98)), 0)
+        XCTAssertEqual(
+            HazardFeedScores.outlookScore(
+                zones: [(rings: [ring], score: 0.88)], at: inside), 0.88, accuracy: 1e-9)
+        XCTAssertEqual(
+            HazardFeedScores.outlookScore(
+                zones: [(rings: [ring], score: 0.88)],
+                at: CLLocationCoordinate2D(latitude: 40, longitude: -98)), 0)
     }
 
     /// Proportionality guardrail: the acute families reach RED only at their
@@ -689,14 +776,15 @@ final class AcuteFamilyTests: XCTestCase {
         // Life-threatening ends are red…
         XCTAssertGreaterThan(HazardFeedScores.tsunamiLevelScore("warning"), red)
         XCTAssertGreaterThan(HazardFeedScores.volcanoAlertScore("WARNING"), red)
-        XCTAssertGreaterThan(HazardFeedScores.avalancheRatingScore(4), red)     // High
-        XCTAssertGreaterThan(HazardFeedScores.tropicalIntensityScore(maxWindKt: 100), red) // Cat 3
+        XCTAssertGreaterThan(HazardFeedScores.avalancheRatingScore(4), red)  // High
+        XCTAssertGreaterThan(HazardFeedScores.tropicalIntensityScore(maxWindKt: 100), red)  // Cat 3
         // …and the low ends are NOT red (a tropical storm / Considerable-1 stay sub-red).
         XCTAssertLessThan(HazardFeedScores.tropicalIntensityScore(maxWindKt: 45), red)
         XCTAssertLessThan(HazardFeedScores.avalancheRatingScore(2), red)
         // Flood weight resolves the same under either key.
-        XCTAssertEqual(RiskEquations.familyWeights["qpf_flood"],
-                       RiskEquations.familyWeights["flood"])
+        XCTAssertEqual(
+            RiskEquations.familyWeights["qpf_flood"],
+            RiskEquations.familyWeights["flood"])
     }
 }
 
@@ -705,28 +793,37 @@ final class AcuteFamilyTests: XCTestCase {
 final class WMOAlertTests: XCTestCase {
     func testFeedRouting() {
         // Mexico City → Mexico feed; San José → Costa Rica; Panama City → Panama.
-        XCTAssertEqual(WMOAlertParsing.feedCode(
-            for: .init(latitude: 19.43, longitude: -99.13)), "mx-smn-es")
-        XCTAssertEqual(WMOAlertParsing.feedCode(
-            for: .init(latitude: 9.93, longitude: -84.08)), "cr-imn-es")
-        XCTAssertEqual(WMOAlertParsing.feedCode(
-            for: .init(latitude: 8.98, longitude: -79.52)), "pa-imhpa-es")
+        XCTAssertEqual(
+            WMOAlertParsing.feedCode(
+                for: .init(latitude: 19.43, longitude: -99.13)), "mx-smn-es")
+        XCTAssertEqual(
+            WMOAlertParsing.feedCode(
+                for: .init(latitude: 9.93, longitude: -84.08)), "cr-imn-es")
+        XCTAssertEqual(
+            WMOAlertParsing.feedCode(
+                for: .init(latitude: 8.98, longitude: -79.52)), "pa-imhpa-es")
         // Belize's small box wins over Mexico's regional catch-all.
-        XCTAssertEqual(WMOAlertParsing.feedCode(
-            for: .init(latitude: 17.19, longitude: -88.5)), "bz-nms-en")
+        XCTAssertEqual(
+            WMOAlertParsing.feedCode(
+                for: .init(latitude: 17.19, longitude: -88.5)), "bz-nms-en")
         // US point → no WMO feed (handled by NWS).
-        XCTAssertNil(WMOAlertParsing.feedCode(
-            for: .init(latitude: 43.07, longitude: -89.4)))
+        XCTAssertNil(
+            WMOAlertParsing.feedCode(
+                for: .init(latitude: 43.07, longitude: -89.4)))
         // Guatemala inside Mexico's box has no feed, west or east, while
         // Chiapas and Tapachula stay on Mexico's.
-        XCTAssertNil(WMOAlertParsing.feedCode(
-            for: .init(latitude: 14.84, longitude: -91.52)))   // Quetzaltenango
-        XCTAssertNil(WMOAlertParsing.feedCode(
-            for: .init(latitude: 14.63, longitude: -90.51)))   // Guatemala City
-        XCTAssertEqual(WMOAlertParsing.feedCode(
-            for: .init(latitude: 16.25, longitude: -92.13)), "mx-smn-es")   // Comitán
-        XCTAssertEqual(WMOAlertParsing.feedCode(
-            for: .init(latitude: 14.91, longitude: -92.26)), "mx-smn-es")   // Tapachula
+        XCTAssertNil(
+            WMOAlertParsing.feedCode(
+                for: .init(latitude: 14.84, longitude: -91.52)))  // Quetzaltenango
+        XCTAssertNil(
+            WMOAlertParsing.feedCode(
+                for: .init(latitude: 14.63, longitude: -90.51)))  // Guatemala City
+        XCTAssertEqual(
+            WMOAlertParsing.feedCode(
+                for: .init(latitude: 16.25, longitude: -92.13)), "mx-smn-es")  // Comitán
+        XCTAssertEqual(
+            WMOAlertParsing.feedCode(
+                for: .init(latitude: 14.91, longitude: -92.26)), "mx-smn-es")  // Tapachula
     }
 
     func testACAPFileThatIsNotALiveAlertOrHasABrokenRing() {
@@ -735,22 +832,28 @@ final class WMOAlertTests: XCTestCase {
                 + "<area><polygon>\(polygon)</polygon></area></info></alert>"
         }
         XCTAssertEqual(WMOAlertParsing.parseCAP(cap(""))?.isLive, true)
-        XCTAssertEqual(WMOAlertParsing.parseCAP(
-            cap("<status>Actual</status><msgType>Alert</msgType>"))?.isLive, true)
+        XCTAssertEqual(
+            WMOAlertParsing.parseCAP(
+                cap("<status>Actual</status><msgType>Alert</msgType>"))?.isLive, true)
         // A test, an exercise, a cancellation and an all-clear warn nobody.
         XCTAssertEqual(WMOAlertParsing.parseCAP(cap("<status>Test</status>"))?.isLive, false)
         XCTAssertEqual(WMOAlertParsing.parseCAP(cap("<status>Exercise</status>"))?.isLive, false)
-        XCTAssertEqual(WMOAlertParsing.parseCAP(
-            cap("<status>Actual</status><msgType>Cancel</msgType>"))?.isLive, false)
-        XCTAssertEqual(WMOAlertParsing.parseCAP(
-            cap("<responseType>AllClear</responseType>"))?.isLive, false)
+        XCTAssertEqual(
+            WMOAlertParsing.parseCAP(
+                cap("<status>Actual</status><msgType>Cancel</msgType>"))?.isLive, false)
+        XCTAssertEqual(
+            WMOAlertParsing.parseCAP(
+                cap("<responseType>AllClear</responseType>"))?.isLive, false)
         // Pairs parted by a Windows line end or a tab are still four pairs.
-        XCTAssertEqual(WMOAlertParsing.polygonCoords(
-            "22.0,-98.0\r\n22.5,-98.0\t22.5,-97.5\r22.0,-98.0").count, 4)
+        XCTAssertEqual(
+            WMOAlertParsing.polygonCoords(
+                "22.0,-98.0\r\n22.5,-98.0\t22.5,-97.5\r22.0,-98.0"
+            ).count, 4)
         // One pair that cannot be read spoils the ring: no shape, not a wrong one.
         XCTAssertTrue(WMOAlertParsing.polygonCoords("22.0,-98.0 22.5;-98.0 22.5,-97.5 22.0,-98.0").isEmpty)
-        XCTAssertEqual(WMOAlertParsing.parseCAP(
-            cap("", polygon: "22.0,-98.0 x,-98.0 22.5,-97.5 22.0,-98.0"))?.polygons.count, 0)
+        XCTAssertEqual(
+            WMOAlertParsing.parseCAP(
+                cap("", polygon: "22.0,-98.0 x,-98.0 22.5,-97.5 22.0,-98.0"))?.polygons.count, 0)
     }
 
     func testEachServiceIsReadFromItsOwnList() {
@@ -763,19 +866,20 @@ final class WMOAlertTests: XCTestCase {
 
         // Mexico and Jamaica write Atom: the link is an attribute.
         let atom = """
-        <feed><link rel="self" href="https://smn.example/cap.php"/><updated>2026-11-10T20:47:58-06:00</updated>
-        <entry><id>x</id><title type="text">Canal de baja presión</title>
-        <updated>2026-11-10T11:00:00-06:00</updated>
-        <link rel="alternate" type="application/cap+xml" href="https://smn.example/FILES/a_cap.xml" />
-        </entry></feed>
-        """
+            <feed><link rel="self" href="https://smn.example/cap.php"/><updated>2026-11-10T20:47:58-06:00</updated>
+            <entry><id>x</id><title type="text">Canal de baja presión</title>
+            <updated>2026-11-10T11:00:00-06:00</updated>
+            <link rel="alternate" type="application/cap+xml" href="https://smn.example/FILES/a_cap.xml" />
+            </entry></feed>
+            """
         let entries = WMOAlertParsing.parseRSSItems(atom)
         XCTAssertEqual(entries.count, 1)
         XCTAssertEqual(entries.first?.link, "https://smn.example/FILES/a_cap.xml")
         XCTAssertEqual(entries.first?.published, "2026-11-10T11:00:00-06:00")
 
         // Trinidad writes RSS with a publishing date and no end time.
-        let rss = "<rss><channel><link>https://tt.example/feed</link><item><title>Hot Spell</title>"
+        let rss =
+            "<rss><channel><link>https://tt.example/feed</link><item><title>Hot Spell</title>"
             + "<link>https://tt.example/feed/872.xml</link>"
             + "<pubDate>Sat, 31 Oct 2026 12:34:13 +0000</pubDate></item></channel></rss>"
         let items = WMOAlertParsing.parseRSSItems(rss)
@@ -787,15 +891,15 @@ final class WMOAlertTests: XCTestCase {
     func testAPrefixedCAPFileAndTheMessagesItReplaces() {
         // Belize writes every tag with a prefix.
         let cap = """
-        <cap:alert xmlns:cap="urn:oasis:names:tc:emergency:cap:1.2">
-        <cap:identifier>bz-2</cap:identifier><cap:status>Actual</cap:status>
-        <cap:msgType>Update</cap:msgType>
-        <cap:references>nms@bz,bz-1,2026-11-10T00:00:00-06:00 nms@bz,bz-0,2026-11-09T00:00:00-06:00</cap:references>
-        <cap:info><cap:event>Flood Warning</cap:event><cap:severity>Severe</cap:severity>
-        <cap:expires>2026-11-12T00:00:00-06:00</cap:expires>
-        <cap:area><cap:polygon>17.0,-88.6 17.4,-88.6 17.4,-88.2 17.0,-88.6</cap:polygon></cap:area>
-        </cap:info></cap:alert>
-        """
+            <cap:alert xmlns:cap="urn:oasis:names:tc:emergency:cap:1.2">
+            <cap:identifier>bz-2</cap:identifier><cap:status>Actual</cap:status>
+            <cap:msgType>Update</cap:msgType>
+            <cap:references>nms@bz,bz-1,2026-11-10T00:00:00-06:00 nms@bz,bz-0,2026-11-09T00:00:00-06:00</cap:references>
+            <cap:info><cap:event>Flood Warning</cap:event><cap:severity>Severe</cap:severity>
+            <cap:expires>2026-11-12T00:00:00-06:00</cap:expires>
+            <cap:area><cap:polygon>17.0,-88.6 17.4,-88.6 17.4,-88.2 17.0,-88.6</cap:polygon></cap:area>
+            </cap:info></cap:alert>
+            """
         let parsed = WMOAlertParsing.parseCAP(cap)
         XCTAssertEqual(parsed?.event, "Flood Warning")
         XCTAssertEqual(parsed?.severity, "Severe")
@@ -815,24 +919,24 @@ final class WMOAlertTests: XCTestCase {
         }
         // Belize: its towns stay; Guatemala beside it is unknown; Quintana
         // Roo north of the Hondo is Mexico's; by the river, unknown.
-        XCTAssertEqual(code(17.50, -88.20), "bz-nms-en")   // Belize City
-        XCTAssertEqual(code(18.08, -88.56), "bz-nms-en")   // Orange Walk
-        XCTAssertEqual(code(16.10, -88.80), "bz-nms-en")   // Punta Gorda
-        XCTAssertEqual(code(17.25, -88.77), "bz-nms-en")   // Belmopan
-        XCTAssertNil(code(15.83, -88.75))                  // Livingston, Guatemala
-        XCTAssertNil(code(17.00, -89.25))                  // Petén, Guatemala
-        XCTAssertEqual(code(18.45, -88.80), "mx-smn-es")   // Quintana Roo, north of the river
-        XCTAssertEqual(code(18.30, -87.85), "mx-smn-es")   // Xcalak coast
-        XCTAssertNil(code(18.39, -88.39))                  // Corozal, by the river
+        XCTAssertEqual(code(17.50, -88.20), "bz-nms-en")  // Belize City
+        XCTAssertEqual(code(18.08, -88.56), "bz-nms-en")  // Orange Walk
+        XCTAssertEqual(code(16.10, -88.80), "bz-nms-en")  // Punta Gorda
+        XCTAssertEqual(code(17.25, -88.77), "bz-nms-en")  // Belmopan
+        XCTAssertNil(code(15.83, -88.75))  // Livingston, Guatemala
+        XCTAssertNil(code(17.00, -89.25))  // Petén, Guatemala
+        XCTAssertEqual(code(18.45, -88.80), "mx-smn-es")  // Quintana Roo, north of the river
+        XCTAssertEqual(code(18.30, -87.85), "mx-smn-es")  // Xcalak coast
+        XCTAssertNil(code(18.39, -88.39))  // Corozal, by the river
         // Trinidad: Venezuela's Paria tip is unknown.
         XCTAssertEqual(code(10.65, -61.52), "tt-ttms-en")  // Port of Spain
         XCTAssertNil(code(10.70, -61.95))
         // Costa Rica: Nicaragua north of it and Panama east of it are unknown.
-        XCTAssertEqual(code(10.63, -85.44), "cr-imn-es")   // Liberia
-        XCTAssertEqual(code(9.99, -83.03), "cr-imn-es")    // Limón
-        XCTAssertNil(code(11.25, -85.87))                  // San Juan del Sur, Nicaragua
-        XCTAssertNil(code(11.12, -84.78))                  // San Carlos, Nicaragua
-        XCTAssertNil(code(9.43, -82.52))                   // Changuinola, Panama
+        XCTAssertEqual(code(10.63, -85.44), "cr-imn-es")  // Liberia
+        XCTAssertEqual(code(9.99, -83.03), "cr-imn-es")  // Limón
+        XCTAssertNil(code(11.25, -85.87))  // San Juan del Sur, Nicaragua
+        XCTAssertNil(code(11.12, -84.78))  // San Carlos, Nicaragua
+        XCTAssertNil(code(9.43, -82.52))  // Changuinola, Panama
     }
 
     func testAServicesOwnAlertNameCountsTowardRisk() {
@@ -868,8 +972,9 @@ final class WMOAlertTests: XCTestCase {
         XCTAssertEqual(rain("Cielo nublado, sin lluvias intensas."), "Rain Advisory")
         XCTAssertEqual(rain("Sin torrenciales lluvias en la zona."), "Rain Advisory")
         XCTAssertEqual(rain("No solo lluvias intensas, tambien granizo."), "Flood Advisory")
-        XCTAssertEqual(rain("Sin lluvias intensas en el norte; lluvias torrenciales en el sur."),
-                       "Flood Advisory")
+        XCTAssertEqual(
+            rain("Sin lluvias intensas en el norte; lluvias torrenciales en el sur."),
+            "Flood Advisory")
         XCTAssertEqual(rain("Precipitaciones intensas en la sierra."), "Flood Advisory")
         // A notice that names the flood is one at any level.
         XCTAssertEqual(words("Lluvias e inundaciones", "Minor"), "Flood Advisory")
@@ -883,10 +988,12 @@ final class WMOAlertTests: XCTestCase {
         XCTAssertEqual(words("Hot Spell", "Moderate"), "Heat Advisory")
         // Every name given lands in a family the risk rules score, and a
         // strong one in a family that can reach Red.
-        for (event, severity) in [("Aviso de Ciclón Tropical", "Severe"), ("Aviso de lluvias", "Moderate"),
-                                  ("Aviso de Frente Frío", "Minor"), ("Hot Spell", "Moderate"),
-                                  ("Tormentas eléctricas", "Severe"), ("Vientos fuertes", "Moderate"),
-                                  ("Nevadas", "Moderate"), ("Banco de niebla", "Minor")] {
+        for (event, severity) in [
+            ("Aviso de Ciclón Tropical", "Severe"), ("Aviso de lluvias", "Moderate"),
+            ("Aviso de Frente Frío", "Minor"), ("Hot Spell", "Moderate"),
+            ("Tormentas eléctricas", "Severe"), ("Vientos fuertes", "Moderate"),
+            ("Nevadas", "Moderate"), ("Banco de niebla", "Minor"),
+        ] {
             XCTAssertNotNil(RiskEquations.alertFamily(words(event, severity)), event)
         }
         XCTAssertEqual(RiskEquations.alertFamily(words("Aviso de Ciclón Tropical", "Severe")), "tropical")
@@ -902,12 +1009,12 @@ final class WMOAlertTests: XCTestCase {
 
     func testRSSAndCAPParsing() {
         let rss = """
-        <rss><channel><item><title>Zona de inestabilidad</title>\
-        <cap:event>Aviso de lluvias</cap:event><cap:severity>Moderate</cap:severity>\
-        <cap:expires>Tue, 16 Jun 2026 17:00:00 +0000</cap:expires>\
-        <link>https://severeweather.wmo.int/v2/cap-alerts/mx-smn-es/2026/06/16/13/00/00-abc.xml</link>\
-        </item></channel></rss>
-        """
+            <rss><channel><item><title>Zona de inestabilidad</title>\
+            <cap:event>Aviso de lluvias</cap:event><cap:severity>Moderate</cap:severity>\
+            <cap:expires>Tue, 16 Jun 2026 17:00:00 +0000</cap:expires>\
+            <link>https://severeweather.wmo.int/v2/cap-alerts/mx-smn-es/2026/06/16/13/00/00-abc.xml</link>\
+            </item></channel></rss>
+            """
         let items = WMOAlertParsing.parseRSSItems(rss)
         XCTAssertEqual(items.count, 1)
         XCTAssertEqual(items.first?.event, "Aviso de lluvias")
@@ -915,11 +1022,11 @@ final class WMOAlertTests: XCTestCase {
         XCTAssertTrue(items.first?.link.hasSuffix(".xml") ?? false)
 
         let cap = """
-        <alert><info><event>Aviso de lluvias</event><severity>Severe</severity>\
-        <area><areaDesc>SLP, TAMPS, VER</areaDesc>\
-        <polygon>22.0,-98.0 22.5,-98.0 22.5,-97.5 22.0,-97.5 22.0,-98.0</polygon></area>\
-        <web>https://smn.conagua.gob.mx/</web></info></alert>
-        """
+            <alert><info><event>Aviso de lluvias</event><severity>Severe</severity>\
+            <area><areaDesc>SLP, TAMPS, VER</areaDesc>\
+            <polygon>22.0,-98.0 22.5,-98.0 22.5,-97.5 22.0,-97.5 22.0,-98.0</polygon></area>\
+            <web>https://smn.conagua.gob.mx/</web></info></alert>
+            """
         let parsed = WMOAlertParsing.parseCAP(cap)
         XCTAssertEqual(parsed?.severity, "Severe")
         XCTAssertEqual(parsed?.polygon.count, 5)
@@ -928,10 +1035,12 @@ final class WMOAlertTests: XCTestCase {
         XCTAssertEqual(parsed?.polygon.first?.longitude ?? 0, -98.0, accuracy: 1e-9)
         // A point inside the box is matched; one outside is not.
         let ring = parsed!.polygon
-        XCTAssertTrue(HazardFeedScores.pointInPolygon(
-            .init(latitude: 22.25, longitude: -97.75), ring))
-        XCTAssertFalse(HazardFeedScores.pointInPolygon(
-            .init(latitude: 25.0, longitude: -97.75), ring))
+        XCTAssertTrue(
+            HazardFeedScores.pointInPolygon(
+                .init(latitude: 22.25, longitude: -97.75), ring))
+        XCTAssertFalse(
+            HazardFeedScores.pointInPolygon(
+                .init(latitude: 25.0, longitude: -97.75), ring))
     }
 }
 
@@ -959,7 +1068,7 @@ final class AdaptiveTuningTests: XCTestCase {
         // Heat and Low Power Mode throttle a high-tier device HARD.
         let hot = AdaptiveTuning.settings(tier: .high, thermal: .critical, lowPower: false)
         XCTAssertLessThanOrEqual(hot.maxInFlight, 2)
-        XCTAssertGreaterThanOrEqual(hot.ttlMultiplier, 3.0)   // refresh far less often
+        XCTAssertGreaterThanOrEqual(hot.ttlMultiplier, 3.0)  // refresh far less often
         let saving = AdaptiveTuning.settings(tier: .high, thermal: .nominal, lowPower: true)
         XCTAssertGreaterThanOrEqual(saving.ttlMultiplier, 2.0)
         XCTAssertLessThanOrEqual(saving.maxInFlight, 5)
@@ -975,9 +1084,9 @@ final class AdaptiveTuningTests: XCTestCase {
         let low = AdaptiveTuning.settings(tier: .low, thermal: .nominal, lowPower: false)
         let std = AdaptiveTuning.settings(tier: .standard, thermal: .nominal, lowPower: false)
         let high = AdaptiveTuning.settings(tier: .high, thermal: .nominal, lowPower: false)
-        XCTAssertEqual(low.planningMaxInFlight, 6)     // 2 × base 3
-        XCTAssertEqual(std.planningMaxInFlight, 12)    // 2 × base 6
-        XCTAssertEqual(high.planningMaxInFlight, 16)   // 2 × 10, capped at 16
+        XCTAssertEqual(low.planningMaxInFlight, 6)  // 2 × base 3
+        XCTAssertEqual(std.planningMaxInFlight, 12)  // 2 × base 6
+        XCTAssertEqual(high.planningMaxInFlight, 16)  // 2 × 10, capped at 16
         for s in [low, std, high] {
             XCTAssertGreaterThanOrEqual(s.planningMaxInFlight, s.maxInFlight)
         }
@@ -997,10 +1106,16 @@ final class AdaptiveTuningTests: XCTestCase {
     /// how wide the fan-out.
     func testRequestGateCapsConcurrency() async {
         let cap = AdaptiveTuning.shared.maxInFlight
-        actor Peak { var cur = 0; var hi = 0
-            func enter() { cur += 1; hi = Swift.max(hi, cur) }
+        actor Peak {
+            var cur = 0
+            var hi = 0
+            func enter() {
+                cur += 1
+                hi = Swift.max(hi, cur)
+            }
             func leave() { cur -= 1 }
-            func peak() -> Int { hi } }
+            func peak() -> Int { hi }
+        }
         let peak = Peak()
         await withTaskGroup(of: Void.self) { g in
             for _ in 0..<50 {
@@ -1042,7 +1157,8 @@ final class AdaptiveTuningTests: XCTestCase {
     func testHostBreakerTripProbeAndRecovery() async {
         let b = HostBreaker(trip: 3, cooldown: 0.15)
         // Below the trip count the host is still admitted.
-        await b.recordFailure("epqs.gov"); await b.recordFailure("epqs.gov")
+        await b.recordFailure("epqs.gov")
+        await b.recordFailure("epqs.gov")
         var ok = await b.admits("epqs.gov")
         XCTAssertTrue(ok, "2 failures with trip=3 must still admit")
         // Third straight failure opens it; a healthy host is unaffected.
@@ -1076,9 +1192,18 @@ final class AdaptiveTuningTests: XCTestCase {
         // Primary fails, secondary succeeds → secondary's value, tertiary untouched.
         let touched = Sendable_Box()
         let got = await ThrottledNet.firstNonNil([
-            { await touched.mark(0); return Int?.none },       // primary down
-            { await touched.mark(1); return 42 },              // secondary works
-            { await touched.mark(2); return 99 },              // must NOT run
+            {
+                await touched.mark(0)
+                return Int?.none
+            },  // primary down
+            {
+                await touched.mark(1)
+                return 42
+            },  // secondary works
+            {
+                await touched.mark(2)
+                return 99
+            },  // must NOT run
         ])
         XCTAssertEqual(got, 42, "returns the first source that yields a value")
         let order = await touched.order
@@ -1093,8 +1218,14 @@ final class AdaptiveTuningTests: XCTestCase {
         // Primary succeeds → later sources never consulted (cheapest path).
         let box2 = Sendable_Box()
         let first = await ThrottledNet.firstNonNil([
-            { await box2.mark(0); return 7 },
-            { await box2.mark(1); return 8 },
+            {
+                await box2.mark(0)
+                return 7
+            },
+            {
+                await box2.mark(1)
+                return 8
+            },
         ])
         XCTAssertEqual(first, 7)
         let order2 = await box2.order
@@ -1123,14 +1254,14 @@ final class TransitItineraryTests: XCTestCase {
     }
 
     func testConnectorGeometry() {
-        let a = CLLocationCoordinate2D(latitude: 25.77, longitude: -80.19)   // Miami
-        let b = CLLocationCoordinate2D(latitude: 43.65, longitude: -79.38)   // Toronto
+        let a = CLLocationCoordinate2D(latitude: 25.77, longitude: -80.19)  // Miami
+        let b = CLLocationCoordinate2D(latitude: 43.65, longitude: -79.38)  // Toronto
         let line = TransitPlanning.connector(a, b)
         XCTAssertEqual(line.pointCount, 2)
     }
 
     func testRideDurationAnchorsToDriveTimeThenFallsBack() {
-        let drive: TimeInterval = 22 * 3600   // a real 22 h drive corridor
+        let drive: TimeInterval = 22 * 3600  // a real 22 h drive corridor
         let bus = TransitPlanning.rideDuration(mode: "Greyhound", driveSeconds: drive, miles: 1500)
         let rail = TransitPlanning.rideDuration(mode: "Amtrak", driveSeconds: drive, miles: 1500)
         // A scheduled service is always slower door-to-door than solo driving.
@@ -1156,10 +1287,12 @@ final class TransitItineraryTests: XCTestCase {
         let busFb = TransitPlanning.rideDuration(mode: "Greyhound", driveSeconds: nil, miles: 1500)
         XCTAssertGreaterThan(railFb, busFb, "Amtrak must stay slower than Greyhound on BOTH paths")
         // Degenerate inputs never crash or go negative/NaN.
-        XCTAssertEqual(TransitPlanning.rideDuration(mode: "Bus", driveSeconds: 0, miles: 0),
-                       0, accuracy: 0.0001)
-        XCTAssertEqual(TransitPlanning.rideDuration(mode: "Bus", driveSeconds: nil, miles: 0),
-                       0, accuracy: 0.0001)
+        XCTAssertEqual(
+            TransitPlanning.rideDuration(mode: "Bus", driveSeconds: 0, miles: 0),
+            0, accuracy: 0.0001)
+        XCTAssertEqual(
+            TransitPlanning.rideDuration(mode: "Bus", driveSeconds: nil, miles: 0),
+            0, accuracy: 0.0001)
         // Every mode has a >1 overhead (transit is never faster than driving here)
         // and a positive fallback speed.
         for mode in ["Amtrak", "Greyhound", "Rail", "Bus"] {
@@ -1172,16 +1305,21 @@ final class TransitItineraryTests: XCTestCase {
         // The last leg of a transit itinerary must be a WALK — the traveller
         // has no car at the destination.
         let legs = [
-            TransitLeg(kind: .walk, fromName: "Start", toName: "Miami Amtrak",
-                       seconds: 700, miles: 0.5, polyline: nil, steps: ["a"]),
-            TransitLeg(kind: .ride, fromName: "Miami Amtrak", toName: "Toronto Union",
-                       seconds: 140_000, miles: 1400, polyline: nil, steps: ["b"]),
-            TransitLeg(kind: .walk, fromName: "Toronto Union", toName: "Destination",
-                       seconds: 500, miles: 0.4, polyline: nil, steps: ["c"]),
+            TransitLeg(
+                kind: .walk, fromName: "Start", toName: "Miami Amtrak",
+                seconds: 700, miles: 0.5, polyline: nil, steps: ["a"]),
+            TransitLeg(
+                kind: .ride, fromName: "Miami Amtrak", toName: "Toronto Union",
+                seconds: 140_000, miles: 1400, polyline: nil, steps: ["b"]),
+            TransitLeg(
+                kind: .walk, fromName: "Toronto Union", toName: "Destination",
+                seconds: 500, miles: 0.4, polyline: nil, steps: ["c"]),
         ]
-        let itin = TransitItinerary(mode: "Amtrak", legs: legs, fare: 185,
-            mapsDestination: MKMapItem(placemark: MKPlacemark(
-                coordinate: CLLocationCoordinate2D(latitude: 43.65, longitude: -79.38))),
+        let itin = TransitItinerary(
+            mode: "Amtrak", legs: legs, fare: 185,
+            mapsDestination: MKMapItem(
+                placemark: MKPlacemark(
+                    coordinate: CLLocationCoordinate2D(latitude: 43.65, longitude: -79.38))),
             rideGeometryIsApproximate: true)
         XCTAssertEqual(itin.legs.last?.kind, .walk, "last mile must be a walk, never a drive")
         XCTAssertEqual(itin.legs.first?.kind, .walk)
@@ -1191,8 +1329,11 @@ final class TransitItineraryTests: XCTestCase {
         // gave the whole trip door to door.
         var short = TransitItinerary(
             mode: "Amtrak",
-            legs: legs + [TransitLeg(kind: .walk, fromName: "A", toName: "B",
-                                     seconds: nil, miles: nil, polyline: nil, steps: [])],
+            legs: legs + [
+                TransitLeg(
+                    kind: .walk, fromName: "A", toName: "B",
+                    seconds: nil, miles: nil, polyline: nil, steps: [])
+            ],
             fare: 0, mapsDestination: itin.mapsDestination, rideGeometryIsApproximate: true)
         XCTAssertTrue(short.totalLeavesOutALeg)
         XCTAssertEqual(short.totalSeconds, 141_200, accuracy: 1)
@@ -1208,14 +1349,18 @@ final class TransitItineraryTests: XCTestCase {
         // (non-real) ride geometry flag — the card must not claim road-following
         // nor show a phantom minimum fare.
         let legs = [
-            TransitLeg(kind: .walk, fromName: "Start", toName: "Central Station",
-                       seconds: 600, miles: 0.4, polyline: nil, steps: ["a"]),
-            TransitLeg(kind: .walk, fromName: "Central Station", toName: "Destination",
-                       seconds: 500, miles: 0.3, polyline: nil, steps: ["b"]),
+            TransitLeg(
+                kind: .walk, fromName: "Start", toName: "Central Station",
+                seconds: 600, miles: 0.4, polyline: nil, steps: ["a"]),
+            TransitLeg(
+                kind: .walk, fromName: "Central Station", toName: "Destination",
+                seconds: 500, miles: 0.3, polyline: nil, steps: ["b"]),
         ]
-        let itin = TransitItinerary(mode: "Bus", legs: legs, fare: 0,
-            mapsDestination: MKMapItem(placemark: MKPlacemark(
-                coordinate: CLLocationCoordinate2D(latitude: 40, longitude: -80))),
+        let itin = TransitItinerary(
+            mode: "Bus", legs: legs, fare: 0,
+            mapsDestination: MKMapItem(
+                placemark: MKPlacemark(
+                    coordinate: CLLocationCoordinate2D(latitude: 40, longitude: -80))),
             rideGeometryIsApproximate: false, rideGeometryIsReal: false)
         XCTAssertEqual(itin.legs.last?.kind, .walk)
         XCTAssertEqual(itin.fare, 0, "walk-only collapse must not show a phantom fare")
@@ -1229,60 +1374,73 @@ final class GradeDefaultTests: XCTestCase {
 
     func testGradeDefaultByWeightClass() {
         // Sedan (GVWR under 6,000): 18% ≈ 10.2° → rounds to the 0.5° step.
-        XCTAssertEqual(FilterLimits.vehicleDefaultMaxGradeDegrees(
-            publishedMaxGradePercent: nil, gvwrLbs: 3_910, towCapacityLbs: 1_500,
-            heightFeet: 4.8, towing: false, trailerWeightLbs: 0), 10.0)
+        XCTAssertEqual(
+            FilterLimits.vehicleDefaultMaxGradeDegrees(
+                publishedMaxGradePercent: nil, gvwrLbs: 3_910, towCapacityLbs: 1_500,
+                heightFeet: 4.8, towing: false, trailerWeightLbs: 0), 10.0)
         // Half-ton pickup (7,050): 15% ≈ 8.5°.
-        XCTAssertEqual(FilterLimits.vehicleDefaultMaxGradeDegrees(
-            publishedMaxGradePercent: nil, gvwrLbs: 7_050, towCapacityLbs: 11_200,
-            heightFeet: 6.4, towing: false, trailerWeightLbs: 0), 8.5)
+        XCTAssertEqual(
+            FilterLimits.vehicleDefaultMaxGradeDegrees(
+                publishedMaxGradePercent: nil, gvwrLbs: 7_050, towCapacityLbs: 11_200,
+                heightFeet: 6.4, towing: false, trailerWeightLbs: 0), 8.5)
         // HD pickup (10,800): 12% ≈ 6.8° → 7.0°.
-        XCTAssertEqual(FilterLimits.vehicleDefaultMaxGradeDegrees(
-            publishedMaxGradePercent: nil, gvwrLbs: 10_800, towCapacityLbs: 20_000,
-            heightFeet: 6.8, towing: false, trailerWeightLbs: 0), 7.0)
+        XCTAssertEqual(
+            FilterLimits.vehicleDefaultMaxGradeDegrees(
+                publishedMaxGradePercent: nil, gvwrLbs: 10_800, towCapacityLbs: 20_000,
+                heightFeet: 6.8, towing: false, trailerWeightLbs: 0), 7.0)
         // Box truck (14,500): 9% ≈ 5.1° → 5.0°.
-        XCTAssertEqual(FilterLimits.vehicleDefaultMaxGradeDegrees(
-            publishedMaxGradePercent: nil, gvwrLbs: 14_500, towCapacityLbs: 6_000,
-            heightFeet: 12.0, towing: false, trailerWeightLbs: 0), 5.0)
+        XCTAssertEqual(
+            FilterLimits.vehicleDefaultMaxGradeDegrees(
+                publishedMaxGradePercent: nil, gvwrLbs: 14_500, towCapacityLbs: 6_000,
+                heightFeet: 12.0, towing: false, trailerWeightLbs: 0), 5.0)
     }
 
     func testGradeDefaultPublishedGuidanceWins() {
         // Semi: the maker's 6% steep-grade guidance beats the weight ladder.
-        XCTAssertEqual(FilterLimits.vehicleDefaultMaxGradeDegrees(
-            publishedMaxGradePercent: 6, gvwrLbs: 35_000, towCapacityLbs: 45_000,
-            heightFeet: 13.5, towing: false, trailerWeightLbs: 0), 3.5)
+        XCTAssertEqual(
+            FilterLimits.vehicleDefaultMaxGradeDegrees(
+                publishedMaxGradePercent: 6, gvwrLbs: 35_000, towCapacityLbs: 45_000,
+                heightFeet: 13.5, towing: false, trailerWeightLbs: 0), 3.5)
         // And the curated table actually carries it for the semis.
-        XCTAssertEqual(VehicleSpecs.spec(make: "Freightliner",
-                                         model: "Cascadia (semi)")?.publishedMaxGradePercent, 6)
+        XCTAssertEqual(
+            VehicleSpecs.spec(
+                make: "Freightliner",
+                model: "Cascadia (semi)")?.publishedMaxGradePercent, 6)
     }
 
     func testGradeDefaultLowersWhenTowing() {
         // F-150 towing at all: 15% base capped to 10% ≈ 5.7° → 5.5°.
-        XCTAssertEqual(FilterLimits.vehicleDefaultMaxGradeDegrees(
-            publishedMaxGradePercent: nil, gvwrLbs: 7_050, towCapacityLbs: 11_200,
-            heightFeet: 6.4, towing: true, trailerWeightLbs: 2_000), 5.5)
+        XCTAssertEqual(
+            FilterLimits.vehicleDefaultMaxGradeDegrees(
+                publishedMaxGradePercent: nil, gvwrLbs: 7_050, towCapacityLbs: 11_200,
+                heightFeet: 6.4, towing: true, trailerWeightLbs: 2_000), 5.5)
         // Trailer at 60%+ of capacity: capped to 8% ≈ 4.6° → 4.5°.
-        XCTAssertEqual(FilterLimits.vehicleDefaultMaxGradeDegrees(
-            publishedMaxGradePercent: nil, gvwrLbs: 7_050, towCapacityLbs: 11_200,
-            heightFeet: 6.4, towing: true, trailerWeightLbs: 8_000), 4.5)
+        XCTAssertEqual(
+            FilterLimits.vehicleDefaultMaxGradeDegrees(
+                publishedMaxGradePercent: nil, gvwrLbs: 7_050, towCapacityLbs: 11_200,
+                heightFeet: 6.4, towing: true, trailerWeightLbs: 8_000), 4.5)
         // At/over capacity: capped to 6% ≈ 3.4° → 3.5°.
-        XCTAssertEqual(FilterLimits.vehicleDefaultMaxGradeDegrees(
-            publishedMaxGradePercent: nil, gvwrLbs: 7_050, towCapacityLbs: 11_200,
-            heightFeet: 6.4, towing: true, trailerWeightLbs: 11_200), 3.5)
+        XCTAssertEqual(
+            FilterLimits.vehicleDefaultMaxGradeDegrees(
+                publishedMaxGradePercent: nil, gvwrLbs: 7_050, towCapacityLbs: 11_200,
+                heightFeet: 6.4, towing: true, trailerWeightLbs: 11_200), 3.5)
         // Unknown capacity: a 5,000+ lb trailer counts as heavy.
-        XCTAssertEqual(FilterLimits.vehicleDefaultMaxGradeDegrees(
-            publishedMaxGradePercent: nil, gvwrLbs: 7_050, towCapacityLbs: nil,
-            heightFeet: 6.4, towing: true, trailerWeightLbs: 6_000), 4.5)
+        XCTAssertEqual(
+            FilterLimits.vehicleDefaultMaxGradeDegrees(
+                publishedMaxGradePercent: nil, gvwrLbs: 7_050, towCapacityLbs: nil,
+                heightFeet: 6.4, towing: true, trailerWeightLbs: 6_000), 4.5)
     }
 
     func testGradeDefaultHeightFallbackAndClamp() {
         // No ratings at all → the height ladder (13'6" default = semi-ish).
-        XCTAssertEqual(FilterLimits.vehicleDefaultMaxGradeDegrees(
-            publishedMaxGradePercent: nil, gvwrLbs: nil, towCapacityLbs: nil,
-            heightFeet: 13.5, towing: false, trailerWeightLbs: 0), 5.0)
-        XCTAssertEqual(FilterLimits.vehicleDefaultMaxGradeDegrees(
-            publishedMaxGradePercent: nil, gvwrLbs: nil, towCapacityLbs: nil,
-            heightFeet: 4.8, towing: false, trailerWeightLbs: 0), 10.0)
+        XCTAssertEqual(
+            FilterLimits.vehicleDefaultMaxGradeDegrees(
+                publishedMaxGradePercent: nil, gvwrLbs: nil, towCapacityLbs: nil,
+                heightFeet: 13.5, towing: false, trailerWeightLbs: 0), 5.0)
+        XCTAssertEqual(
+            FilterLimits.vehicleDefaultMaxGradeDegrees(
+                publishedMaxGradePercent: nil, gvwrLbs: nil, towCapacityLbs: nil,
+                heightFeet: 4.8, towing: false, trailerWeightLbs: 0), 10.0)
         // The result always lands inside the slider's 2°–15° range.
         let extreme = FilterLimits.vehicleDefaultMaxGradeDegrees(
             publishedMaxGradePercent: 1, gvwrLbs: 99_000, towCapacityLbs: 0,
@@ -1299,20 +1457,22 @@ final class SpatialIndexTests: XCTestCase {
     private struct Lcg {
         var s: UInt64
         mutating func d(_ lo: Double, _ hi: Double) -> Double {
-            s = s &* 6364136223846793005 &+ 1442695040888963407
+            s = s &* 6_364_136_223_846_793_005 &+ 1_442_695_040_888_963_407
             return lo + Double(s >> 11) / Double(UInt64(1) << 53) * (hi - lo)
         }
         mutating func i(_ lo: Int, _ hi: Int) -> Int { Int(d(Double(lo), Double(hi))) }
     }
 
     func testRoutePathNearestGridEqualsBruteForce() {
-        var rng = Lcg(s: 0x9E3779B97F4A7C15)
+        var rng = Lcg(s: 0x9E37_79B9_7F4A_7C15)
         for _ in 0..<25 {
             let n = rng.i(2, 400)
             var coords: [CLLocationCoordinate2D] = []
-            var lat = rng.d(20, 60), lon = rng.d(-120, -70)
+            var lat = rng.d(20, 60)
+            var lon = rng.d(-120, -70)
             for _ in 0..<n {
-                lat += rng.d(-0.05, 0.05); lon += rng.d(-0.05, 0.05)
+                lat += rng.d(-0.05, 0.05)
+                lon += rng.d(-0.05, 0.05)
                 coords.append(CLLocationCoordinate2D(latitude: lat, longitude: lon))
             }
             let path = POIRanking.RoutePath(coords: coords)
@@ -1323,15 +1483,21 @@ final class SpatialIndexTests: XCTestCase {
                 let q: CLLocationCoordinate2D
                 if qi < 9 {
                     let base = coords[rng.i(0, coords.count)]
-                    q = CLLocationCoordinate2D(latitude: base.latitude + rng.d(-0.03, 0.03),
-                                               longitude: base.longitude + rng.d(-0.03, 0.03))
+                    q = CLLocationCoordinate2D(
+                        latitude: base.latitude + rng.d(-0.03, 0.03),
+                        longitude: base.longitude + rng.d(-0.03, 0.03))
                 } else {
                     q = CLLocationCoordinate2D(latitude: rng.d(19, 61), longitude: rng.d(-121, -69))
                 }
                 // brute-force reference (lowest index on strict-less, like the old scan)
-                var bi = 0; var bd = CLLocationDistance.greatestFiniteMagnitude
+                var bi = 0
+                var bd = CLLocationDistance.greatestFiniteMagnitude
                 for (idx, c) in coords.enumerated() {
-                    let dd = POIRanking.meters(c, q); if dd < bd { bd = dd; bi = idx }
+                    let dd = POIRanking.meters(c, q)
+                    if dd < bd {
+                        bd = dd
+                        bi = idx
+                    }
                 }
                 let got = path.nearest(to: q)
                 XCTAssertEqual(got?.index, bi, "grid nearest index must match brute force")
@@ -1342,7 +1508,7 @@ final class SpatialIndexTests: XCTestCase {
 
     func testShowerTableGridEqualsBruteForce() {
         typealias Entry = ShowerAvailability.LocationTable.Entry
-        var rng = Lcg(s: 0xD1B54A32D192ED03)
+        var rng = Lcg(s: 0xD1B5_4A32_D192_ED03)
         for _ in 0..<25 {
             var entries: [Entry] = []
             let cLat = rng.d(25, 49)
@@ -1366,7 +1532,10 @@ final class SpatialIndexTests: XCTestCase {
                     let dLat = e.lat - qLat
                     let dLon = e.lon - qLon
                     let dd = dLat * dLat + dLon * dLon
-                    if dd < bd { bd = dd; best = e }
+                    if dd < bd {
+                        bd = dd
+                        best = e
+                    }
                 }
                 let got = table.entry(nearLat: qLat, lon: qLon)
                 XCTAssertEqual(got?.brand, best?.brand, "grid entry must match brute force")
@@ -1376,7 +1545,7 @@ final class SpatialIndexTests: XCTestCase {
 
     func testBadgeClusteringGridEqualsBruteForce() {
         typealias Item = BadgeClustering.Item<Int>
-        var rng = Lcg(s: 0xA5A5A5A5DEADBEEF)
+        var rng = Lcg(s: 0xA5A5_A5A5_DEAD_BEEF)
         // Oracle: the original O(N²) linear greedy clustering + score-weighted
         // centroid. The grid path must reproduce this BIT-for-BIT (both iterate
         // the same sorted order and fold each group in the same append order).
@@ -1390,15 +1559,17 @@ final class SpatialIndexTests: XCTestCase {
                 }) {
                     members[si].append(item)
                 } else {
-                    seeds.append(item); members.append([item])
+                    seeds.append(item)
+                    members.append([item])
                 }
             }
             return zip(seeds, members).map { seed, group in
                 let w = group.reduce(0.0) { $0 + max($1.score, 1e-4) }
                 let lat = group.reduce(0.0) { $0 + $1.coordinate.latitude * max($1.score, 1e-4) } / w
                 let lon = group.reduce(0.0) { $0 + $1.coordinate.longitude * max($1.score, 1e-4) } / w
-                return Item(coordinate: CLLocationCoordinate2D(latitude: lat, longitude: lon),
-                            kind: seed.kind, score: seed.score)
+                return Item(
+                    coordinate: CLLocationCoordinate2D(latitude: lat, longitude: lon),
+                    kind: seed.kind, score: seed.score)
             }
         }
         for _ in 0..<30 {
@@ -1411,20 +1582,24 @@ final class SpatialIndexTests: XCTestCase {
             var items: [Item] = []
             for _ in 0..<n {
                 let c = centers[rng.i(0, centers.count)]
-                items.append(Item(
-                    coordinate: CLLocationCoordinate2D(latitude: c.0 + rng.d(-0.8, 0.8),
-                                                       longitude: c.1 + rng.d(-0.8, 0.8)),
-                    kind: rng.i(0, 4), score: rng.d(0, 100)))
+                items.append(
+                    Item(
+                        coordinate: CLLocationCoordinate2D(
+                            latitude: c.0 + rng.d(-0.8, 0.8),
+                            longitude: c.1 + rng.d(-0.8, 0.8)),
+                        kind: rng.i(0, 4), score: rng.d(0, 100)))
             }
             for minSep in [3_000.0, 25_000.0, 120_000.0] {
                 let got = BadgeClustering.cluster(items, minSeparationMeters: minSep)
                 let want = oracle(items, minSep)
                 XCTAssertEqual(got.count, want.count, "cluster count must match brute force")
                 for (g, w) in zip(got, want) {
-                    XCTAssertEqual(g.coordinate.latitude, w.coordinate.latitude,
-                                   "centroid lat must be bit-identical")
-                    XCTAssertEqual(g.coordinate.longitude, w.coordinate.longitude,
-                                   "centroid lon must be bit-identical")
+                    XCTAssertEqual(
+                        g.coordinate.latitude, w.coordinate.latitude,
+                        "centroid lat must be bit-identical")
+                    XCTAssertEqual(
+                        g.coordinate.longitude, w.coordinate.longitude,
+                        "centroid lon must be bit-identical")
                     XCTAssertEqual(g.kind, w.kind)
                     XCTAssertEqual(g.score, w.score)
                 }
@@ -1436,8 +1611,10 @@ final class SpatialIndexTests: XCTestCase {
         typealias Entry = RiskFieldService.ZipEntry
         var rng = Lcg(s: 0x1234_5678_9ABC_DEF0)
         // Oracle: the original O(E) full-entry filter + score-sort + prefix.
-        func oracle(_ entries: [Entry], _ latMin: Double, _ latMax: Double,
-                    _ lonMin: Double, _ lonMax: Double, _ fi: Int, _ limit: Int) -> [Entry] {
+        func oracle(
+            _ entries: [Entry], _ latMin: Double, _ latMax: Double,
+            _ lonMin: Double, _ lonMax: Double, _ fi: Int, _ limit: Int
+        ) -> [Entry] {
             entries.lazy
                 .filter {
                     $0.centroid.latitude >= latMin && $0.centroid.latitude <= latMax
@@ -1451,17 +1628,23 @@ final class SpatialIndexTests: XCTestCase {
         }
         for _ in 0..<25 {
             let n = rng.i(1, 500)
-            let cLat = rng.d(25, 55), cLon = rng.d(-120, -75)
+            let cLat = rng.d(25, 55)
+            let cLon = rng.d(-120, -75)
             var entries: [Entry] = []
             for k in 0..<n {
-                let lat = cLat + rng.d(-4, 4), lon = cLon + rng.d(-6, 6)
+                let lat = cLat + rng.d(-4, 4)
+                let lon = cLon + rng.d(-6, 6)
                 // Scores from a tiny set so ties are common → stable-sort parity.
                 let score = Double(rng.i(0, 5)) / 4.0
-                let ring: [CLLocationCoordinate2D]? = (k % 4 == 0) ? nil
+                let ring: [CLLocationCoordinate2D]? =
+                    (k % 4 == 0)
+                    ? nil
                     : [CLLocationCoordinate2D(latitude: lat, longitude: lon)]
-                entries.append(Entry(zip: "z\(k)",
-                                     centroid: CLLocationCoordinate2D(latitude: lat, longitude: lon),
-                                     scores: [score], summary: nil, ring: ring))
+                entries.append(
+                    Entry(
+                        zip: "z\(k)",
+                        centroid: CLLocationCoordinate2D(latitude: lat, longitude: lon),
+                        scores: [score], summary: nil, ring: ring))
             }
             guard let field = RiskField(generated: "", families: ["f"], entries: entries) else {
                 return XCTFail("entries refused")
@@ -1476,11 +1659,14 @@ final class SpatialIndexTests: XCTestCase {
             ]
             for (latMin, latMax, lonMin, lonMax) in boxes {
                 for limit in [5, 50, 10_000] {
-                    let got = field.select(latMin: latMin, latMax: latMax, lonMin: lonMin, lonMax: lonMax,
-                                           family: 0, limit: limit).map { field.entry($0) }
+                    let got = field.select(
+                        latMin: latMin, latMax: latMax, lonMin: lonMin, lonMax: lonMax,
+                        family: 0, limit: limit
+                    ).map { field.entry($0) }
                     let want = oracle(entries, latMin, latMax, lonMin, lonMax, 0, limit)
-                    XCTAssertEqual(got.map { $0.zip }, want.map { $0.zip },
-                                   "the field's selection must match brute force (same set, same order)")
+                    XCTAssertEqual(
+                        got.map { $0.zip }, want.map { $0.zip },
+                        "the field's selection must match brute force (same set, same order)")
                 }
             }
         }

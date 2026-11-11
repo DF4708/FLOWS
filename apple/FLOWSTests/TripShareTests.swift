@@ -17,21 +17,31 @@ final class TripShareTests: XCTestCase {
     // MARK: the 200-mile triggers — strictly OVER, either condition
 
     func testLongPlottedRouteTriggersTheOffer() {
-        XCTAssertTrue(TripShareLogic.shouldOffer(routeMeters: 201 * mile,
-                                                 drivenTodayMeters: 0))
-        XCTAssertFalse(TripShareLogic.shouldOffer(routeMeters: 199 * mile,
-                                                  drivenTodayMeters: 0))
+        XCTAssertTrue(
+            TripShareLogic.shouldOffer(
+                routeMeters: 201 * mile,
+                drivenTodayMeters: 0))
+        XCTAssertFalse(
+            TripShareLogic.shouldOffer(
+                routeMeters: 199 * mile,
+                drivenTodayMeters: 0))
         // Exactly 200.0 miles is not "over 200" — the boundary stays quiet.
-        XCTAssertFalse(TripShareLogic.shouldOffer(routeMeters: 200 * mile,
-                                                  drivenTodayMeters: 0))
+        XCTAssertFalse(
+            TripShareLogic.shouldOffer(
+                routeMeters: 200 * mile,
+                drivenTodayMeters: 0))
     }
 
     func testBigDrivingDayTriggersEvenOnAShortLeg() {
         // A 15-mile hop late in a 200+ mile day still offers.
-        XCTAssertTrue(TripShareLogic.shouldOffer(routeMeters: 15 * mile,
-                                                 drivenTodayMeters: 201 * mile))
-        XCTAssertFalse(TripShareLogic.shouldOffer(routeMeters: 15 * mile,
-                                                  drivenTodayMeters: 200 * mile))
+        XCTAssertTrue(
+            TripShareLogic.shouldOffer(
+                routeMeters: 15 * mile,
+                drivenTodayMeters: 201 * mile))
+        XCTAssertFalse(
+            TripShareLogic.shouldOffer(
+                routeMeters: 15 * mile,
+                drivenTodayMeters: 200 * mile))
         XCTAssertFalse(TripShareLogic.shouldOffer(routeMeters: 0, drivenTodayMeters: 0))
     }
 
@@ -60,20 +70,24 @@ final class TripShareTests: XCTestCase {
 
     // MARK: recipient ranking — frequency + recency, decayed together
 
-    private func recipient(_ name: String, sharesAgoDays: [Double],
-                           now: Date) -> ShareRecipient {
-        ShareRecipient(name: name, phone: "555\(name.count)",
-                       shareDates: sharesAgoDays.map {
-                           now.addingTimeInterval(-$0 * 86_400)
-                       })
+    private func recipient(
+        _ name: String, sharesAgoDays: [Double],
+        now: Date
+    ) -> ShareRecipient {
+        ShareRecipient(
+            name: name, phone: "555\(name.count)",
+            shareDates: sharesAgoDays.map {
+                now.addingTimeInterval(-$0 * 86_400)
+            })
     }
 
     func testRankingPrefersFrequentRecentPeople() {
         let now = Date(timeIntervalSince1970: 1_750_000_000)
         let often = recipient("often", sharesAgoDays: [1, 3, 8], now: now)
         let once = recipient("once", sharesAgoDays: [2], now: now)
-        XCTAssertEqual(TripShareLogic.ranked([once, often], now: now).map(\.name),
-                       ["often", "once"])
+        XCTAssertEqual(
+            TripShareLogic.ranked([once, often], now: now).map(\.name),
+            ["often", "once"])
     }
 
     func testRankingDecaysStalePiles() {
@@ -81,8 +95,9 @@ final class TripShareTests: XCTestCase {
         // Five shares ~10 half-lives ago score ≈ 0.005 — two from today win.
         let stale = recipient("stale", sharesAgoDays: [300, 301, 302, 303, 304], now: now)
         let current = recipient("current", sharesAgoDays: [0, 1], now: now)
-        XCTAssertEqual(TripShareLogic.ranked([stale, current], now: now).map(\.name),
-                       ["current", "stale"])
+        XCTAssertEqual(
+            TripShareLogic.ranked([stale, current], now: now).map(\.name),
+            ["current", "stale"])
     }
 
     // MARK: the message — where, when, and a map link; plain words
@@ -98,7 +113,9 @@ final class TripShareTests: XCTestCase {
         let message = TripShareLogic.shareMessage(
             destination: "Denver, CO", arrival: arrival,
             latitude: 39.73915, longitude: -104.99025)
-        XCTAssertEqual(message, """
+        XCTAssertEqual(
+            message,
+            """
             On my way to Denver, CO.
             I should get there around \(clock.string(from: arrival)).
             Map: https://maps.apple.com/?daddr=39.73915,-104.99025
@@ -115,7 +132,9 @@ final class TripShareTests: XCTestCase {
         let message = TripShareLogic.shareMessage(
             destination: "Denver, CO", arrival: arrival,
             latitude: nil, longitude: nil, firstStop: "Kwik Trip")
-        XCTAssertEqual(message, """
+        XCTAssertEqual(
+            message,
+            """
             On my way to Denver, CO, stopping at Kwik Trip first.
             I should get to Kwik Trip around \(clock.string(from: arrival)).
             """)
@@ -125,22 +144,25 @@ final class TripShareTests: XCTestCase {
         let message = TripShareLogic.shareMessage(
             destination: "Home", arrival: Date(timeIntervalSince1970: 1_772_750_400),
             latitude: nil, longitude: nil)
-        XCTAssertFalse(message.contains("maps.apple.com"),
-                       "no coordinate must never become a 0,0 map link")
+        XCTAssertFalse(
+            message.contains("maps.apple.com"),
+            "no coordinate must never become a 0,0 map link")
     }
 
     // MARK: sms: URL — byte-for-byte the crash flow's recipe
 
     func testSMSLinkMatchesTheCrashFlowRecipe() {
         XCTAssertEqual(
-            TripShareLogic.smsURLString(number: "+1 (555) 010-2030",
-                                        body: "On my way"),
+            TripShareLogic.smsURLString(
+                number: "+1 (555) 010-2030",
+                body: "On my way"),
             "sms:+15550102030?&body=On%20my%20way")
         // No digits → nothing useful could open.
         XCTAssertNil(TripShareLogic.smsURLString(number: "n/a", body: "hi"))
         // An "&" in the text is escaped, not the end of the body.
-        XCTAssertEqual(TripShareLogic.smsURLString(number: "5550102030", body: "Barnes & Noble"),
-                       "sms:5550102030?&body=Barnes%20%26%20Noble")
+        XCTAssertEqual(
+            TripShareLogic.smsURLString(number: "5550102030", body: "Barnes & Noble"),
+            "sms:5550102030?&body=Barnes%20%26%20Noble")
     }
 
     // MARK: history store — dedupe by digits, caps, persistence round-trip
@@ -155,8 +177,9 @@ final class TripShareTests: XCTestCase {
         let store = ShareHistoryStore(defaults: defaults)
         // Same person typed two ways stays ONE entry with two share dates.
         store.recordShare(name: "Dana", phone: "+1 (555) 010-2030", at: now)
-        store.recordShare(name: "Dana", phone: "15550102030",
-                          at: now.addingTimeInterval(60))
+        store.recordShare(
+            name: "Dana", phone: "15550102030",
+            at: now.addingTimeInterval(60))
         XCTAssertEqual(store.recipients.count, 1)
         XCTAssertEqual(store.recipients[0].shareDates.count, 2)
 
@@ -166,25 +189,29 @@ final class TripShareTests: XCTestCase {
 
         // Per-person dates cap at 10; the OLDEST fall off.
         for i in 0..<20 {
-            relaunched.recordShare(name: "Dana", phone: "15550102030",
-                                   at: now.addingTimeInterval(Double(i) * 3600))
+            relaunched.recordShare(
+                name: "Dana", phone: "15550102030",
+                at: now.addingTimeInterval(Double(i) * 3600))
         }
-        XCTAssertEqual(relaunched.recipients[0].shareDates.count,
-                       ShareHistoryStore.maxDatesPerRecipient)
+        XCTAssertEqual(
+            relaunched.recipients[0].shareDates.count,
+            ShareHistoryStore.maxDatesPerRecipient)
 
         // The recipient list caps at 12, evicting the WEAKEST suggestion —
         // heavily-used Dana survives a parade of one-off strangers.
         for i in 0..<20 {
-            relaunched.recordShare(name: "Stranger \(i)", phone: "555000\(i)",
-                                   at: now.addingTimeInterval(Double(i)))
+            relaunched.recordShare(
+                name: "Stranger \(i)", phone: "555000\(i)",
+                at: now.addingTimeInterval(Double(i)))
         }
         XCTAssertEqual(relaunched.recipients.count, ShareHistoryStore.maxRecipients)
         XCTAssertTrue(relaunched.recipients.contains { $0.name == "Dana" })
 
         // Suggestions come back best-first: Dana's ten recent shares beat
         // any single-share stranger.
-        XCTAssertEqual(relaunched.suggestions(now: now.addingTimeInterval(86_400))
-            .first?.name, "Dana")
+        XCTAssertEqual(
+            relaunched.suggestions(now: now.addingTimeInterval(86_400))
+                .first?.name, "Dana")
         defaults.removePersistentDomain(forName: suite)
     }
 
@@ -199,8 +226,9 @@ final class TripShareTests: XCTestCase {
         defer { defaults.removePersistentDomain(forName: suite) }
 
         let store = ShareHistoryStore(defaults: defaults)
-        store.recordShare(name: "Mom", phone: "5550102030",
-                          at: Date(timeIntervalSince1970: 1_750_000_000))
+        store.recordShare(
+            name: "Mom", phone: "5550102030",
+            at: Date(timeIntervalSince1970: 1_750_000_000))
         XCTAssertEqual(store.recipients.count, 1)
 
         store.erase()

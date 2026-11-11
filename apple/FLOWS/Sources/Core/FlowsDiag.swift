@@ -49,25 +49,23 @@ actor FlowsDiag {
     private var fileSize: Int
     private var lastEmit: [String: Date] = [:]
 
-    private static let stamp: ISO8601DateFormatter = {
-        let f = ISO8601DateFormatter()
-        f.formatOptions = [.withInternetDateTime]
-        return f
-    }()
+    private static let stamp = SharedISO8601Parser([.withInternetDateTime])
 
     /// `directory` is injectable for tests; the app instance journals to
     /// Caches (regenerable data — a cleared journal is not a loss).
     init(directory: URL? = nil, ringCap: Int = 400, fileCap: Int = 128 * 1024) {
         self.ringCap = ringCap
         self.fileCap = fileCap
-        let dir = directory
+        let dir =
+            directory
             ?? (try? FileManager.default.url(
                 for: .cachesDirectory, in: .userDomainMask,
                 appropriateFor: nil, create: true))
             ?? URL(fileURLWithPath: NSTemporaryDirectory())
         fileURL = dir.appendingPathComponent("flows_diag.log")
         rolledURL = dir.appendingPathComponent("flows_diag.1.log")
-        fileSize = (try? FileManager.default
+        fileSize =
+            (try? FileManager.default
             .attributesOfItem(atPath: fileURL.path)[.size] as? Int).flatMap { $0 } ?? 0
     }
 
@@ -82,8 +80,10 @@ actor FlowsDiag {
         key: String, interval: TimeInterval = 600,
         _ level: Level = .warn, _ area: String, _ message: String
     ) {
-        Task { await FlowsDiag.shared.appendThrottled(
-            key: key, interval: interval, level, area, message) }
+        Task {
+            await FlowsDiag.shared.appendThrottled(
+                key: key, interval: interval, level, area, message)
+        }
     }
 
     func append(_ level: Level, _ area: String, _ message: String) {
@@ -109,7 +109,8 @@ actor FlowsDiag {
     /// never empty just because the app restarted.
     func recent(_ n: Int = 60) -> [String] {
         if ring.isEmpty,
-           let text = try? String(contentsOf: fileURL, encoding: .utf8) {
+            let text = try? String(contentsOf: fileURL, encoding: .utf8)
+        {
             ring = text.split(separator: "\n").suffix(ringCap).map(String.init)
         }
         return Array(ring.suffix(n))

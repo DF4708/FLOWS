@@ -87,9 +87,12 @@ enum EscalationPolicy {
         var s = state
         s.baseline = step.baseline
         guard step.has_trigger else { return (s, nil) }
-        return (s, step.trigger_kind == 1
-            ? .acute(peak: step.risk, alertID: r.peakAlertID)
-            : .sustained(mean: step.risk))
+        return (
+            s,
+            step.trigger_kind == 1
+                ? .acute(peak: step.risk, alertID: r.peakAlertID)
+                : .sustained(mean: step.risk)
+        )
     }
 
     /// The driver pressed Continue on `trigger`.

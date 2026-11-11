@@ -20,7 +20,7 @@ import Foundation
 /// the Swift this replaced by
 /// rust/flows-bridge/tests/fixtures/swift_vehicle_policy_oracle.tsv.
 struct FilterLimits {
-    var vehicleHeightMeters: Double = FilterLimits.defaultVehicleHeightMeters   // 13'6"
+    var vehicleHeightMeters: Double = FilterLimits.defaultVehicleHeightMeters  // 13'6"
     /// Grade limit as PERCENT (what USGS elevation profiles measure). The UI
     /// slider works in DEGREES — a driver towing heavy thinks "14°", which is
     /// tan(14°) ≈ 24.9% — and converts via `degreesToPercent`.
@@ -28,7 +28,7 @@ struct FilterLimits {
     /// A posted bridge limit must exceed the vehicle height by this margin —
     /// a 10 ft vehicle cannot take a bridge posted 12 ft or smaller (2 ft
     /// of breathing room for load shift and repaving).
-    var clearanceMarginMeters: Double = FilterLimits.defaultClearanceMarginMeters   // 2 ft
+    var clearanceMarginMeters: Double = FilterLimits.defaultClearanceMarginMeters  // 2 ft
     /// The rig's total weight (vehicle + what it tows, pounds) for the
     /// bridge-weight check; nil = no weights entered → never excludes.
     var rigWeightLbs: Double? = nil
@@ -75,8 +75,10 @@ struct FilterLimits {
     /// else — once a trailer weight is entered — the vehicle's max rating
     /// (GVWR). A trailer alone is not the rig, and the max is the safe side.
     /// Nothing entered stays 0, so no road is excluded on a guess.
-    static func rigVehicleLbs(entered: Double, towedLbs: Double,
-                              ratedMaxLbs: @autoclosure () -> Double?) -> Double {
+    static func rigVehicleLbs(
+        entered: Double, towedLbs: Double,
+        ratedMaxLbs: @autoclosure () -> Double?
+    ) -> Double {
         if entered > 0 { return entered }
         return towedLbs > 0 ? ratedMaxLbs() ?? 0 : 0
     }
@@ -144,8 +146,10 @@ extension RouteFilter {
     /// The routes every `judged` filter but Avoid traffic lets through —
     /// what Avoid traffic compares a route with, so it thins the list the
     /// other filters leave and can never empty it.
-    static func trafficPeers(_ routes: [PlannedRoute], judged: Set<RouteFilter>,
-                             limits: FilterLimits) -> [PlannedRoute] {
+    static func trafficPeers(
+        _ routes: [PlannedRoute], judged: Set<RouteFilter>,
+        limits: FilterLimits
+    ) -> [PlannedRoute] {
         routes.filter { r in
             judged.allSatisfy { $0 == .avoidTraffic || $0.passes(r, limits: limits) }
         }
@@ -154,8 +158,10 @@ extension RouteFilter {
     /// The routes the choices list shows, in `routes` order, under the
     /// filters that judge them (`judging`). Avoid traffic is relative: a
     /// route passes next to its peers, never alone.
-    static func listed(_ routes: [PlannedRoute], judged: Set<RouteFilter>,
-                       limits: FilterLimits) -> [PlannedRoute] {
+    static func listed(
+        _ routes: [PlannedRoute], judged: Set<RouteFilter>,
+        limits: FilterLimits
+    ) -> [PlannedRoute] {
         let peers = trafficPeers(routes, judged: judged, limits: limits)
         guard judged.contains(.avoidTraffic) else { return peers }
         return peers.filter { RouteFilter.avoidTraffic.passes($0, among: peers) }
@@ -167,8 +173,10 @@ extension RouteFilter {
     /// falls back to its closest match among them, so all stay. It judged
     /// alone, and Avoid traffic passes every route with no peers to compare:
     /// the map drew the jammed road the list had hidden.
-    static func offered(_ routes: [PlannedRoute], judged: Set<RouteFilter>,
-                        limits: FilterLimits) -> [PlannedRoute] {
+    static func offered(
+        _ routes: [PlannedRoute], judged: Set<RouteFilter>,
+        limits: FilterLimits
+    ) -> [PlannedRoute] {
         let shown = listed(routes, judged: judged, limits: limits)
         return shown.isEmpty ? routes : shown
     }

@@ -73,7 +73,8 @@ final class RecentDestinations: ObservableObject {
     nonisolated static let cap = Int(flows_rides_recents_cap())
 
     init(directory: URL? = nil) {
-        let dir = directory
+        let dir =
+            directory
             ?? (try? FileManager.default.url(
                 for: .applicationSupportDirectory, in: .userDomainMask,
                 appropriateFor: nil, create: true))
@@ -83,7 +84,8 @@ final class RecentDestinations: ObservableObject {
         // life. Sealed with the device-only key; upgraded in place from any
         // plaintext file an earlier build left behind.
         if let data = SecureBehaviorStore.readMigrating(url),
-           let loaded = try? JSONDecoder().decode([Entry].self, from: data) {
+            let loaded = try? JSONDecoder().decode([Entry].self, from: data)
+        {
             entries = loaded
         }
     }
@@ -94,9 +96,11 @@ final class RecentDestinations: ObservableObject {
         // Empty when the name is blank or "current location" in any case.
         let trimmed = flows_rides_recordable_name(name).text
         guard !trimmed.isEmpty else { return }
-        entries = Self.merged(entries, adding: Entry(
-            name: trimmed, latitude: coordinate.latitude, longitude: coordinate.longitude,
-            lastUsed: now, uses: 1), now: now)
+        entries = Self.merged(
+            entries,
+            adding: Entry(
+                name: trimmed, latitude: coordinate.latitude, longitude: coordinate.longitude,
+                lastUsed: now, uses: 1), now: now)
         SecureBehaviorStore.save(entries, to: url)
     }
 
@@ -112,10 +116,11 @@ final class RecentDestinations: ObservableObject {
         let answer = names.with { joined, lengths, _ in
             lastUsed.lent { lu in
                 uses.lent { us in
-                    Array(flows_rides_merged_recents(
-                        joined, lengths, lu, us, Int64(list.count),
-                        new.name, new.lastUsed.timeIntervalSinceReferenceDate, Int64(new.uses),
-                        now.timeIntervalSinceReferenceDate))
+                    Array(
+                        flows_rides_merged_recents(
+                            joined, lengths, lu, us, Int64(list.count),
+                            new.name, new.lastUsed.timeIntervalSinceReferenceDate, Int64(new.uses),
+                            now.timeIntervalSinceReferenceDate))
                 }
             }
         }
@@ -131,8 +136,9 @@ final class RecentDestinations: ObservableObject {
     /// last month's one-off even if the one-off is slightly fresher than one
     /// of its visits.
     nonisolated static func score(_ e: Entry, now: Date) -> Double {
-        flows_rides_recent_score(Int64(e.uses), e.lastUsed.timeIntervalSinceReferenceDate,
-                                 now.timeIntervalSinceReferenceDate)
+        flows_rides_recent_score(
+            Int64(e.uses), e.lastUsed.timeIntervalSinceReferenceDate,
+            now.timeIntervalSinceReferenceDate)
     }
 
     /// Forget every recorded destination.
@@ -148,8 +154,10 @@ final class RecentDestinations: ObservableObject {
         // in rank order.
         let names = RustTextColumn(entries.map(\.name))
         let picks = names.with { joined, lengths, _ in
-            Array(flows_rides_matching_recents(joined, lengths, Int64(entries.count),
-                                               fragment, Int64(limit)))
+            Array(
+                flows_rides_matching_recents(
+                    joined, lengths, Int64(entries.count),
+                    fragment, Int64(limit)))
         }
         return picks.map { entries[Int($0)] }
     }
@@ -164,10 +172,10 @@ final class RecentDestinations: ObservableObject {
 final class DestinationSearch: NSObject, ObservableObject {
     struct Suggestion: Identifiable, Equatable {
         enum Kind: Equatable {
-            case completion   // Apple completer row
-            case recent       // a place this driver has planned before
-            case predicted    // where they usually go at this hour, from here
-            case coordinate   // pasted lat/lon
+            case completion  // Apple completer row
+            case recent  // a place this driver has planned before
+            case predicted  // where they usually go at this hour, from here
+            case coordinate  // pasted lat/lon
         }
         /// What the row IS, not when it was made. A fresh UUID per rebuild
         /// gave every keystroke's rows new identities, so SwiftUI replaced
@@ -252,9 +260,10 @@ final class DestinationSearch: NSObject, ObservableObject {
         }
         var pinned: [Suggestion] = []
         if let point = CoordinateInput.parse(trimmed) {
-            pinned.append(Suggestion(
-                title: CoordinateInput.displayName(point), subtitle: "Exact map point",
-                kind: .coordinate, coordinate: point, distanceMeters: distance(point)))
+            pinned.append(
+                Suggestion(
+                    title: CoordinateInput.displayName(point), subtitle: "Exact map point",
+                    kind: .coordinate, coordinate: point, distanceMeters: distance(point)))
         }
         // Empty field: lead with where this driver usually goes at this hour,
         // on this kind of day, from about here. Each row carries its own
@@ -262,17 +271,19 @@ final class DestinationSearch: NSObject, ObservableObject {
         // unexplained.
         if trimmed.isEmpty {
             for p in predictionProvider() {
-                pinned.append(Suggestion(
-                    title: p.name, subtitle: p.reason,
-                    kind: .predicted, coordinate: p.coordinate,
-                    distanceMeters: distance(p.coordinate)))
+                pinned.append(
+                    Suggestion(
+                        title: p.name, subtitle: p.reason,
+                        kind: .predicted, coordinate: p.coordinate,
+                        distanceMeters: distance(p.coordinate)))
             }
         }
         for r in recentsProvider(trimmed) {
-            pinned.append(Suggestion(
-                title: r.name, subtitle: "Recent",
-                kind: .recent, coordinate: r.coordinate,
-                distanceMeters: distance(r.coordinate)))
+            pinned.append(
+                Suggestion(
+                    title: r.name, subtitle: "Recent",
+                    kind: .recent, coordinate: r.coordinate,
+                    distanceMeters: distance(r.coordinate)))
         }
         pinnedRows = Self.blend(pinned: [], completions: pinned, cap: 8)
 
@@ -305,8 +316,10 @@ final class DestinationSearch: NSObject, ObservableObject {
         let c = RustTextColumn(completions.map(\.title))
         let rows = p.with { pj, pl, _ in
             c.with { cj, cl, _ in
-                Array(flows_rides_blend_suggestions(pj, pl, Int64(pinned.count),
-                                                    cj, cl, Int64(completions.count), Int64(cap)))
+                Array(
+                    flows_rides_blend_suggestions(
+                        pj, pl, Int64(pinned.count),
+                        cj, cl, Int64(completions.count), Int64(cap)))
             }
         }
         return rows.map { $0 >= 0 ? pinned[Int($0)] : completions[Int(-$0 - 1)] }
@@ -349,13 +362,15 @@ extension DestinationSearch: MKLocalSearchCompleterDelegate {
             Suggestion(title: $0.title, subtitle: $0.subtitle)
         }
         Task { @MainActor in
-            guard self.awaitingAnswers else { return }   // a pick came first (accept)
+            guard self.awaitingAnswers else { return }  // a pick came first (accept)
             self.suggestions = Self.blend(pinned: self.pinnedRows, completions: Array(rows))
         }
     }
 
-    nonisolated func completer(_ completer: MKLocalSearchCompleter,
-                               didFailWithError error: Error) {
+    nonisolated func completer(
+        _ completer: MKLocalSearchCompleter,
+        didFailWithError error: Error
+    ) {
         // Completer failures keep the locally-resolved rows — recents and
         // coordinates work offline; only Apple's completions go quiet.
         Task { @MainActor in self.suggestions = self.pinnedRows }

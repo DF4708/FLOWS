@@ -141,9 +141,10 @@ enum ScannerIncidents {
     }
 
     static func isExpired(_ incident: Incident, now: Date = Date()) -> Bool {
-        flows_alert_text_is_expired(incident.kind.rustCode,
-                                    incident.heardAt.timeIntervalSinceReferenceDate,
-                                    now.timeIntervalSinceReferenceDate)
+        flows_alert_text_is_expired(
+            incident.kind.rustCode,
+            incident.heardAt.timeIntervalSinceReferenceDate,
+            now.timeIntervalSinceReferenceDate)
     }
 
     /// How far from the driver an incident is worth drawing. Beyond this it
@@ -152,13 +153,16 @@ enum ScannerIncidents {
 
     /// Keep only what is still live and still near the driver or the route
     /// corridor. `corridor` is a coarse sample of the route.
-    static func visible(_ incidents: [Incident],
-                        near position: CLLocationCoordinate2D?,
-                        corridor: [CLLocationCoordinate2D] = [],
-                        now: Date = Date()) -> [Incident] {
+    static func visible(
+        _ incidents: [Incident],
+        near position: CLLocationCoordinate2D?,
+        corridor: [CLLocationCoordinate2D] = [],
+        now: Date = Date()
+    ) -> [Incident] {
         guard !incidents.isEmpty else { return [] }
         let kinds = incidents.map { $0.kind.rustCode }
-        let lats = incidents.map(\.coordinate.latitude), lons = incidents.map(\.coordinate.longitude)
+        let lats = incidents.map(\.coordinate.latitude)
+        let lons = incidents.map(\.coordinate.longitude)
         let heard = incidents.map { $0.heardAt.timeIntervalSinceReferenceDate }
         // An empty corridor crosses as one placeholder point its count ignores.
         let cLats = corridor.isEmpty ? [0] : corridor.map(\.latitude)
@@ -169,10 +173,11 @@ enum ScannerIncidents {
                     heard.lent { h in
                         cLats.lent { cla in
                             cLons.lent { clo in
-                                flows_alert_text_visible(k, la, lo, h, position != nil,
-                                                         position?.latitude ?? 0, position?.longitude ?? 0,
-                                                         cla, clo, Int64(corridor.count),
-                                                         now.timeIntervalSinceReferenceDate)
+                                flows_alert_text_visible(
+                                    k, la, lo, h, position != nil,
+                                    position?.latitude ?? 0, position?.longitude ?? 0,
+                                    cla, clo, Int64(corridor.count),
+                                    now.timeIntervalSinceReferenceDate)
                             }
                         }
                     }
@@ -192,12 +197,14 @@ enum ScannerIncidents {
     static func merged(_ existing: [Incident], adding new: Incident) -> [Incident] {
         guard !existing.isEmpty else { return [new] }
         let kinds = existing.map { $0.kind.rustCode }
-        let lats = existing.map(\.coordinate.latitude), lons = existing.map(\.coordinate.longitude)
+        let lats = existing.map(\.coordinate.latitude)
+        let lons = existing.map(\.coordinate.longitude)
         let kept = kinds.lent { k in
             lats.lent { la in
                 lons.lent { lo in
-                    flows_alert_text_merged_keep(k, la, lo, new.kind.rustCode,
-                                                 new.coordinate.latitude, new.coordinate.longitude)
+                    flows_alert_text_merged_keep(
+                        k, la, lo, new.kind.rustCode,
+                        new.coordinate.latitude, new.coordinate.longitude)
                 }
             }
         }

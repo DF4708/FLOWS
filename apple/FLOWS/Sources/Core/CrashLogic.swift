@@ -225,9 +225,9 @@ enum HOSRules {
 
     enum Status: Equatable {
         case ok
-        case breakSoon(secondsUntilDue: TimeInterval)   // inside the warning window
-        case breakDue                                    // 8 h reached
-        case limitReached                                // 11 h reached
+        case breakSoon(secondsUntilDue: TimeInterval)  // inside the warning window
+        case breakDue  // 8 h reached
+        case limitReached  // 11 h reached
     }
 
     static func status(drivingSeconds: TimeInterval) -> Status {

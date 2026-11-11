@@ -66,14 +66,20 @@ enum ShelterPolicy {
             case .inVehicle:
                 return ["rest area", "truck stop", "parking lot", "gas station"]
             case .anyBuilding:
-                return ["restaurant", "cafe", "supermarket", "shopping mall",
-                        "library", "gas station"]
+                return [
+                    "restaurant", "cafe", "supermarket", "shopping mall",
+                    "library", "gas station",
+                ]
             case .sturdyBuilding:
-                return ["public library", "shopping mall", "hospital",
-                        "community center", "school", "supermarket"]
+                return [
+                    "public library", "shopping mall", "hospital",
+                    "community center", "school", "supermarket",
+                ]
             case .officialShelter:
-                return ["emergency shelter", "evacuation center",
-                        "community center", "school", "fire station"]
+                return [
+                    "emergency shelter", "evacuation center",
+                    "community center", "school", "fire station",
+                ]
             }
         }
 
@@ -96,7 +102,7 @@ enum ShelterPolicy {
         case 0: return .inVehicle
         case 1: return .anyBuilding
         case 3: return .officialShelter
-        default: return .sturdyBuilding   // 2, and the containment fallback
+        default: return .sturdyBuilding  // 2, and the containment fallback
         }
     }
 
@@ -122,7 +128,9 @@ enum ShelterPolicy {
     /// "12 min" / "1 h 05 min" — the countdown in the directions window.
     static func countdownText(_ seconds: TimeInterval) -> String {
         let s = max(0, Int(seconds.rounded()))
-        let h = s / 3600, m = (s % 3600) / 60, sec = s % 60
+        let h = s / 3600
+        let m = (s % 3600) / 60
+        let sec = s % 60
         if h > 0 { return String(format: "%d h %02d min", h, m) }
         if m > 0 { return String(format: "%d:%02d", m, sec) }
         return String(format: "0:%02d", sec)

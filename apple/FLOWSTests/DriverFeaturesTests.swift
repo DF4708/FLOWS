@@ -18,19 +18,22 @@ final class DriverFeaturesTests: XCTestCase {
         let now = Date(timeIntervalSince1970: 1_750_000_000)
         // The canonical case: 10 h route, alert at the far end expires in 1 h.
         XCTAssertFalse(
-            RiskTiming.isActive(expires: now.addingTimeInterval(3600),
-                                arrivalOffset: 10 * 3600, now: now),
+            RiskTiming.isActive(
+                expires: now.addingTimeInterval(3600),
+                arrivalOffset: 10 * 3600, now: now),
             "risk that ends in 1 h is GONE when you arrive 10 h from now")
         // Same alert encountered 30 minutes in → very much still there.
         XCTAssertTrue(
-            RiskTiming.isActive(expires: now.addingTimeInterval(3600),
-                                arrivalOffset: 30 * 60, now: now))
+            RiskTiming.isActive(
+                expires: now.addingTimeInterval(3600),
+                arrivalOffset: 30 * 60, now: now))
         // No expiry information → never silently discounted.
         XCTAssertTrue(RiskTiming.isActive(expires: nil, arrivalOffset: 10 * 3600, now: now))
         // All-day alert → active at the far end of a 10 h route.
         XCTAssertTrue(
-            RiskTiming.isActive(expires: now.addingTimeInterval(24 * 3600),
-                                arrivalOffset: 10 * 3600, now: now))
+            RiskTiming.isActive(
+                expires: now.addingTimeInterval(24 * 3600),
+                arrivalOffset: 10 * 3600, now: now))
     }
 
     func testArrivalOffsetsProrateAcrossTheRoute() {
@@ -44,8 +47,9 @@ final class DriverFeaturesTests: XCTestCase {
     // MARK: vehicle range — mpg + tank + how you actually drive
 
     private var van: VehicleProfile {
-        VehicleProfile(make: "Ford", model: "Transit", fuelType: .diesel,
-                       tankCapacityUnits: 25, ratedMilesPerUnit: 20)
+        VehicleProfile(
+            make: "Ford", model: "Transit", fuelType: .diesel,
+            tankCapacityUnits: 25, ratedMilesPerUnit: 20)
     }
 
     func testRatedRangeAndCalmDrivingKeepsIt() {
@@ -58,14 +62,17 @@ final class DriverFeaturesTests: XCTestCase {
 
     func testSpeedAndIdlingShrinkRange() {
         // 75 mph: 20 mph over → −24% economy.
-        XCTAssertEqual(VehicleProfile.efficiencyFactor(averageSpeedMph: 75, idleFraction: 0),
-                       0.76, accuracy: 1e-9)
+        XCTAssertEqual(
+            VehicleProfile.efficiencyFactor(averageSpeedMph: 75, idleFraction: 0),
+            0.76, accuracy: 1e-9)
         // Heavy idling costs too.
-        XCTAssertEqual(VehicleProfile.efficiencyFactor(averageSpeedMph: 50, idleFraction: 0.2),
-                       0.9, accuracy: 1e-9)
+        XCTAssertEqual(
+            VehicleProfile.efficiencyFactor(averageSpeedMph: 50, idleFraction: 0.2),
+            0.9, accuracy: 1e-9)
         // Floor at 0.5 — the model never claims the tank evaporates.
-        XCTAssertEqual(VehicleProfile.efficiencyFactor(averageSpeedMph: 120, idleFraction: 0.8),
-                       0.5, accuracy: 1e-9)
+        XCTAssertEqual(
+            VehicleProfile.efficiencyFactor(averageSpeedMph: 120, idleFraction: 0.8),
+            0.5, accuracy: 1e-9)
         // 250 mi into a 500 mi rated tank at 75 mph → 0.76·500 − 250 = 130 mi left.
         XCTAssertEqual(
             van.expectedRangeMiles(milesSinceFill: 250, averageSpeedMph: 75, idleFraction: 0),
@@ -75,14 +82,17 @@ final class DriverFeaturesTests: XCTestCase {
     func testFuelRecommendationTiming() {
         // 130 mi of range, station assumed ~25 mi out, 40 mi reserve → 90 mi
         // of margin: no nag yet.
-        XCTAssertFalse(VehicleProfile.shouldRecommendFuel(
-            rangeRemainingMiles: 130, milesToNextStation: 25))
+        XCTAssertFalse(
+            VehicleProfile.shouldRecommendFuel(
+                rangeRemainingMiles: 130, milesToNextStation: 25))
         // 60 mi of range → 20 mi past reserve, station 25 mi out: recommend NOW.
-        XCTAssertTrue(VehicleProfile.shouldRecommendFuel(
-            rangeRemainingMiles: 60, milesToNextStation: 25))
+        XCTAssertTrue(
+            VehicleProfile.shouldRecommendFuel(
+                rangeRemainingMiles: 60, milesToNextStation: 25))
         // Exactly at the boundary counts as recommend (don't cut it fine).
-        XCTAssertTrue(VehicleProfile.shouldRecommendFuel(
-            rangeRemainingMiles: 65, milesToNextStation: 25))
+        XCTAssertTrue(
+            VehicleProfile.shouldRecommendFuel(
+                rangeRemainingMiles: 65, milesToNextStation: 25))
     }
 
     @MainActor
@@ -110,11 +120,14 @@ final class DriverFeaturesTests: XCTestCase {
 
     // MARK: hotels — review/cost balance
 
-    private func hotel(_ name: String, rating: Double?, nightly: Double?,
-                       detour: Double = 1000) -> POIRanking.Candidate<String> {
-        POIRanking.Candidate(item: name, coordinate: CLLocationCoordinate2D(),
-                             aheadMeters: 10_000, detourMeters: detour,
-                             pricePerUnit: nightly, rating: rating)
+    private func hotel(
+        _ name: String, rating: Double?, nightly: Double?,
+        detour: Double = 1000
+    ) -> POIRanking.Candidate<String> {
+        POIRanking.Candidate(
+            item: name, coordinate: CLLocationCoordinate2D(),
+            aheadMeters: 10_000, detourMeters: detour,
+            pricePerUnit: nightly, rating: rating)
     }
 
     func testHotelValueBalancesRatingAndPrice() {
@@ -184,9 +197,10 @@ final class SpecTableAndParkingTests: XCTestCase {
 
     func testParkingFreeAndCloseBeatsExpensiveAndFar() {
         func lot(_ name: String, detour: Double) -> POIRanking.Candidate<String> {
-            POIRanking.Candidate(item: name, coordinate: CLLocationCoordinate2D(),
-                                 aheadMeters: 2_000, detourMeters: detour,
-                                 pricePerUnit: nil, rating: nil)
+            POIRanking.Candidate(
+                item: name, coordinate: CLLocationCoordinate2D(),
+                aheadMeters: 2_000, detourMeters: detour,
+                pricePerUnit: nil, rating: nil)
         }
         XCTAssertEqual(POIRanking.parkingCostTier(name: "Free Public Lot"), 0)
         XCTAssertEqual(POIRanking.parkingCostTier(name: "City Park & Ride"), 0)
@@ -194,13 +208,16 @@ final class SpecTableAndParkingTests: XCTestCase {
         XCTAssertEqual(POIRanking.parkingCostTier(name: "Main St Lot"), 1)
 
         let ranked = POIRanking.rankParking(
-            [lot("Premium Parking Garage", detour: 200),
-             lot("Free Public Lot", detour: 900),
-             lot("Main St Lot", detour: 100)],
+            [
+                lot("Premium Parking Garage", detour: 200),
+                lot("Free Public Lot", detour: 900),
+                lot("Main St Lot", detour: 100),
+            ],
             costTier: { POIRanking.parkingCostTier(name: $0) })
         // Free wins even 800 m farther; unknown-cost close lot beats the garage.
-        XCTAssertEqual(ranked.map(\.item),
-                       ["Free Public Lot", "Main St Lot", "Premium Parking Garage"])
+        XCTAssertEqual(
+            ranked.map(\.item),
+            ["Free Public Lot", "Main St Lot", "Premium Parking Garage"])
     }
 
     func testFuelPriceEstimatesFollowStatePatterns() {

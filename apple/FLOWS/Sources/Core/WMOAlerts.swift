@@ -23,21 +23,26 @@ enum WMOAlertParsing {
     /// Country → hub feed code, checked most-specific first so a point in
     /// Belize/CR/etc. isn't swallowed by Mexico's broad box. Coordinates are
     /// coarse national bounding boxes (only the covered countries).
-    private static let feeds: [(code: String, minLat: Double, maxLat: Double,
-                                minLon: Double, maxLon: Double)] = [
-        ("bz-nms-en", 15.8, 18.5, -89.3, -87.3),   // Belize
-        ("cr-imn-es", 8.0, 11.3, -86.0, -82.5),     // Costa Rica
-        ("pa-imhpa-es", 7.0, 9.7, -83.1, -77.1),    // Panama
-        ("do-indomet-es", 17.5, 20.1, -72.1, -68.3),// Dominican Republic
-        ("jm-jms-en", 17.6, 18.7, -78.5, -76.1),    // Jamaica
-        ("tt-ttms-en", 10.0, 11.4, -62.1, -60.8),   // Trinidad & Tobago
-        ("mx-smn-es", 14.3, 32.8, -118.5, -86.7),   // Mexico (regional catch-all)
-    ]
+    private static let feeds:
+        [(
+            code: String, minLat: Double, maxLat: Double,
+            minLon: Double, maxLon: Double
+        )] = [
+            ("bz-nms-en", 15.8, 18.5, -89.3, -87.3),  // Belize
+            ("cr-imn-es", 8.0, 11.3, -86.0, -82.5),  // Costa Rica
+            ("pa-imhpa-es", 7.0, 9.7, -83.1, -77.1),  // Panama
+            ("do-indomet-es", 17.5, 20.1, -72.1, -68.3),  // Dominican Republic
+            ("jm-jms-en", 17.6, 18.7, -78.5, -76.1),  // Jamaica
+            ("tt-ttms-en", 10.0, 11.4, -62.1, -60.8),  // Trinidad & Tobago
+            ("mx-smn-es", 14.3, 32.8, -118.5, -86.7),  // Mexico (regional catch-all)
+        ]
 
     /// The hub feed code for a point, or nil if outside every covered country.
     static func feedCode(for c: CLLocationCoordinate2D) -> String? {
-        for f in feeds where c.latitude >= f.minLat && c.latitude <= f.maxLat
-            && c.longitude >= f.minLon && c.longitude <= f.maxLon {
+        for f in feeds
+        where c.latitude >= f.minLat && c.latitude <= f.maxLat
+            && c.longitude >= f.minLon && c.longitude <= f.maxLon
+        {
             // Mexico's box also takes in Guatemala, El Salvador and northern
             // Honduras, where its feed has no shapes: Guatemala City read
             // "no alerts", complete, when it is a place no covered feed
@@ -47,7 +52,7 @@ enum WMOAlertParsing {
             // read from the wrong country's list is "no alerts", complete.
             if f.code == "bz-nms-en" {
                 switch besideBelize(c) {
-                case .mexico: continue          // on to Mexico's own list
+                case .mexico: continue  // on to Mexico's own list
                 case .unsure: return nil
                 case .belize: break
                 }
@@ -85,10 +90,10 @@ enum WMOAlertParsing {
     /// country's "no alerts" does not.
     static func besideBelize(_ c: CLLocationCoordinate2D) -> BelizeSide {
         let (lat, lon) = (c.latitude, c.longitude)
-        if lat < 15.9 || lon < -89.15 { return .unsure }          // Guatemala, Honduras
-        if lon < -88.88 { return lat > 17.8 ? .unsure : .belize } // Petén corner, Mexico above
+        if lat < 15.9 || lon < -89.15 { return .unsure }  // Guatemala, Honduras
+        if lon < -88.88 { return lat > 17.8 ? .unsure : .belize }  // Petén corner, Mexico above
         if lon > -88.1 { return lat > 18.2 ? .mexico : .belize }  // Xcalak coast
-        if lon > -88.3 { return lat > 18.45 ? .unsure : .belize } // Chetumal Bay
+        if lon > -88.3 { return lat > 18.45 ? .unsure : .belize }  // Chetumal Bay
         let river = 17.90 + 1.07 * (lon + 88.88)
         if lat > river + 0.1 { return .mexico }
         return lat > river - 0.1 ? .unsure : .belize
@@ -122,7 +127,10 @@ enum WMOAlertParsing {
     }
 
     struct RSSItem {
-        let link: String; let event: String; let severity: String; let expires: String
+        let link: String
+        let event: String
+        let severity: String
+        let expires: String
         /// When the list says the item was published (RSS `pubDate`, Atom
         /// `updated`), as written.
         var published = ""
@@ -141,30 +149,34 @@ enum WMOAlertParsing {
         var out: [RSSItem] = []
         var search = xml[xml.startIndex...]
         while let open = search.range(of: open),
-              let close = search.range(of: close, range: open.upperBound..<search.endIndex) {
+            let close = search.range(of: close, range: open.upperBound..<search.endIndex)
+        {
             let body = String(search[open.upperBound..<close.lowerBound])
             func tag(_ name: String) -> String? {
                 guard let s = body.range(of: "<\(name)>"),
-                      let e = body.range(of: "</\(name)>", range: s.upperBound..<body.endIndex)
+                    let e = body.range(of: "</\(name)>", range: s.upperBound..<body.endIndex)
                 else { return nil }
                 return String(body[s.upperBound..<e.lowerBound])
                     .trimmingCharacters(in: .whitespacesAndNewlines)
             }
             var link = tag("link")
             if link == nil, let l = body.range(of: "<link "),
-               let h = body.range(of: "href=\"", range: l.upperBound..<body.endIndex),
-               let q = body.range(of: "\"", range: h.upperBound..<body.endIndex) {
+                let h = body.range(of: "href=\"", range: l.upperBound..<body.endIndex),
+                let q = body.range(of: "\"", range: h.upperBound..<body.endIndex)
+            {
                 link = String(body[h.upperBound..<q.lowerBound])
             }
             // Any link: a list that names its alert files some other way
             // than ".xml" lost every alert, and read "no alerts". A link
             // that is not an alert file fails to parse as one: unknown.
             if let link, !link.isEmpty {
-                out.append(RSSItem(link: link,
-                                   event: tag("cap:event") ?? tag("title") ?? "Weather alert",
-                                   severity: tag("cap:severity") ?? "Moderate",
-                                   expires: tag("cap:expires") ?? "",
-                                   published: tag("pubDate") ?? tag("updated") ?? ""))
+                out.append(
+                    RSSItem(
+                        link: link,
+                        event: tag("cap:event") ?? tag("title") ?? "Weather alert",
+                        severity: tag("cap:severity") ?? "Moderate",
+                        expires: tag("cap:expires") ?? "",
+                        published: tag("pubDate") ?? tag("updated") ?? ""))
             }
             search = search[close.upperBound...]
         }
@@ -186,8 +198,10 @@ enum WMOAlertParsing {
     /// capped rain predictor as before, under its own name and icon. A
     /// notice that names the flood itself ("inundaciones", "crecida") is a
     /// flood at any level.
-    static func eventInRiskWords(_ event: String, severity: String,
-                                 detail: String? = nil) -> String {
+    static func eventInRiskWords(
+        _ event: String, severity: String,
+        detail: String? = nil
+    ) -> String {
         guard !event.isEmpty, RiskEquations.alertFamily(event) == nil else { return event }
         let e = event.folding(options: [.diacriticInsensitive, .caseInsensitive], locale: nil)
             .lowercased()
@@ -254,12 +268,13 @@ enum WMOAlertParsing {
             return true
         }
         // "75 a 150 mm", "50-75 mm", "de 150 mm": the first figure of each.
-        let pattern = #"(\d+(?:[.,]\d+)?)(?:\s*(?:a|to|-|–)\s*\d+(?:[.,]\d+)?)?\s*(?:mm|milimetros|millimeters|millimetres)\b"#
+        let pattern =
+            #"(\d+(?:[.,]\d+)?)(?:\s*(?:a|to|-|–)\s*\d+(?:[.,]\d+)?)?\s*(?:mm|milimetros|millimeters|millimetres)\b"#
         guard let regex = try? NSRegularExpression(pattern: pattern) else { return false }
         let whole = NSRange(t.startIndex..., in: t)
         return regex.matches(in: t, range: whole).contains { match in
             guard let r = Range(match.range(at: 1), in: t),
-                  let amount = Double(t[r].replacingOccurrences(of: ",", with: "."))
+                let amount = Double(t[r].replacingOccurrences(of: ",", with: "."))
             else { return false }
             return amount >= floodRainMillimetres
         }
@@ -315,7 +330,7 @@ enum WMOAlertParsing {
         guard xml.contains("<alert") else { return nil }
         func tag(_ name: String) -> String? {
             guard let s = xml.range(of: "<\(name)>"),
-                  let e = xml.range(of: "</\(name)>", range: s.upperBound..<xml.endIndex)
+                let e = xml.range(of: "</\(name)>", range: s.upperBound..<xml.endIndex)
             else { return nil }
             return String(xml[s.upperBound..<e.lowerBound])
                 .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -329,14 +344,17 @@ enum WMOAlertParsing {
         var rings: [[CLLocationCoordinate2D]] = []
         var search = xml[xml.startIndex...]
         while let s = search.range(of: "<polygon>"),
-              let e = search.range(of: "</polygon>", range: s.upperBound..<search.endIndex) {
-            let ring = polygonCoords(String(search[s.upperBound..<e.lowerBound])
-                .trimmingCharacters(in: .whitespacesAndNewlines))
+            let e = search.range(of: "</polygon>", range: s.upperBound..<search.endIndex)
+        {
+            let ring = polygonCoords(
+                String(search[s.upperBound..<e.lowerBound])
+                    .trimmingCharacters(in: .whitespacesAndNewlines))
             if ring.count >= 3 { rings.append(ring) }
             search = search[e.upperBound...]
         }
         let status = tag("status")?.lowercased()
-        let live = (status == nil || status == "actual")
+        let live =
+            (status == nil || status == "actual")
             && tag("msgType")?.lowercased() != "cancel"
             && tag("responseType")?.lowercased() != "allclear"
         return ParsedCAP(

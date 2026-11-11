@@ -46,7 +46,6 @@ enum RouteHeadTrainer {
         rows.flatMap { r in columns.flatMap { [r[$0] ?? 0, r[$0] == nil ? 0 : 1] } }
     }
 
-
     /// Fine-tune `base` on the driver's rows. Pure and deterministic — same
     /// inputs, same weights out — so it is unit-testable without a device.
     ///
@@ -66,7 +65,8 @@ enum RouteHeadTrainer {
     ) -> LearnedHead? {
         // No rows is no tune (and an empty buffer never crosses).
         guard !rows.isEmpty else { return nil }
-        let head = base.bridgeFlat, flat = flatRows(rows)
+        let head = base.bridgeFlat
+        let flat = flatRows(rows)
         // The tuned head comes back flat with the sample count in front;
         // empty for "no tune" (a stale width, no finite target, a result
         // that is not finite).
@@ -75,7 +75,8 @@ enum RouteHeadTrainer {
         }
         let values = Array(out)
         guard let samples = values.first.flatMap({ Int(exactly: $0) }),
-              let w = LearnedHead.weights(fromBridgeFlat: values.dropFirst()) else { return nil }
+            let w = LearnedHead.weights(fromBridgeFlat: values.dropFirst())
+        else { return nil }
         var tuned = LearnedHead(w1: w.w1, b1: w.b1, w2: w.w2, b2: w.b2, version: base.version)
         tuned.rows = Int(flows_seasonal_tuned_rows(Int64(base.rows ?? 0), base.rows != nil, Int64(samples)))
         tuned.tunedOnDevice = true
@@ -87,7 +88,8 @@ enum RouteHeadTrainer {
     /// pathological batch), and reportable in the health log.
     static func meanSquaredError(_ head: LearnedHead, rows: [[String: Double]]) -> Double? {
         guard !rows.isEmpty else { return nil }
-        let h = head.bridgeFlat, flat = flatRows(rows)
+        let h = head.bridgeFlat
+        let flat = flatRows(rows)
         let r = h.lent { hp in flat.lent { rp in flows_seasonal_mean_squared_error(hp, rp) } }
         return r.is_some == 1 ? r.value : nil
     }

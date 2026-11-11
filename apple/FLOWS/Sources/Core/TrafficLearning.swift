@@ -71,10 +71,14 @@ struct TrafficArea: Hashable, Codable {
 
     init(_ c: CLLocationCoordinate2D) {
         func q(_ v: Double) -> Int { Int((v * 10).rounded()) }
-        lat = q(c.latitude); lon = q(c.longitude)
+        lat = q(c.latitude)
+        lon = q(c.longitude)
     }
 
-    private init(lat: Int, lon: Int) { self.lat = lat; self.lon = lon }
+    private init(lat: Int, lon: Int) {
+        self.lat = lat
+        self.lon = lon
+    }
 
     /// The shared cell every highway trip lands in.
     static let pooled = TrafficArea(lat: 9_999, lon: 9_999)
@@ -116,13 +120,15 @@ struct TrafficDelayStore: Codable, Equatable {
     /// morning without exploding into 168 sparse cells — weekday/weekend ×
     /// six four-hour blocks = 12 buckets.
     static func bucket(weekday: Int, hour: Int) -> String {
-        let weekend = (weekday == 1 || weekday == 7)   // Calendar: 1 = Sunday
+        let weekend = (weekday == 1 || weekday == 7)  // Calendar: 1 = Sunday
         let block = min(max(hour, 0), 23) / 4
         return "\(weekend ? "we" : "wd")\(block)"
     }
 
-    static func key(area: TrafficArea, roadClass: RoadClass,
-                    weekday: Int, hour: Int, weather: TrafficWeather) -> String {
+    static func key(
+        area: TrafficArea, roadClass: RoadClass,
+        weekday: Int, hour: Int, weather: TrafficWeather
+    ) -> String {
         // Highways pool nationwide; local roads stay in their own area.
         let a = roadClass == .highway ? TrafficArea.pooled : area
         return "\(a.key)|\(roadClass.rawValue)|"
@@ -130,19 +136,23 @@ struct TrafficDelayStore: Codable, Equatable {
     }
 
     /// Fold one completed trip in: how long it really took vs. the estimate.
-    mutating func record(predictedSeconds: Double, actualSeconds: Double,
-                         area: TrafficArea, roadClass: RoadClass,
-                         weekday: Int, hour: Int, weather: TrafficWeather,
-                         now: Double) {
+    mutating func record(
+        predictedSeconds: Double, actualSeconds: Double,
+        area: TrafficArea, roadClass: RoadClass,
+        weekday: Int, hour: Int, weather: TrafficWeather,
+        now: Double
+    ) {
         guard flows_learning_traffic_accepts(predictedSeconds, actualSeconds) else { return }
         decay(to: now)
-        let k = Self.key(area: area, roadClass: roadClass,
-                         weekday: weekday, hour: hour, weather: weather)
+        let k = Self.key(
+            area: area, roadClass: roadClass,
+            weekday: weekday, hour: hour, weather: weather)
         let cell = cells[k] ?? DelayCell()
         // `has` 0: the count is at Int.max (the Swift this replaced crashed);
         // the observation is dropped.
-        let next = flows_learning_traffic_add(cell.weightedSum, cell.weight, Int64(cell.count),
-                                              predictedSeconds, actualSeconds)
+        let next = flows_learning_traffic_add(
+            cell.weightedSum, cell.weight, Int64(cell.count),
+            predictedSeconds, actualSeconds)
         if next.has == 1 {
             cells[k] = DelayCell(weightedSum: next.weighted_sum, weight: next.weight, count: Int(next.count))
         }
@@ -167,40 +177,59 @@ struct TrafficDelayStore: Codable, Equatable {
     /// earned confidence: this neighbourhood's own local roads first, then
     /// the pooled highway learning (which is what carries a local driver's
     /// experience onto a long trip), then no adjustment at all.
-    func factor(area: TrafficArea, roadClass: RoadClass,
-                weekday: Int, hour: Int, weather: TrafficWeather) -> Double {
-        let (local, hasLocal) = crossing(cells[Self.key(area: area, roadClass: .local, weekday: weekday, hour: hour, weather: weather)])
-        let (pooled, hasPooled) = crossing(cells[Self.key(area: .pooled, roadClass: .highway, weekday: weekday, hour: hour, weather: weather)])
+    func factor(
+        area: TrafficArea, roadClass: RoadClass,
+        weekday: Int, hour: Int, weather: TrafficWeather
+    ) -> Double {
+        let (local, hasLocal) = crossing(
+            cells[Self.key(area: area, roadClass: .local, weekday: weekday, hour: hour, weather: weather)])
+        let (pooled, hasPooled) = crossing(
+            cells[Self.key(area: .pooled, roadClass: .highway, weekday: weekday, hour: hour, weather: weather)])
         return flows_learning_traffic_factor(roadClass == .highway, local, hasLocal, pooled, hasPooled)
     }
 
     /// The ETA this model expects, and the delay it implies.
-    func adjustedSeconds(routerSeconds: Double, area: TrafficArea,
-                         roadClass: RoadClass,
-                         weekday: Int, hour: Int, weather: TrafficWeather) -> Double {
-        let (local, hasLocal) = crossing(cells[Self.key(area: area, roadClass: .local, weekday: weekday, hour: hour, weather: weather)])
-        let (pooled, hasPooled) = crossing(cells[Self.key(area: .pooled, roadClass: .highway, weekday: weekday, hour: hour, weather: weather)])
-        return flows_learning_traffic_adjusted_seconds(routerSeconds, roadClass == .highway, local, hasLocal, pooled, hasPooled)
+    func adjustedSeconds(
+        routerSeconds: Double, area: TrafficArea,
+        roadClass: RoadClass,
+        weekday: Int, hour: Int, weather: TrafficWeather
+    ) -> Double {
+        let (local, hasLocal) = crossing(
+            cells[Self.key(area: area, roadClass: .local, weekday: weekday, hour: hour, weather: weather)])
+        let (pooled, hasPooled) = crossing(
+            cells[Self.key(area: .pooled, roadClass: .highway, weekday: weekday, hour: hour, weather: weather)])
+        return flows_learning_traffic_adjusted_seconds(
+            routerSeconds, roadClass == .highway, local, hasLocal, pooled, hasPooled)
     }
 
     /// Extra minutes over the router's estimate — what the driver is shown.
-    func predictedDelayMinutes(routerSeconds: Double, area: TrafficArea,
-                               roadClass: RoadClass, weekday: Int, hour: Int,
-                               weather: TrafficWeather) -> Int {
-        let (local, hasLocal) = crossing(cells[Self.key(area: area, roadClass: .local, weekday: weekday, hour: hour, weather: weather)])
-        let (pooled, hasPooled) = crossing(cells[Self.key(area: .pooled, roadClass: .highway, weekday: weekday, hour: hour, weather: weather)])
+    func predictedDelayMinutes(
+        routerSeconds: Double, area: TrafficArea,
+        roadClass: RoadClass, weekday: Int, hour: Int,
+        weather: TrafficWeather
+    ) -> Int {
+        let (local, hasLocal) = crossing(
+            cells[Self.key(area: area, roadClass: .local, weekday: weekday, hour: hour, weather: weather)])
+        let (pooled, hasPooled) = crossing(
+            cells[Self.key(area: .pooled, roadClass: .highway, weekday: weekday, hour: hour, weather: weather)])
         // Absent where the minutes are not a number (the Swift this replaced
         // crashed): no delay to report.
-        let minutes = flows_learning_traffic_delay_minutes(routerSeconds, roadClass == .highway, local, hasLocal, pooled, hasPooled)
+        let minutes = flows_learning_traffic_delay_minutes(
+            routerSeconds, roadClass == .highway, local, hasLocal, pooled, hasPooled)
         return minutes.is_some == 1 ? Int(minutes.value) : 0
     }
 
     /// How many trips back this cell — the UI only speaks up once the model
     /// has earned it.
-    func isConfident(area: TrafficArea, roadClass: RoadClass,
-                     weekday: Int, hour: Int, weather: TrafficWeather) -> Bool {
-        let count = cells[Self.key(area: area, roadClass: roadClass, weekday: weekday,
-                                   hour: hour, weather: weather)]?.count ?? 0
+    func isConfident(
+        area: TrafficArea, roadClass: RoadClass,
+        weekday: Int, hour: Int, weather: TrafficWeather
+    ) -> Bool {
+        let count =
+            cells[
+                Self.key(
+                    area: area, roadClass: roadClass, weekday: weekday,
+                    hour: hour, weather: weather)]?.count ?? 0
         return flows_learning_traffic_is_confident(Int64(count))
     }
 }
@@ -210,8 +239,11 @@ struct TrafficDelayStore: Codable, Equatable {
 
 /// A cell as the bridge takes it: its fields plus whether it exists.
 private func crossing(_ cell: DelayCell?) -> (FlowsLearningCell, Bool) {
-    (FlowsLearningCell(weighted_sum: cell?.weightedSum ?? 0, weight: cell?.weight ?? 0,
-                       count: Double(cell?.count ?? 0)), cell != nil)
+    (
+        FlowsLearningCell(
+            weighted_sum: cell?.weightedSum ?? 0, weight: cell?.weight ?? 0,
+            count: Double(cell?.count ?? 0)), cell != nil
+    )
 }
 
 @MainActor
@@ -221,42 +253,52 @@ final class TrafficDelayModel: ObservableObject {
     private let url: URL
 
     init() {
-        let dir = (try? FileManager.default.url(
-            for: .applicationSupportDirectory, in: .userDomainMask,
-            appropriateFor: nil, create: true)) ?? URL(fileURLWithPath: NSTemporaryDirectory())
+        let dir =
+            (try? FileManager.default.url(
+                for: .applicationSupportDirectory, in: .userDomainMask,
+                appropriateFor: nil, create: true)) ?? URL(fileURLWithPath: NSTemporaryDirectory())
         url = dir.appendingPathComponent("flows_traffic_delay.json")
         if let data = SecureBehaviorStore.readMigrating(url),
-           let saved = try? JSONDecoder().decode(TrafficDelayStore.self, from: data) {
+            let saved = try? JSONDecoder().decode(TrafficDelayStore.self, from: data)
+        {
             store = saved
         }
     }
 
     /// Learn from a finished trip.
-    func record(predictedSeconds: Double, actualSeconds: Double,
-                area: TrafficArea, roadClass: RoadClass,
-                weather: TrafficWeather, at date: Date = Date()) {
+    func record(
+        predictedSeconds: Double, actualSeconds: Double,
+        area: TrafficArea, roadClass: RoadClass,
+        weather: TrafficWeather, at date: Date = Date()
+    ) {
         let cal = Calendar.current
-        store.record(predictedSeconds: predictedSeconds, actualSeconds: actualSeconds,
-                     area: area, roadClass: roadClass,
-                     weekday: cal.component(.weekday, from: date),
-                     hour: cal.component(.hour, from: date),
-                     weather: weather, now: date.timeIntervalSince1970)
+        store.record(
+            predictedSeconds: predictedSeconds, actualSeconds: actualSeconds,
+            area: area, roadClass: roadClass,
+            weekday: cal.component(.weekday, from: date),
+            hour: cal.component(.hour, from: date),
+            weather: weather, now: date.timeIntervalSince1970)
         persist()
     }
 
     /// The learned multiplier for driving HERE, on this kind of road, now.
-    func factor(area: TrafficArea, roadClass: RoadClass,
-                weather: TrafficWeather, at date: Date = Date()) -> Double {
+    func factor(
+        area: TrafficArea, roadClass: RoadClass,
+        weather: TrafficWeather, at date: Date = Date()
+    ) -> Double {
         let cal = Calendar.current
-        return store.factor(area: area, roadClass: roadClass,
-                            weekday: cal.component(.weekday, from: date),
-                            hour: cal.component(.hour, from: date), weather: weather)
+        return store.factor(
+            area: area, roadClass: roadClass,
+            weekday: cal.component(.weekday, from: date),
+            hour: cal.component(.hour, from: date), weather: weather)
     }
 
     /// Minutes of delay this model expects on top of the router's ETA.
-    func predictedDelayMinutes(routerSeconds: Double, area: TrafficArea,
-                               roadClass: RoadClass, weather: TrafficWeather,
-                               at date: Date = Date()) -> Int {
+    func predictedDelayMinutes(
+        routerSeconds: Double, area: TrafficArea,
+        roadClass: RoadClass, weather: TrafficWeather,
+        at date: Date = Date()
+    ) -> Int {
         let cal = Calendar.current
         return store.predictedDelayMinutes(
             routerSeconds: routerSeconds, area: area, roadClass: roadClass,

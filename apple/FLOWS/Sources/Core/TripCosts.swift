@@ -29,18 +29,25 @@ enum TripCosts {
     /// Drive fuel cost: miles ÷ miles-per-unit × price-per-unit. nil when the
     /// vehicle economy is unknown (no profile) — the banner then falls back to
     /// the EPA average car so routes stay comparable with each other.
-    static func driveFuelCostUSD(miles: Double, milesPerUnit: Double,
-                                 pricePerUnit: Double) -> Double? {
+    static func driveFuelCostUSD(
+        miles: Double, milesPerUnit: Double,
+        pricePerUnit: Double
+    ) -> Double? {
         flows_trip_vehicle_drive_fuel_cost_usd(miles, milesPerUnit, pricePerUnit).some
     }
 
     /// The fuel a ROUTE costs, as its card shows it: nil for a walk — a walker
     /// buys no gas, and a 408-mile walk read "~$51 fuel est." — and nil when
     /// the economy is unknown.
-    static func routeFuelCostUSD(isWalk: Bool, miles: Double, milesPerUnit: Double,
-                                 pricePerUnit: Double) -> Double? {
-        isWalk ? nil : driveFuelCostUSD(miles: miles, milesPerUnit: milesPerUnit,
-                                        pricePerUnit: pricePerUnit)
+    static func routeFuelCostUSD(
+        isWalk: Bool, miles: Double, milesPerUnit: Double,
+        pricePerUnit: Double
+    ) -> Double? {
+        isWalk
+            ? nil
+            : driveFuelCostUSD(
+                miles: miles, milesPerUnit: milesPerUnit,
+                pricePerUnit: pricePerUnit)
     }
 
     /// Drive CO₂ grams per mile from the vehicle's economy.

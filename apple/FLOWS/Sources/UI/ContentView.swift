@@ -25,9 +25,10 @@ struct ContentView: View {
     @EnvironmentObject private var model: AppModel
     // Cold start frames CONUS instead of a blank void; the first GPS fix
     // narrows to the user's area (see onReceive below).
-    @State private var camera: MapCameraPosition = .region(MKCoordinateRegion(
-        center: CLLocationCoordinate2D(latitude: 39.5, longitude: -98.35),
-        span: MKCoordinateSpan(latitudeDelta: 42, longitudeDelta: 60)))
+    @State private var camera: MapCameraPosition = .region(
+        MKCoordinateRegion(
+            center: CLLocationCoordinate2D(latitude: 39.5, longitude: -98.35),
+            span: MKCoordinateSpan(latitudeDelta: 42, longitudeDelta: 60)))
     @State private var visibleRegion: MKCoordinateRegion?
     /// Navigation camera mode: follows GPS until the user pans; a re-center
     /// button restores following (Apple/Google Maps behavior).
@@ -42,7 +43,8 @@ struct ContentView: View {
     /// was recreated (and its 30 s countdown restarted) on every re-render —
     /// at ~1 Hz GPS ticks it never fired at all.
     @State private var redAlertTimer = Timer.publish(
-        every: 30, tolerance: 5, on: .main, in: .common).autoconnect()
+        every: 30, tolerance: 5, on: .main, in: .common
+    ).autoconnect()
     /// Last settled camera heading (deg). A pan during navigation KEEPS the
     /// camera's heading-up rotation — the marker must rotate relative to the
     /// world's rotation, not assume a panned camera is north-up.
@@ -111,18 +113,24 @@ struct ContentView: View {
     /// color and the hazard color can alternate across the same area.
     /// Hatch with the stripe count bounded by the ring's own height, and
     /// skipped entirely beyond state scale (they are sub-pixel there).
-    private static func boundedHatch(_ ring: [CLLocationCoordinate2D], minSpacing: Double,
-                                     region: MKCoordinateRegion?)
-        -> (even: [[CLLocationCoordinate2D]], odd: [[CLLocationCoordinate2D]]) {
+    private static func boundedHatch(
+        _ ring: [CLLocationCoordinate2D], minSpacing: Double,
+        region: MKCoordinateRegion?
+    )
+        -> (even: [[CLLocationCoordinate2D]], odd: [[CLLocationCoordinate2D]])
+    {
         if let span = region?.span.latitudeDelta, span > 3 { return ([], []) }
         let lats = ring.map(\.latitude)
         let height = (lats.max() ?? 0) - (lats.min() ?? 0)
         return hatchLines(ring, spacingDeg: max(minSpacing, height / 12))
     }
 
-    private static func hatchLines(_ ring: [CLLocationCoordinate2D],
-                                   spacingDeg: Double)
-        -> (even: [[CLLocationCoordinate2D]], odd: [[CLLocationCoordinate2D]]) {
+    private static func hatchLines(
+        _ ring: [CLLocationCoordinate2D],
+        spacingDeg: Double
+    )
+        -> (even: [[CLLocationCoordinate2D]], odd: [[CLLocationCoordinate2D]])
+    {
         guard ring.count >= 3 else { return ([], []) }
         let ks = ring.map { $0.latitude + $0.longitude }
         guard let lo = ks.min(), let hi = ks.max(), hi > lo else { return ([], []) }
@@ -133,24 +141,26 @@ struct ContentView: View {
         while k < hi {
             var hits: [CLLocationCoordinate2D] = []
             for i in 0..<ring.count {
-                let a = ring[i], b = ring[(i + 1) % ring.count]
-                let ka = a.latitude + a.longitude, kb = b.latitude + b.longitude
+                let a = ring[i]
+                let b = ring[(i + 1) % ring.count]
+                let ka = a.latitude + a.longitude
+                let kb = b.latitude + b.longitude
                 // Half-open (<= vs >), not a strict sign test: a vertex lying
                 // EXACTLY on the scan line must count as one crossing, not
                 // zero from both incident edges — an odd hit count shifts the
                 // even-odd pairing and paints stripes outside a concave ring.
                 if (ka <= k) != (kb <= k) {
                     let t = (k - ka) / (kb - ka)
-                    hits.append(CLLocationCoordinate2D(
-                        latitude: a.latitude + t * (b.latitude - a.latitude),
-                        longitude: a.longitude + t * (b.longitude - a.longitude)))
+                    hits.append(
+                        CLLocationCoordinate2D(
+                            latitude: a.latitude + t * (b.latitude - a.latitude),
+                            longitude: a.longitude + t * (b.longitude - a.longitude)))
                 }
             }
             hits.sort { $0.longitude < $1.longitude }
             var j = 0
             while j + 1 < hits.count {
-                if line % 2 == 0 { even.append([hits[j], hits[j + 1]]) }
-                else { odd.append([hits[j], hits[j + 1]]) }
+                if line % 2 == 0 { even.append([hits[j], hits[j + 1]]) } else { odd.append([hits[j], hits[j + 1]]) }
                 j += 2
             }
             k += spacingDeg
@@ -173,7 +183,8 @@ struct ContentView: View {
             $0.realized >= model.riskDisplayFloor
         }
         let worstAll = elevated.map { $0.realized }.max() ?? 0.25
-        let fallbackKind = elevated.max(by: { $0.realized < $1.realized })?.kind
+        let fallbackKind =
+            elevated.max(by: { $0.realized < $1.realized })?.kind
             ?? HazardStyle.kind(forFamily: "environmental")
         // Each ZIP ring takes ITS OWN worst hazard (nearest its centroid) — that
         // drives both the risk-level stripe (score) and the hazard-type stripe.
@@ -188,19 +199,21 @@ struct ContentView: View {
             let inside = elevated.filter {
                 HazardFeedScores.pointInPolygon($0.coordinate, ring)
             }
-            let near = inside.max(by: { $0.realized < $1.realized })
+            let near =
+                inside.max(by: { $0.realized < $1.realized })
                 ?? elevated.map { ($0, POIRanking.meters($0.coordinate, c)) }
-                    .min(by: { $0.1 < $1.1 })?.0
+                .min(by: { $0.1 < $1.1 })?.0
             // Every stripe is its own MapPolyline, re-diffed on every model
             // publish; forty rings at a fixed 0.012° spacing put hundreds of
             // overlays on the map and made the planning screen crawl on a
             // large Mac window. Bound it: ~6 stripes per list per ring, and
             // none at all beyond state scale, where they are invisible.
             let hatch = Self.boundedHatch(ring, minSpacing: 0.012, region: visibleRegion)
-            return RiskAreaOverlay(id: code, ring: ring,
-                                   score: near?.realized ?? worstAll,
-                                   kind: near?.kind ?? fallbackKind,
-                                   riskStripes: hatch.even, typeStripes: hatch.odd)
+            return RiskAreaOverlay(
+                id: code, ring: ring,
+                score: near?.realized ?? worstAll,
+                kind: near?.kind ?? fallbackKind,
+                riskStripes: hatch.even, typeStripes: hatch.odd)
         }
         // Hull blobs are the FALLBACK area, never an overlapping duplicate:
         // a point inside a resolved ZCTA ring is covered by that ring; a US
@@ -212,11 +225,17 @@ struct ContentView: View {
         let unresolved = elevated.filter { pt in
             if zctaRings.values.contains(where: {
                 HazardFeedScores.pointInPolygon(pt.coordinate, $0)
-            }) { return false }
+            }) {
+                return false
+            }
             let inCONUS = RiskAreaFallback.inZIPBox(pt.coordinate)
-            if inCONUS, ringCentroids.contains(where: {
-                POIRanking.meters($0, pt.coordinate) < viewportHazardRadius * 2
-            }) { return false }   // same risk area as an already-drawn ZIP
+            if inCONUS,
+                ringCentroids.contains(where: {
+                    POIRanking.meters($0, pt.coordinate) < viewportHazardRadius * 2
+                })
+            {
+                return false
+            }  // same risk area as an already-drawn ZIP
             // Inside the US a hull blob is a PLACEHOLDER for a ZIP boundary
             // that hasn't resolved yet. Drawing it means a big rough box
             // appears and then visibly snaps into the real outline a moment
@@ -228,8 +247,10 @@ struct ContentView: View {
             // a point new to the map waits: the rough box also takes in
             // Toronto and the Great Lakes, and a blob the last lookups kept
             // blinked out at every re-sweep while it waited again.
-            if RiskAreaFallback.blobWaits(at: pt.coordinate, lookupsDone: ringsResolved,
-                                          placedBefore: zipPlacedPoints.contains(pt.id)) {
+            if RiskAreaFallback.blobWaits(
+                at: pt.coordinate, lookupsDone: ringsResolved,
+                placedBefore: zipPlacedPoints.contains(pt.id))
+            {
                 return false
             }
             return true
@@ -238,19 +259,24 @@ struct ContentView: View {
         // No ZIP under these points — open water, Canada, Mexico: a CIRCLE
         // around each group of neighbouring points, never a box. (A padded
         // hull of one point was a square: "squares over the water".)
-        let groups = RiskBlob.clusters(unresolved.map(\.coordinate),
-                                       adjacencyMeters: viewportHazardRadius * 3)
+        let groups = RiskBlob.clusters(
+            unresolved.map(\.coordinate),
+            adjacencyMeters: viewportHazardRadius * 3)
         blobOverlays = groups.map { group in
-            let members = elevated.filter { pt in group.contains(where: {
-                $0.latitude == pt.coordinate.latitude
-                    && $0.longitude == pt.coordinate.longitude }) }
+            let members = elevated.filter { pt in
+                group.contains(where: {
+                    $0.latitude == pt.coordinate.latitude
+                        && $0.longitude == pt.coordinate.longitude
+                })
+            }
             let worstMember = members.max(by: { $0.realized < $1.realized })
             let center = CLLocationCoordinate2D(
                 latitude: group.map(\.latitude).reduce(0, +) / Double(max(group.count, 1)),
                 longitude: group.map(\.longitude).reduce(0, +) / Double(max(group.count, 1)))
             let reach = group.map { POIRanking.meters($0, center) }.max() ?? 0
-            let ring = RiskAreaFallback.circleRing(center: center,
-                                                   radiusMeters: reach + viewportHazardRadius)
+            let ring = RiskAreaFallback.circleRing(
+                center: center,
+                radiusMeters: reach + viewportHazardRadius)
             let hatch = Self.boundedHatch(ring, minSpacing: 0.02, region: visibleRegion)
             // Named by where it stands, so the map keeps the same circle
             // from sweep to sweep instead of redrawing it under a new id.
@@ -272,10 +298,14 @@ struct ContentView: View {
     private func rebuildViewportBadges() {
         let candidates = (zctaOverlays + blobOverlays)
             .filter { $0.score >= model.riskIconFloor }
-            .map { BadgeClustering.Item(coordinate: RiskAreaFallback.iconAnchor(of: $0.ring),
-                                        kind: $0.kind, score: $0.score) }
-        clusteredBadgesCache = BadgeClustering.declutter(candidates,
-                                                         minSeparationMeters: badgeSpacingMeters)
+            .map {
+                BadgeClustering.Item(
+                    coordinate: RiskAreaFallback.iconAnchor(of: $0.ring),
+                    kind: $0.kind, score: $0.score)
+            }
+        clusteredBadgesCache = BadgeClustering.declutter(
+            candidates,
+            minSeparationMeters: badgeSpacingMeters)
         refreshViewportBadgeEvents()
     }
 
@@ -357,8 +387,9 @@ struct ContentView: View {
     /// badges are buttons of their own).
     @available(iOS 18.0, macOS 15.0, *)
     private var featureSelection: Binding<MapSelection<Int>?> {
-        Binding(get: { pickedRaw as? MapSelection<Int> },
-                set: { pickedRaw = $0.map(AnyHashable.init) })
+        Binding(
+            get: { pickedRaw as? MapSelection<Int> },
+            set: { pickedRaw = $0.map(AnyHashable.init) })
     }
     /// What adding a tapped place did — shown for a few seconds.
     @State private var placeNote: String?
@@ -390,13 +421,13 @@ struct ContentView: View {
     }
 
     #if os(iOS)
-    @Environment(\.horizontalSizeClass) private var sizeClass
-    @Environment(\.verticalSizeClass) private var verticalSizeClass
-    private var isCompact: Bool { sizeClass == .compact }
-    private var isShort: Bool { verticalSizeClass == .compact }
+        @Environment(\.horizontalSizeClass) private var sizeClass
+        @Environment(\.verticalSizeClass) private var verticalSizeClass
+        private var isCompact: Bool { sizeClass == .compact }
+        private var isShort: Bool { verticalSizeClass == .compact }
     #else
-    private let isCompact = false
-    private let isShort = false
+        private let isCompact = false
+        private let isShort = false
     #endif
 
     /// Golden-ratio metrics from the live window (see GoldenScale) — set by
@@ -504,10 +535,13 @@ struct ContentView: View {
                 Text(feature.title ?? "This place")
                     .scaledFont(size: 15, weight: .bold)
                     .lineLimit(2)
-                Text(model.mode == .planning ? "Make it your destination?"
-                                             : "Add it to your trip?")
-                    .scaledFont(.caption)
-                    .foregroundStyle(.secondary)
+                Text(
+                    model.mode == .planning
+                        ? "Make it your destination?"
+                        : "Add it to your trip?"
+                )
+                .scaledFont(.caption)
+                .foregroundStyle(.secondary)
             }
             Spacer(minLength: 4)
             Button(model.mode == .planning ? "Go there" : "Add") {
@@ -601,13 +635,15 @@ struct ContentView: View {
             }
         }
         .sheet(isPresented: $model.showVehicleEditor) {
-            VehicleEditorSheet(original: model.vehicle.profile,
-                               heightFeet: model.vehicleHeightFeet)
-                .environmentObject(model)
-                // Inside the sheet: it is presented into its own environment
-                // root, and a preferredColorScheme on the PRESENTER never
-                // reaches it — Settings opened bright white in a dark cab.
-                .preferredColorScheme(model.resolvedColorScheme)
+            VehicleEditorSheet(
+                original: model.vehicle.profile,
+                heightFeet: model.vehicleHeightFeet
+            )
+            .environmentObject(model)
+            // Inside the sheet: it is presented into its own environment
+            // root, and a preferredColorScheme on the PRESENTER never
+            // reaches it — Settings opened bright white in a dark cab.
+            .preferredColorScheme(model.resolvedColorScheme)
         }
         // A sheet is presented into its own environment root and does
         // NOT inherit the presenter's appearance — say it again here or
@@ -629,17 +665,22 @@ struct ContentView: View {
             // overview, and the first motion with a real course engages the
             // heading-up chase, which then survives red lights.
             guard model.mode == .navigating, cameraFollows, let g = guidance,
-                  let coord = model.location.coordinate else { return }
+                let coord = model.location.coordinate
+            else { return }
             if !chaseEngaged, model.location.speed > 1.2,
-               model.location.course >= 0 {
+                model.location.course >= 0
+            {
                 chaseEngaged = true
             }
             // Course is -1 (unknown) when stopped: the chase keeps the last
             // heading it had. Falling to 0 swung the pitched view north-up
             // at every red light the chase is meant to survive.
-            let heading = !chaseEngaged ? 0
-                : model.location.course >= 0 ? model.location.course
-                : chaseAngle?.heading ?? 0
+            let heading =
+                !chaseEngaged
+                ? 0
+                : model.location.course >= 0
+                    ? model.location.course
+                    : chaseAngle?.heading ?? 0
             let distance = model.cameraAltitude(
                 auto: chaseEngaged ? g.cameraAltitude : g.cameraAltitude * 1.4)
             // Keep the vehicle in the middle of the map the driver can SEE,
@@ -648,14 +689,16 @@ struct ContentView: View {
             // or closing never changes it.
             let pitch: Double = chaseEngaged ? (model.show3DMap ? 66 : 55) : 0
             chaseAngle = (heading, pitch)
-            moveCamera(.camera(MapCamera(
-                centerCoordinate: CameraZoom.chaseCenter(
-                    vehicle: coord, headingDegrees: heading,
-                    distanceMeters: distance,
-                    topCover: chromeTopFraction, bottomCover: chromeBottomFraction),
-                distance: distance,
-                heading: heading,
-                pitch: pitch)))
+            moveCamera(
+                .camera(
+                    MapCamera(
+                        centerCoordinate: CameraZoom.chaseCenter(
+                            vehicle: coord, headingDegrees: heading,
+                            distanceMeters: distance,
+                            topCover: chromeTopFraction, bottomCover: chromeBottomFraction),
+                        distance: distance,
+                        heading: heading,
+                        pitch: pitch)))
         }
         // FLIGHT camera: with the plane option chosen, the map follows the
         // traveler by phase — airport-close like walking (before takeoff and
@@ -678,13 +721,19 @@ struct ContentView: View {
             // routes the map holds the whole-route framing a card asked for.
             guard model.mode == .planning else { return }
             guard fix.speed > 2.2, fix.course >= 0,
-                  let region = visibleRegion else { return }
-            let distance = cameraDistance > 0 ? cameraDistance
+                let region = visibleRegion
+            else { return }
+            let distance =
+                cameraDistance > 0
+                ? cameraDistance
                 : max(region.span.latitudeDelta * 111_000 * 1.4, 1_200)
-            moveCamera(.camera(MapCamera(centerCoordinate: fix.coordinate,
-                                         distance: distance,
-                                         heading: fix.course,
-                                         pitch: 0)))
+            moveCamera(
+                .camera(
+                    MapCamera(
+                        centerCoordinate: fix.coordinate,
+                        distance: distance,
+                        heading: fix.course,
+                        pitch: 0)))
         }
         .onChange(of: model.transitItinerary?.mode) { _, mode in
             if mode == "Plane" { cameraFollows = true }
@@ -693,9 +742,11 @@ struct ContentView: View {
             // First fix in planning mode: settle from CONUS onto the user.
             guard !didAutoCenterOnFix, model.mode == .planning else { return }
             didAutoCenterOnFix = true
-            moveCamera(.region(MKCoordinateRegion(
-                center: fix.coordinate,
-                latitudinalMeters: 120_000, longitudinalMeters: 120_000)))
+            moveCamera(
+                .region(
+                    MKCoordinateRegion(
+                        center: fix.coordinate,
+                        latitudinalMeters: 120_000, longitudinalMeters: 120_000)))
         }
         .onChange(of: model.poi.selected?.id) { _, _ in
             // POI quick action: zoom OUT to show both the vehicle and the
@@ -709,41 +760,46 @@ struct ContentView: View {
                 origin: MKMapPoint(selected.item.placemark.coordinate),
                 size: MKMapSize(width: 1, height: 1))
             if let me = model.location.coordinate {
-                rect = rect.union(MKMapRect(
-                    origin: MKMapPoint(me), size: MKMapSize(width: 1, height: 1)))
+                rect = rect.union(
+                    MKMapRect(
+                        origin: MKMapPoint(me), size: MKMapSize(width: 1, height: 1)))
             }
             // While DRIVING with follow on, nothing but the driver or the
             // guidance chase moves the camera. A stop appearing in a list —
             // which is what opening or closing an alert does — must not
             // yank the map out from under the vehicle or change its zoom.
             guard !(model.mode == .navigating && cameraFollows) else { return }
-            cameraFollows = false   // let the driver inspect; re-center restores
-            moveCamera(.rect(rect.insetBy(dx: -rect.width * 0.4 - 3000,
-                                          dy: -rect.height * 0.4 - 3000)))
+            cameraFollows = false  // let the driver inspect; re-center restores
+            moveCamera(
+                .rect(
+                    rect.insetBy(
+                        dx: -rect.width * 0.4 - 3000,
+                        dy: -rect.height * 0.4 - 3000)))
         }
         #if os(iOS)
-        // iOS keeps the system sheet (it owns swipe-down dismissal); the
-        // macOS panel presentation lives in the ZStack above.
-        .sheet(isPresented: $model.showSettings) {
-            SettingsSheet()
+            // iOS keeps the system sheet (it owns swipe-down dismissal); the
+            // macOS panel presentation lives in the ZStack above.
+            .sheet(isPresented: $model.showSettings) {
+                SettingsSheet()
                 .environmentObject(model)
                 // Inside the sheet: it is presented into its own environment
                 // root, and a preferredColorScheme on the PRESENTER never
                 // reaches it — Settings opened bright white in a dark cab.
                 .preferredColorScheme(model.resolvedColorScheme)
-        }
-        // A sheet is presented into its own environment root and does
-        // NOT inherit the presenter's appearance — say it again here or
-        // settings opens bright white in a dark cab.
-        .presentationColorScheme(model.resolvedColorScheme)
+            }
+            // A sheet is presented into its own environment root and does
+            // NOT inherit the presenter's appearance — say it again here or
+            // settings opens bright white in a dark cab.
+            .presentationColorScheme(model.resolvedColorScheme)
         #endif
         .onAppear {
             // No fix yet (a Mac, usually): open on the best-known position
             // at city scale instead of the whole continent, where the risk
             // sweep draws nothing. The first real fix narrows further.
             if model.location.coordinate == nil, let p = model.bestKnownPosition {
-                camera = .region(MKCoordinateRegion(
-                    center: p.coordinate, latitudinalMeters: 80_000, longitudinalMeters: 80_000))
+                camera = .region(
+                    MKCoordinateRegion(
+                        center: p.coordinate, latitudinalMeters: 80_000, longitudinalMeters: 80_000))
             }
         }
         .task(id: model.mode) {
@@ -754,7 +810,8 @@ struct ContentView: View {
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(Self.viewportResweepSeconds))
                 guard !Task.isCancelled, model.mode != .navigating,
-                      let region = visibleRegion else { continue }
+                    let region = visibleRegion
+                else { continue }
                 viewportHazardKey = ""
                 refreshViewportHazards(region)
             }
@@ -773,23 +830,31 @@ struct ContentView: View {
                 // guidance chase pitches it forward-facing then.
                 cameraFollows = true
                 chaseEngaged = false
-                let target = model.location.coordinate
+                let target =
+                    model.location.coordinate
                     ?? model.navigation.route.flatMap { firstCoordinate(of: $0) }
                 guard let target else { return }
-                moveCamera(.camera(MapCamera(
-                    centerCoordinate: target,
-                    distance: 1_260,
-                    heading: 0,
-                    pitch: 0)))
+                moveCamera(
+                    .camera(
+                        MapCamera(
+                            centerCoordinate: target,
+                            distance: 1_260,
+                            heading: 0,
+                            pitch: 0)))
             case .planning where previous == .navigating:
                 // Ending a trip: zoom back out to the corridor (or the user)
                 // instead of stranding the camera at street level.
                 if let rect = model.lastRouteRect.flatMap(CameraZoom.usableRect) {
-                    moveCamera(.rect(rect.insetBy(dx: -rect.width * 0.2,
-                                                  dy: -rect.height * 0.2)))
+                    moveCamera(
+                        .rect(
+                            rect.insetBy(
+                                dx: -rect.width * 0.2,
+                                dy: -rect.height * 0.2)))
                 } else if let me = model.location.coordinate {
-                    moveCamera(.region(MKCoordinateRegion(
-                        center: me, latitudinalMeters: 120_000, longitudinalMeters: 120_000)))
+                    moveCamera(
+                        .region(
+                            MKCoordinateRegion(
+                                center: me, latitudinalMeters: 120_000, longitudinalMeters: 120_000)))
                 }
             default:
                 break
@@ -813,22 +878,28 @@ struct ContentView: View {
                 // at (no farther out than the first-fix view), flat and
                 // north-up like the planning follow; moving, the next fix
                 // turns it to the direction of travel.
-                moveCamera(.camera(MapCamera(
-                    centerCoordinate: coord,
-                    distance: min(cameraDistance > 0 ? cameraDistance : 168_000, 168_000),
-                    heading: 0,
-                    pitch: 0)))
+                moveCamera(
+                    .camera(
+                        MapCamera(
+                            centerCoordinate: coord,
+                            distance: min(cameraDistance > 0 ? cameraDistance : 168_000, 168_000),
+                            heading: 0,
+                            pitch: 0)))
             } else if let coord = model.location.coordinate {
                 // Same rule as the chase: pitched heading-up only once the
                 // vehicle has moved; re-centering while parked stays flat.
-                moveCamera(.camera(MapCamera(
-                    centerCoordinate: coord,
-                    distance: model.cameraAltitude(
-                        auto: model.navigation.guidance?.cameraAltitude ?? 900),
-                    heading: !chaseEngaged ? 0
-                        : model.location.course >= 0 ? model.location.course
-                        : chaseAngle?.heading ?? 0,   // as the chase, above
-                    pitch: chaseEngaged ? (model.show3DMap ? 66 : 55) : 0)))
+                moveCamera(
+                    .camera(
+                        MapCamera(
+                            centerCoordinate: coord,
+                            distance: model.cameraAltitude(
+                                auto: model.navigation.guidance?.cameraAltitude ?? 900),
+                            heading: !chaseEngaged
+                                ? 0
+                                : model.location.course >= 0
+                                    ? model.location.course
+                                    : chaseAngle?.heading ?? 0,  // as the chase, above
+                            pitch: chaseEngaged ? (model.show3DMap ? 66 : 55) : 0)))
             }
         }
         .sheet(isPresented: $showDemoGalleryRoot) {
@@ -849,8 +920,10 @@ struct ContentView: View {
                 showDemoGalleryRoot = true
             case "redalert":
                 let madison = CLLocationCoordinate2D(latitude: 43.0731, longitude: -89.4012)
-                moveCamera(.region(MKCoordinateRegion(
-                    center: madison, latitudinalMeters: 120_000, longitudinalMeters: 120_000)))
+                moveCamera(
+                    .region(
+                        MKCoordinateRegion(
+                            center: madison, latitudinalMeters: 120_000, longitudinalMeters: 120_000)))
                 DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
                     model.demoRedAlert(near: madison)
                 }
@@ -860,8 +933,10 @@ struct ContentView: View {
                 // screenshot (and the [layout] journal lines) show whether
                 // any menu covers another on this device.
                 let madison = CLLocationCoordinate2D(latitude: 43.0731, longitude: -89.4012)
-                moveCamera(.region(MKCoordinateRegion(
-                    center: madison, latitudinalMeters: 120_000, longitudinalMeters: 120_000)))
+                moveCamera(
+                    .region(
+                        MKCoordinateRegion(
+                            center: madison, latitudinalMeters: 120_000, longitudinalMeters: 120_000)))
                 DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
                     model.demoRedAlert(near: madison)
                     model.showTowingCard = true
@@ -878,9 +953,11 @@ struct ContentView: View {
                 let milwaukee = CLLocationCoordinate2D(latitude: 43.0389, longitude: -87.9065)
                 Task { @MainActor in
                     try? await Task.sleep(for: .seconds(2))
-                    guard let routes = try? await model.plan(
-                        from: madison, fromName: "Madison", to: milwaukee, toName: "Milwaukee"),
-                          let first = routes.first else { return }
+                    guard
+                        let routes = try? await model.plan(
+                            from: madison, fromName: "Madison", to: milwaukee, toName: "Milwaukee"),
+                        let first = routes.first
+                    else { return }
                     model.select(route: first)
                     try? await Task.sleep(for: .seconds(1))
                     _ = model.collapsedPanels.insert("fuel")
@@ -922,8 +999,12 @@ struct ContentView: View {
         guard model.mode != .navigating, model.showWeatherLayer else { return }
         // A state or two, not a continent. Nothing is read out here, so what
         // is on the map must still grow old.
-        guard region.span.latitudeDelta < 12 else { ageOutViewportHazards(); return }
-        let key = "\(Int(region.center.latitude * 8))|\(Int(region.center.longitude * 8))|\(Int(region.span.latitudeDelta * 4))"
+        guard region.span.latitudeDelta < 12 else {
+            ageOutViewportHazards()
+            return
+        }
+        let key =
+            "\(Int(region.center.latitude * 8))|\(Int(region.center.longitude * 8))|\(Int(region.span.latitudeDelta * 4))"
         guard key != viewportHazardKey else { return }
         // Commit the key now so the same viewport won't re-trigger, then run the
         // sweep on the TRAILING edge of the debounce window. The old code DROPPED
@@ -932,444 +1013,472 @@ struct ContentView: View {
         // hazards indefinitely. Now the last settle always gets its sweep. The
         // interval widens on weak/hot/low-power devices.
         viewportHazardKey = key
-        let debounceWait = max(0, AdaptiveTuning.shared.debounceSeconds
-                                  - Date().timeIntervalSince(lastViewportRefresh))
+        let debounceWait = max(
+            0,
+            AdaptiveTuning.shared.debounceSeconds
+                - Date().timeIntervalSince(lastViewportRefresh))
         viewportSweepTask?.cancel()
         // Low priority: nobody waits on the sweep, and fitting the camera to
         // new routes starts one just as their scoring does. Its requests
         // queued in line with the scoring's and GO unlocked that much later.
         viewportSweepTask = Task { @MainActor in
-          await ThrottledNet.$lowPriority.withValue(true) {
-            if debounceWait > 0 { try? await Task.sleep(for: .seconds(debounceWait)) }
-            guard !Task.isCancelled, viewportHazardKey == key else { return }
-            lastViewportRefresh = Date()
-            // The map says it is still looking: an area just panned to read
-            // as clear while its sweep was out. A superseded sweep leaves
-            // the flag to the one that replaced it.
-            viewportSweeping = true
-            defer { if viewportHazardKey == key || viewportHazardKey.isEmpty { viewportSweeping = false } }
-            // Live NA-wide feeds for the families weather points can't cover:
-            // satellite fire hotspots + recent quakes (viewport-wide), AQI +
-            // UV per grid cell (fetched inside the loop below).
-            let minLat = region.center.latitude - region.span.latitudeDelta / 2
-            let maxLat = region.center.latitude + region.span.latitudeDelta / 2
-            let minLon = region.center.longitude - region.span.longitudeDelta / 2
-            let maxLon = region.center.longitude + region.span.longitudeDelta / 2
-            // These feeds can take many seconds on a slow link, and the grid
-            // used to wait for the last of them: an area just panned to
-            // stayed blank though its forecast and warnings were in hand.
-            // They now run to one side. If they are not all in shortly, a
-            // first pass draws what the forecast and the warnings alone
-            // show, and the full pass follows. The first pass only ADDS: a
-            // point that looks quiet without the feeds is left as it was,
-            // never cleared, and the legend keeps saying "Checking this
-            // area…" until the full pass lands.
-            let feeds = Task { @MainActor in
-                async let hotspotsTask = LiveHazardFeedFetcher.shared.hotspots()
-                async let quakesTask = LiveHazardFeedFetcher.shared.recentQuakes()
-                // New primary feeds (all keyless, probed live): interagency active
-                // fire perimeters, NWS river-gauge flood categories, NOAA space
-                // weather. Each blends into an existing family below.
-                async let perimTask = LiveHazardFeedFetcher.shared.firePerimeters(
-                    minLat: minLat, minLon: minLon, maxLat: maxLat, maxLon: maxLon)
-                async let floodTask = LiveHazardFeedFetcher.shared.floodGauges(
-                    minLat: minLat, minLon: minLon, maxLat: maxLat, maxLon: maxLon)
-                async let spaceTask = LiveHazardFeedFetcher.shared.spaceWeather()
-                // New acute families (national feeds, probed live): volcanoes,
-                // avalanche zones, tropical storms, tsunami alerts.
-                async let volcanoTask = LiveHazardFeedFetcher.shared.elevatedVolcanoes()
-                async let avalancheTask = LiveHazardFeedFetcher.shared.avalanche()
-                async let stormTask = LiveHazardFeedFetcher.shared.tropicalStorms()
-                async let tsunamiTask = LiveHazardFeedFetcher.shared.tsunamiEvents()
-                async let spcTask = LiveHazardFeedFetcher.shared.convectiveOutlook()
-                // DOT road closures (WZDx open feeds) — realized blocked-road proof.
-                async let closureTask = LiveHazardFeedFetcher.shared.roadClosures(
-                    minLat: region.center.latitude - region.span.latitudeDelta / 2,
-                    minLon: region.center.longitude - region.span.longitudeDelta / 2,
-                    maxLat: region.center.latitude + region.span.latitudeDelta / 2,
-                    maxLon: region.center.longitude + region.span.longitudeDelta / 2)
-                return (hotspots: await hotspotsTask, quakes: await quakesTask,
+            await ThrottledNet.$lowPriority.withValue(true) {
+                if debounceWait > 0 { try? await Task.sleep(for: .seconds(debounceWait)) }
+                guard !Task.isCancelled, viewportHazardKey == key else { return }
+                lastViewportRefresh = Date()
+                // The map says it is still looking: an area just panned to read
+                // as clear while its sweep was out. A superseded sweep leaves
+                // the flag to the one that replaced it.
+                viewportSweeping = true
+                defer { if viewportHazardKey == key || viewportHazardKey.isEmpty { viewportSweeping = false } }
+                // Live NA-wide feeds for the families weather points can't cover:
+                // satellite fire hotspots + recent quakes (viewport-wide), AQI +
+                // UV per grid cell (fetched inside the loop below).
+                let minLat = region.center.latitude - region.span.latitudeDelta / 2
+                let maxLat = region.center.latitude + region.span.latitudeDelta / 2
+                let minLon = region.center.longitude - region.span.longitudeDelta / 2
+                let maxLon = region.center.longitude + region.span.longitudeDelta / 2
+                // These feeds can take many seconds on a slow link, and the grid
+                // used to wait for the last of them: an area just panned to
+                // stayed blank though its forecast and warnings were in hand.
+                // They now run to one side. If they are not all in shortly, a
+                // first pass draws what the forecast and the warnings alone
+                // show, and the full pass follows. The first pass only ADDS: a
+                // point that looks quiet without the feeds is left as it was,
+                // never cleared, and the legend keeps saying "Checking this
+                // area…" until the full pass lands.
+                let feeds = Task { @MainActor in
+                    async let hotspotsTask = LiveHazardFeedFetcher.shared.hotspots()
+                    async let quakesTask = LiveHazardFeedFetcher.shared.recentQuakes()
+                    // New primary feeds (all keyless, probed live): interagency active
+                    // fire perimeters, NWS river-gauge flood categories, NOAA space
+                    // weather. Each blends into an existing family below.
+                    async let perimTask = LiveHazardFeedFetcher.shared.firePerimeters(
+                        minLat: minLat, minLon: minLon, maxLat: maxLat, maxLon: maxLon)
+                    async let floodTask = LiveHazardFeedFetcher.shared.floodGauges(
+                        minLat: minLat, minLon: minLon, maxLat: maxLat, maxLon: maxLon)
+                    async let spaceTask = LiveHazardFeedFetcher.shared.spaceWeather()
+                    // New acute families (national feeds, probed live): volcanoes,
+                    // avalanche zones, tropical storms, tsunami alerts.
+                    async let volcanoTask = LiveHazardFeedFetcher.shared.elevatedVolcanoes()
+                    async let avalancheTask = LiveHazardFeedFetcher.shared.avalanche()
+                    async let stormTask = LiveHazardFeedFetcher.shared.tropicalStorms()
+                    async let tsunamiTask = LiveHazardFeedFetcher.shared.tsunamiEvents()
+                    async let spcTask = LiveHazardFeedFetcher.shared.convectiveOutlook()
+                    // DOT road closures (WZDx open feeds) — realized blocked-road proof.
+                    async let closureTask = LiveHazardFeedFetcher.shared.roadClosures(
+                        minLat: region.center.latitude - region.span.latitudeDelta / 2,
+                        minLon: region.center.longitude - region.span.longitudeDelta / 2,
+                        maxLat: region.center.latitude + region.span.latitudeDelta / 2,
+                        maxLon: region.center.longitude + region.span.longitudeDelta / 2)
+                    return (
+                        hotspots: await hotspotsTask, quakes: await quakesTask,
                         perimeters: await perimTask, floodGauges: await floodTask,
                         space: await spaceTask, volcanoes: await volcanoTask,
                         avalancheZones: await avalancheTask, storms: await stormTask,
                         tsunamis: await tsunamiTask, spcZones: await spcTask,
-                        closures: await closureTask)
-            }
-            // Every way out of this sweep stops them: a sweep the next pan
-            // replaced used to leave all eleven requests running in the
-            // background lane, in the new sweep's way. Stopping the ones
-            // that are already in does nothing.
-            defer { feeds.cancel() }
-            let feedsIn = SweepFlag()
-            Task { @MainActor in
-                _ = await feeds.value
-                feedsIn.done = true
-            }
-            var waited = 0
-            while !feedsIn.done, waited < Self.viewportFeedWaitTenths, !Task.isCancelled {
-                try? await Task.sleep(for: .milliseconds(100))
-                waited += 1
-            }
-            if Task.isCancelled { feeds.cancel(); return }
-            for early in (feedsIn.done ? [false] : [true, false]) {
-                // One snapshot, scored per point by HazardFeedScores.live — the
-                // same function the route scorer uses, so map and route agree.
-                let liveSnapshot: LiveHazardSnapshot
-                // Laid out once for every grid point below, not once per point.
-                let preparedGauges: HazardFeedScores.PreparedGauges
-                let preparedClosures: HazardFeedScores.PreparedPoints
-                if early {
-                    liveSnapshot = LiveHazardSnapshot(
-                        hotspots: [], perimeters: [], quakes: [], space: (r: 0, s: 0, g: 0),
-                        volcanoes: [], avalancheZones: [], storms: [],
-                        tsunamis: [], spcZones: [])
-                    preparedGauges = HazardFeedScores.PreparedGauges([])
-                    preparedClosures = HazardFeedScores.PreparedPoints([(lat: Double, lon: Double)]())
-                } else {
-                    let all = await withTaskCancellationHandler {
-                        await feeds.value
-                    } onCancel: {
-                        feeds.cancel()
-                    }
-                    if Task.isCancelled { return }
-                    liveSnapshot = LiveHazardSnapshot(
-                        hotspots: all.hotspots, perimeters: all.perimeters, quakes: all.quakes,
-                        space: all.space, volcanoes: all.volcanoes,
-                        avalancheZones: all.avalancheZones, storms: all.storms,
-                        tsunamis: all.tsunamis, spcZones: all.spcZones)
-                    preparedGauges = HazardFeedScores.PreparedGauges(all.floodGauges)
-                    preparedClosures = HazardFeedScores.PreparedPoints(all.closures)
+                        closures: await closureTask
+                    )
                 }
-                var found: [ViewportHazard] = []
-                // Every grid point whose conditions came back, quiet or not: a
-                // re-sampled point replaces what was there, so a hazard that has
-                // cleared leaves the map.
-                var sampled: [CLLocationCoordinate2D] = []
-                // N×N grid (5×5 on capable devices, 4×4 / 3×3 on weaker, hot, or
-                // Low-Power ones) — fewer sample points is fewer requests AND less
-                // CPU per sweep. Floor is BELOW the green cut so the driver SEES
-                // weather across North America, not only what already scores.
-                // Deep zoom (span < 1° ≈ city scale) earns one extra grid step —
-                // local conditions resolve finer exactly where the driver is
-                // looking, without raising the wide-view request budget.
-                let base = AdaptiveTuning.shared.viewportGridSpan
-                let n = region.span.latitudeDelta < 1.0 ? min(base + 1, 6) : base
-                // Points fixed to the MAP, edge to edge (RiskAreaFallback.lattice):
-                // a grid centred on the camera slid with every pan, read new
-                // spots each sweep, and risk areas came and went though the
-                // weather had not changed.
-                let gridPts = RiskAreaFallback.lattice(
-                    centerLatitude: region.center.latitude, centerLongitude: region.center.longitude,
-                    spanLatitude: region.span.latitudeDelta, spanLongitude: region.span.longitudeDelta,
-                    perSide: n)
-                // REALIZED NWS alerts across the viewport (one sweep, zero arrival
-                // offsets = active right now): a grid point inside a Tornado /
-                // Flash-Flood / Tsunami WARNING carries that realized primary into
-                // its band input — the map can band Red on proof, not just routes.
-                let alertSweep = await model.alerts.corridorRisk(
-                    at: gridPts,
-                    arrivalOffsets: RiskTiming.arrivalOffsets(
-                        sampleCount: gridPts.count, totalTravelSeconds: 0))
-                // Each task reports its point once the conditions fetch succeeds
-                // (nil when it failed), with the hazard there if one registers.
-                await withTaskGroup(of: (CLLocationCoordinate2D, ViewportHazard?)?.self) { group in
-                    for (idx, gridPt) in gridPts.enumerated() {
-                        let alertEvent = idx < alertSweep.samples.count
-                            ? alertSweep.samples[idx].worstEvent : nil
-                        let alertSeverity = idx < alertSweep.samples.count
-                            ? alertSweep.samples[idx].risk : 0
-                        do {
-                            let lat = gridPt.latitude
-                            let lon = gridPt.longitude
-                            group.addTask {
-                                let pt = CLLocationCoordinate2D(latitude: lat, longitude: lon)
-                                guard let c = await NWSForecastFetcher.shared.conditions(at: pt)
-                                else { return nil }
-                                let score = c.forecastScore(latitude: lat, longitude: lon, elevationMeters: nil)
-                                var families = Self.familyScores(c, latitude: lat, longitude: lon)
-                                // No answer from the live scorer: the point is unknown, not clear.
-                                guard let live = HazardFeedScores.liveChecked(at: pt, snapshot: liveSnapshot)
-                                else { return nil }
-                                families["fire"] = live.fire
-                                families["seismic"] = live.seismic
-                                let floodRealized = HazardFeedScores.floodGaugeScore(
-                                    prepared: preparedGauges, at: pt)
-                                families["qpf_flood"] = max(families["qpf_flood"] ?? 0, floodRealized)
-                                let (aqi, uv) = await LiveHazardFeedFetcher.shared.airAndUV(at: pt)
-                                if let aqi { families["air"] = HazardFeedScores.airScore(usAQI: aqi) }
-                                // Space weather from the snapshot; UV is per point.
-                                let uvRad = uv.map { HazardFeedScores.uvScore(index: $0) } ?? 0
-                                let radiation = max(live.spaceRadiation, uvRad)
-                                if radiation > 0 { families["radiation"] = radiation }
-                                if live.volcanic > 0 { families["volcanic"] = live.volcanic }
-                                if live.avalanche > 0 { families["avalanche"] = live.avalanche }
-                                if live.tropical > 0 { families["tropical"] = live.tropical }
-                                if live.tsunami > 0 { families["tsunami"] = live.tsunami }
-                                let spc = live.convective
-                                if spc > 0 {
-                                    families["convective"] = max(families["convective"] ?? 0, spc)
-                                }
-                                // Keep the point if ANY family registers — the
-                                // family overlay needs it even when the blended
-                                // environmental score is quiet.
-                                guard score >= 0.25 || families.values.contains(where: { $0 >= 0.25 })
-                                else { return (pt, nil) }
-                                // Label the tappable symbol: a specific ACUTE hazard
-                                // (fire, tsunami, volcanic…) takes the icon at yellow+
-                                // over the blended forecast, since it's the distinct
-                                // danger a driver most needs named. Otherwise use the
-                                // forecast-dominant kind.
-                                // The WORST hazard here names the area, comparing
-                                // every family on the same footing — see
-                                // HazardStyle.dominantFamily. Storms and flooding
-                                // used to be excluded from naming entirely, so a
-                                // middling fire reading labelled a ZIP surrounded
-                                // by severe storms FIRE.
-                                // The blended "environmental" composite is not a
-                                // hazard: winning, it drew the generic triangle
-                                // on an ordinary day. The forecast fall-through
-                                // below names that case (heat, cold, wind, rain).
-                                var kind: HazardKind
-                                var iconFamily: String? = nil
-                                if let top = HazardStyle.dominantFamily(
-                                    families.filter { $0.key != "environmental" }) {
-                                    kind = HazardStyle.kind(forFamily: top)
-                                    iconFamily = top
-                                    // The qpf_flood family carries BOTH the gauge
-                                    // reading and plain rain probability. With no
-                                    // gauge near flood stage the score is only
-                                    // "it may rain", and calling that Flood puts a
-                                    // blue water badge over a dry ZIP.
-                                    if top == "qpf_flood", floodRealized < 0.45 {
-                                        kind = HazardStyle.rain
+                // Every way out of this sweep stops them: a sweep the next pan
+                // replaced used to leave all eleven requests running in the
+                // background lane, in the new sweep's way. Stopping the ones
+                // that are already in does nothing.
+                defer { feeds.cancel() }
+                let feedsIn = SweepFlag()
+                Task { @MainActor in
+                    _ = await feeds.value
+                    feedsIn.done = true
+                }
+                var waited = 0
+                while !feedsIn.done, waited < Self.viewportFeedWaitTenths, !Task.isCancelled {
+                    try? await Task.sleep(for: .milliseconds(100))
+                    waited += 1
+                }
+                if Task.isCancelled {
+                    feeds.cancel()
+                    return
+                }
+                for early in (feedsIn.done ? [false] : [true, false]) {
+                    // One snapshot, scored per point by HazardFeedScores.live — the
+                    // same function the route scorer uses, so map and route agree.
+                    let liveSnapshot: LiveHazardSnapshot
+                    // Laid out once for every grid point below, not once per point.
+                    let preparedGauges: HazardFeedScores.PreparedGauges
+                    let preparedClosures: HazardFeedScores.PreparedPoints
+                    if early {
+                        liveSnapshot = LiveHazardSnapshot(
+                            hotspots: [], perimeters: [], quakes: [], space: (r: 0, s: 0, g: 0),
+                            volcanoes: [], avalancheZones: [], storms: [],
+                            tsunamis: [], spcZones: [])
+                        preparedGauges = HazardFeedScores.PreparedGauges([])
+                        preparedClosures = HazardFeedScores.PreparedPoints([(lat: Double, lon: Double)]())
+                    } else {
+                        let all = await withTaskCancellationHandler {
+                            await feeds.value
+                        } onCancel: {
+                            feeds.cancel()
+                        }
+                        if Task.isCancelled { return }
+                        liveSnapshot = LiveHazardSnapshot(
+                            hotspots: all.hotspots, perimeters: all.perimeters, quakes: all.quakes,
+                            space: all.space, volcanoes: all.volcanoes,
+                            avalancheZones: all.avalancheZones, storms: all.storms,
+                            tsunamis: all.tsunamis, spcZones: all.spcZones)
+                        preparedGauges = HazardFeedScores.PreparedGauges(all.floodGauges)
+                        preparedClosures = HazardFeedScores.PreparedPoints(all.closures)
+                    }
+                    var found: [ViewportHazard] = []
+                    // Every grid point whose conditions came back, quiet or not: a
+                    // re-sampled point replaces what was there, so a hazard that has
+                    // cleared leaves the map.
+                    var sampled: [CLLocationCoordinate2D] = []
+                    // N×N grid (5×5 on capable devices, 4×4 / 3×3 on weaker, hot, or
+                    // Low-Power ones) — fewer sample points is fewer requests AND less
+                    // CPU per sweep. Floor is BELOW the green cut so the driver SEES
+                    // weather across North America, not only what already scores.
+                    // Deep zoom (span < 1° ≈ city scale) earns one extra grid step —
+                    // local conditions resolve finer exactly where the driver is
+                    // looking, without raising the wide-view request budget.
+                    let base = AdaptiveTuning.shared.viewportGridSpan
+                    let n = region.span.latitudeDelta < 1.0 ? min(base + 1, 6) : base
+                    // Points fixed to the MAP, edge to edge (RiskAreaFallback.lattice):
+                    // a grid centred on the camera slid with every pan, read new
+                    // spots each sweep, and risk areas came and went though the
+                    // weather had not changed.
+                    let gridPts = RiskAreaFallback.lattice(
+                        centerLatitude: region.center.latitude, centerLongitude: region.center.longitude,
+                        spanLatitude: region.span.latitudeDelta, spanLongitude: region.span.longitudeDelta,
+                        perSide: n)
+                    // REALIZED NWS alerts across the viewport (one sweep, zero arrival
+                    // offsets = active right now): a grid point inside a Tornado /
+                    // Flash-Flood / Tsunami WARNING carries that realized primary into
+                    // its band input — the map can band Red on proof, not just routes.
+                    let alertSweep = await model.alerts.corridorRisk(
+                        at: gridPts,
+                        arrivalOffsets: RiskTiming.arrivalOffsets(
+                            sampleCount: gridPts.count, totalTravelSeconds: 0))
+                    // Each task reports its point once the conditions fetch succeeds
+                    // (nil when it failed), with the hazard there if one registers.
+                    await withTaskGroup(of: (CLLocationCoordinate2D, ViewportHazard?)?.self) { group in
+                        for (idx, gridPt) in gridPts.enumerated() {
+                            let alertEvent =
+                                idx < alertSweep.samples.count
+                                ? alertSweep.samples[idx].worstEvent : nil
+                            let alertSeverity =
+                                idx < alertSweep.samples.count
+                                ? alertSweep.samples[idx].risk : 0
+                            do {
+                                let lat = gridPt.latitude
+                                let lon = gridPt.longitude
+                                group.addTask {
+                                    let pt = CLLocationCoordinate2D(latitude: lat, longitude: lon)
+                                    guard let c = await NWSForecastFetcher.shared.conditions(at: pt)
+                                    else { return nil }
+                                    let score = c.forecastScore(latitude: lat, longitude: lon, elevationMeters: nil)
+                                    var families = Self.familyScores(c, latitude: lat, longitude: lon)
+                                    // No answer from the live scorer: the point is unknown, not clear.
+                                    guard let live = HazardFeedScores.liveChecked(at: pt, snapshot: liveSnapshot)
+                                    else { return nil }
+                                    families["fire"] = live.fire
+                                    families["seismic"] = live.seismic
+                                    let floodRealized = HazardFeedScores.floodGaugeScore(
+                                        prepared: preparedGauges, at: pt)
+                                    families["qpf_flood"] = max(families["qpf_flood"] ?? 0, floodRealized)
+                                    let (aqi, uv) = await LiveHazardFeedFetcher.shared.airAndUV(at: pt)
+                                    if let aqi { families["air"] = HazardFeedScores.airScore(usAQI: aqi) }
+                                    // Space weather from the snapshot; UV is per point.
+                                    let uvRad = uv.map { HazardFeedScores.uvScore(index: $0) } ?? 0
+                                    let radiation = max(live.spaceRadiation, uvRad)
+                                    if radiation > 0 { families["radiation"] = radiation }
+                                    if live.volcanic > 0 { families["volcanic"] = live.volcanic }
+                                    if live.avalanche > 0 { families["avalanche"] = live.avalanche }
+                                    if live.tropical > 0 { families["tropical"] = live.tropical }
+                                    if live.tsunami > 0 { families["tsunami"] = live.tsunami }
+                                    let spc = live.convective
+                                    if spc > 0 {
+                                        families["convective"] = max(families["convective"] ?? 0, spc)
                                     }
-                                } else {
-                                    kind = Self.dominantKind(c, latitude: lat, longitude: lon)
+                                    // Keep the point if ANY family registers — the
+                                    // family overlay needs it even when the blended
+                                    // environmental score is quiet.
+                                    guard score >= 0.25 || families.values.contains(where: { $0 >= 0.25 })
+                                    else { return (pt, nil) }
+                                    // Label the tappable symbol: a specific ACUTE hazard
+                                    // (fire, tsunami, volcanic…) takes the icon at yellow+
+                                    // over the blended forecast, since it's the distinct
+                                    // danger a driver most needs named. Otherwise use the
+                                    // forecast-dominant kind.
+                                    // The WORST hazard here names the area, comparing
+                                    // every family on the same footing — see
+                                    // HazardStyle.dominantFamily. Storms and flooding
+                                    // used to be excluded from naming entirely, so a
+                                    // middling fire reading labelled a ZIP surrounded
+                                    // by severe storms FIRE.
+                                    // The blended "environmental" composite is not a
+                                    // hazard: winning, it drew the generic triangle
+                                    // on an ordinary day. The forecast fall-through
+                                    // below names that case (heat, cold, wind, rain).
+                                    var kind: HazardKind
+                                    var iconFamily: String? = nil
+                                    if let top = HazardStyle.dominantFamily(
+                                        families.filter { $0.key != "environmental" })
+                                    {
+                                        kind = HazardStyle.kind(forFamily: top)
+                                        iconFamily = top
+                                        // The qpf_flood family carries BOTH the gauge
+                                        // reading and plain rain probability. With no
+                                        // gauge near flood stage the score is only
+                                        // "it may rain", and calling that Flood puts a
+                                        // blue water badge over a dry ZIP.
+                                        if top == "qpf_flood", floodRealized < 0.45 {
+                                            kind = HazardStyle.rain
+                                        }
+                                    } else {
+                                        kind = Self.dominantKind(c, latitude: lat, longitude: lon)
+                                    }
+                                    // A realized in-progress-danger WARNING here (Tornado,
+                                    // Flash Flood…) names the icon — it's the danger.
+                                    var iconNamedByAlert = false
+                                    if let ev = alertEvent, alertSeverity >= 0.6,
+                                        let fam = RiskEquations.alertFamily(ev),
+                                        RiskEquations.primaryFamilies.contains(fam)
+                                    {
+                                        kind = HazardStyle.kind(forEvent: ev)
+                                        iconNamedByAlert = true
+                                    }
+                                    // The BAND's driving-safety realized/predictor split,
+                                    // separate from `families` (which merges rain
+                                    // PROBABILITY into the Flood/Storm map filters):
+                                    //   • realized primaries = the road is impassable or
+                                    //     the driver is in direct danger (fire perimeter,
+                                    //     gauge flood over the road, SPC severe storm,
+                                    //     quake, tsunami…);
+                                    //   • predictors = precip probability, FORECAST winter
+                                    //     (snow prediction, not a blocked road), wind,
+                                    //     heat, cold, haze, UV — amplify a realized
+                                    //     primary, capped advisory alone.
+                                    var bandInput: [String: Double] = [
+                                        "fire": families["fire"] ?? 0,
+                                        "qpf_flood": floodRealized,
+                                        "convective": spc,
+                                        "seismic": families["seismic"] ?? 0,
+                                        "tropical": families["tropical"] ?? 0,
+                                        "tsunami": families["tsunami"] ?? 0,
+                                        "volcanic": families["volcanic"] ?? 0,
+                                        "avalanche": families["avalanche"] ?? 0,
+                                        "wind": families["wind"] ?? 0,
+                                        "heat": families["heat"] ?? 0,
+                                        "cold": families["cold"] ?? 0,
+                                        "air": families["air"] ?? 0,
+                                        "radiation": families["radiation"] ?? 0,
+                                        "precip": c.popPercent.map(RiskEquations.popRisk(pct:)) ?? 0,
+                                        "winter": families["winter"] ?? 0,
+                                    ]
+                                    // Realized NWS alert at this point: an in-progress-
+                                    // danger WARNING is a realized primary (Red-capable);
+                                    // a watch/advisory classifies to a predictor.
+                                    if let ev = alertEvent, let fam = RiskEquations.alertFamily(ev) {
+                                        bandInput[fam] = max(bandInput[fam] ?? 0, alertSeverity)
+                                    }
+                                    // DOT-reported closure = PROOF the road is blocked.
+                                    let closed = HazardFeedScores.closureScore(prepared: preparedClosures, at: pt)
+                                    if closed > 0 {
+                                        bandInput["closure"] = closed
+                                        families["closure"] = closed
+                                        // A closure is proof the road is blocked, but a Tornado Warning at
+                                        // the same point is the greater danger — the alert keeps the icon.
+                                        if closed >= 0.8, !iconNamedByAlert { kind = HazardStyle.closure }
+                                    }
+                                    // The icon came from the DISPLAY families, which merge
+                                    // rain probability and forecast wind in with the real
+                                    // hazards. When a realized primary (fire perimeter,
+                                    // gauge flood, quake) is what makes this area serious,
+                                    // it names the badge — not the predictor that happened
+                                    // to score highest on the map-filter side.
+                                    let iconIsPrimary =
+                                        iconFamily.map {
+                                            RiskEquations.primaryFamilies.contains($0)
+                                        } ?? false
+                                    let worstPrimary =
+                                        bandInput
+                                        .filter { RiskEquations.primaryFamilies.contains($0.key) }
+                                        .max { $0.value < $1.value }
+                                    if !iconNamedByAlert, closed < 0.8, !iconIsPrimary,
+                                        let worst = worstPrimary,
+                                        worst.value >= FlowsCore.riskYellowMin
+                                    {
+                                        kind = HazardStyle.kind(forFamily: worst.key)
+                                    }
+                                    return (
+                                        pt,
+                                        ViewportHazard(
+                                            coordinate: pt,
+                                            kind: kind,
+                                            score: score,
+                                            familyScores: families,
+                                            bandInput: bandInput,
+                                            alertEvent: alertEvent)
+                                    )
                                 }
-                                // A realized in-progress-danger WARNING here (Tornado,
-                                // Flash Flood…) names the icon — it's the danger.
-                                var iconNamedByAlert = false
-                                if let ev = alertEvent, alertSeverity >= 0.6,
-                                   let fam = RiskEquations.alertFamily(ev),
-                                   RiskEquations.primaryFamilies.contains(fam) {
-                                    kind = HazardStyle.kind(forEvent: ev)
-                                    iconNamedByAlert = true
-                                }
-                                // The BAND's driving-safety realized/predictor split,
-                                // separate from `families` (which merges rain
-                                // PROBABILITY into the Flood/Storm map filters):
-                                //   • realized primaries = the road is impassable or
-                                //     the driver is in direct danger (fire perimeter,
-                                //     gauge flood over the road, SPC severe storm,
-                                //     quake, tsunami…);
-                                //   • predictors = precip probability, FORECAST winter
-                                //     (snow prediction, not a blocked road), wind,
-                                //     heat, cold, haze, UV — amplify a realized
-                                //     primary, capped advisory alone.
-                                var bandInput: [String: Double] = [
-                                    "fire": families["fire"] ?? 0,
-                                    "qpf_flood": floodRealized,
-                                    "convective": spc,
-                                    "seismic": families["seismic"] ?? 0,
-                                    "tropical": families["tropical"] ?? 0,
-                                    "tsunami": families["tsunami"] ?? 0,
-                                    "volcanic": families["volcanic"] ?? 0,
-                                    "avalanche": families["avalanche"] ?? 0,
-                                    "wind": families["wind"] ?? 0,
-                                    "heat": families["heat"] ?? 0,
-                                    "cold": families["cold"] ?? 0,
-                                    "air": families["air"] ?? 0,
-                                    "radiation": families["radiation"] ?? 0,
-                                    "precip": c.popPercent.map(RiskEquations.popRisk(pct:)) ?? 0,
-                                    "winter": families["winter"] ?? 0,
-                                ]
-                                // Realized NWS alert at this point: an in-progress-
-                                // danger WARNING is a realized primary (Red-capable);
-                                // a watch/advisory classifies to a predictor.
-                                if let ev = alertEvent, let fam = RiskEquations.alertFamily(ev) {
-                                    bandInput[fam] = max(bandInput[fam] ?? 0, alertSeverity)
-                                }
-                                // DOT-reported closure = PROOF the road is blocked.
-                                let closed = HazardFeedScores.closureScore(prepared: preparedClosures, at: pt)
-                                if closed > 0 {
-                                    bandInput["closure"] = closed
-                                    families["closure"] = closed
-                                    // A closure is proof the road is blocked, but a Tornado Warning at
-                                    // the same point is the greater danger — the alert keeps the icon.
-                                    if closed >= 0.8, !iconNamedByAlert { kind = HazardStyle.closure }
-                                }
-                                // The icon came from the DISPLAY families, which merge
-                                // rain probability and forecast wind in with the real
-                                // hazards. When a realized primary (fire perimeter,
-                                // gauge flood, quake) is what makes this area serious,
-                                // it names the badge — not the predictor that happened
-                                // to score highest on the map-filter side.
-                                let iconIsPrimary = iconFamily.map {
-                                    RiskEquations.primaryFamilies.contains($0) } ?? false
-                                let worstPrimary = bandInput
-                                    .filter { RiskEquations.primaryFamilies.contains($0.key) }
-                                    .max { $0.value < $1.value }
-                                if !iconNamedByAlert, closed < 0.8, !iconIsPrimary,
-                                   let worst = worstPrimary,
-                                   worst.value >= FlowsCore.riskYellowMin {
-                                    kind = HazardStyle.kind(forFamily: worst.key)
-                                }
-                                return (pt, ViewportHazard(coordinate: pt,
-                                                           kind: kind,
-                                                           score: score,
-                                                           familyScores: families,
-                                                           bandInput: bandInput,
-                                                           alertEvent: alertEvent))
+                            }
+                        }
+                        let shownNow: [String: Double] =
+                            early
+                            ? Dictionary(
+                                viewportHazards.map {
+                                    (
+                                        "\(Int($0.coordinate.latitude * 50))|\(Int($0.coordinate.longitude * 50))",
+                                        $0.realized
+                                    )
+                                }, uniquingKeysWith: max)
+                            : [:]
+                        for await result in group {
+                            guard let (pt, hz) = result else { continue }
+                            // The first pass only adds (see above), and never puts a
+                            // lower reading over one the full feeds gave last time.
+                            if early {
+                                guard let hz else { continue }
+                                let spot = "\(Int(pt.latitude * 50))|\(Int(pt.longitude * 50))"
+                                if let shown = shownNow[spot], shown >= hz.realized { continue }
+                            }
+                            sampled.append(pt)
+                            if let hz { found.append(hz) }
+                        }
+                    }
+                    if Task.isCancelled { return }  // superseded sweep: stop before committing
+                    // The alert lookup failed: its zeros are "not known", not "no
+                    // warning". A point shown under a warning keeps that reading
+                    // (until it ages out) instead of dropping to the forecast alone.
+                    if !alertSweep.complete {
+                        func spot(_ c: CLLocationCoordinate2D) -> String {
+                            "\(Int(c.latitude * 50))|\(Int(c.longitude * 50))"
+                        }
+                        let warned = Set(
+                            viewportHazards.filter { $0.alertEvent != nil }
+                                .map { spot($0.coordinate) })
+                        if !warned.isEmpty {
+                            sampled.removeAll { warned.contains(spot($0)) }
+                            found.removeAll { warned.contains(spot($0.coordinate)) }
+                        }
+                    }
+                    // No conditions at all means the fetches failed (offline, NWS
+                    // outage) — un-pin the debounce key so the next camera settle
+                    // retries instead of showing stale/empty hazards forever. A sweep
+                    // that came back all quiet goes on, and clears the map.
+                    if sampled.isEmpty {
+                        if early { continue }
+                        viewportHazardKey = ""
+                        ageOutViewportHazards()
+                        return
+                    }
+                    // Ring fetching below walks this — found PLUS the kept carryover
+                    // points, so a rain point surviving from the last sweep keeps its
+                    // ZIP ring (and its centered badge) instead of aging out.
+                    var merged = found
+                    if viewportHazardKey == key {
+                        // Merge, don't replace: the new sweep's box is offset from
+                        // the old one, and wholesale replacement blinked away icons
+                        // (rain) that were still inside the visible region.
+                        // A point this sweep read replaces the old one even when it
+                        // came back quiet — keyed on `found` alone, a cleared hazard
+                        // stayed for as long as the view did. A point it tried and
+                        // failed keeps its old reading; one the grid no longer covers
+                        // (after a pan) keeps it until a re-sweep would have renewed it.
+                        func gridKey(_ c: CLLocationCoordinate2D) -> String {
+                            "\(Int(c.latitude * 50))|\(Int(c.longitude * 50))"
+                        }
+                        let readKeys = Set(sampled.map(gridKey))
+                        let triedKeys = Set(gridPts.map(gridKey))
+                        let now = Date()
+                        let kept = viewportHazards.filter { hz in
+                            let key = gridKey(hz.coordinate)
+                            guard !readKeys.contains(key) else { return false }
+                            guard
+                                triedKeys.contains(key)
+                                    || now.timeIntervalSince(hz.sampledAt) < Self.viewportResweepSeconds
+                            else { return false }
+                            let r = region
+                            return abs(hz.coordinate.latitude - r.center.latitude) < r.span.latitudeDelta / 2
+                                && abs(hz.coordinate.longitude - r.center.longitude) < r.span.longitudeDelta / 2
+                        }
+                        viewportHazards = found + kept
+                        merged = viewportHazards
+                        // Once per sweep, not per render: the areas and their icons
+                        // (one per area, from the areas themselves). This sweep's ZIP
+                        // outlines are looked up below, so no placeholder circles yet
+                        // for US points new to the map.
+                        let sp = flowsSignposter.beginInterval("badge-sweep")
+                        rebuildRiskOverlays(ringsResolved: false)
+                        flowsSignposter.endInterval("badge-sweep", sp)
+                    }
+                    // Real ZIP borders for elevated US points (Census TIGERweb) —
+                    // the overlay outlines the actual affected ZCTA, sized by the
+                    // risk's true footprint, not a synthetic shape.
+                    // MERGE rather than replace: ZCTA rings stay pinned to their
+                    // ZIPs across grid refreshes instead of shifting with resampling
+                    // (the "cold areas keep moving" complaint). Rings whose ZIP no
+                    // longer has any elevated point age out.
+                    var rings = zctaRings
+                    var liveCodes = Set<String>()
+                    var placed = zipOfPoint
+                    var lookups = 0
+                    // Every elevated point gets a real ZIP boundary (ZCTAFetcher caches
+                    // by cell, and the lattice re-reads the same points, so repeat
+                    // sweeps are nearly free) — risk areas draw as actual ZIP shapes,
+                    // with circles only where there is no ZIP. Same floor as the
+                    // icons: striped AREAS are the map's loudest element and must not
+                    // paint for clear-band scores.
+                    let ranked =
+                        merged
+                        .filter({ $0.realized >= model.riskDisplayFloor })
+                        .sorted(by: { $0.realized > $1.realized })
+                    // Worst first, at most 48 lookups a sweep; past the cap, a
+                    // point an earlier sweep placed keeps its ZIP rather than
+                    // dropping it — the "ZIPs come and go" flicker.
+                    var wanted: [(id: String, at: CLLocationCoordinate2D)] = []
+                    for hz in ranked where lookups < 48 {
+                        if rings[placed[hz.id] ?? ""] == nil || placed[hz.id] == nil {
+                            lookups += 1
+                            wanted.append((hz.id, hz.coordinate))
+                        }
+                    }
+                    // Six at a time: one after another, a storm region new to the
+                    // map stayed blank for up to 48 round trips.
+                    var next = 0
+                    while next < wanted.count {
+                        if Task.isCancelled { return }  // superseded: skip remaining fetches
+                        let batch = wanted[next..<min(next + 6, wanted.count)]
+                        next += 6
+                        await withTaskGroup(of: (String, ZCTAFetcher.ZCTA?).self) { group in
+                            for point in batch {
+                                let id = point.id
+                                let at = point.at
+                                group.addTask { (id, await ZCTAFetcher.shared.zcta(containing: at)) }
+                            }
+                            for await (id, z) in group {
+                                guard let z else { continue }
+                                rings[z.code] = z.ring
+                                placed[id] = z.code
                             }
                         }
                     }
-                    let shownNow: [String: Double] = early
-                        ? Dictionary(viewportHazards.map {
-                            ("\(Int($0.coordinate.latitude * 50))|\(Int($0.coordinate.longitude * 50))", $0.realized)
-                        }, uniquingKeysWith: max)
-                        : [:]
-                    for await result in group {
-                        guard let (pt, hz) = result else { continue }
-                        // The first pass only adds (see above), and never puts a
-                        // lower reading over one the full feeds gave last time.
-                        if early {
-                            guard let hz else { continue }
-                            let spot = "\(Int(pt.latitude * 50))|\(Int(pt.longitude * 50))"
-                            if let shown = shownNow[spot], shown >= hz.realized { continue }
-                        }
-                        sampled.append(pt)
-                        if let hz { found.append(hz) }
+                    // A lookup still loading (or failed) keeps what the last one
+                    // found.
+                    for hz in ranked {
+                        if let code = placed[hz.id], rings[code] != nil { liveCodes.insert(code) }
                     }
-                }
-                if Task.isCancelled { return }   // superseded sweep: stop before committing
-                // The alert lookup failed: its zeros are "not known", not "no
-                // warning". A point shown under a warning keeps that reading
-                // (until it ages out) instead of dropping to the forecast alone.
-                if !alertSweep.complete {
-                    func spot(_ c: CLLocationCoordinate2D) -> String {
-                        "\(Int(c.latitude * 50))|\(Int(c.longitude * 50))"
+                    rings = rings.filter { liveCodes.contains($0.key) }
+                    if viewportHazardKey == key {
+                        zctaRings = rings
+                        // Only points still on the map are remembered.
+                        let onMap = Set(merged.map(\.id))
+                        zipOfPoint = placed.filter { onMap.contains($0.key) }
+                        // The areas, and one icon per area from them.
+                        rebuildRiskOverlays(ringsResolved: true)
                     }
-                    let warned = Set(viewportHazards.filter { $0.alertEvent != nil }
-                        .map { spot($0.coordinate) })
-                    if !warned.isEmpty {
-                        sampled.removeAll { warned.contains(spot($0)) }
-                        found.removeAll { warned.contains(spot($0.coordinate)) }
-                    }
-                }
-                // No conditions at all means the fetches failed (offline, NWS
-                // outage) — un-pin the debounce key so the next camera settle
-                // retries instead of showing stale/empty hazards forever. A sweep
-                // that came back all quiet goes on, and clears the map.
-                if sampled.isEmpty {
-                    if early { continue }
-                    viewportHazardKey = ""
-                    ageOutViewportHazards()
-                    return
-                }
-                // Ring fetching below walks this — found PLUS the kept carryover
-                // points, so a rain point surviving from the last sweep keeps its
-                // ZIP ring (and its centered badge) instead of aging out.
-                var merged = found
-                if viewportHazardKey == key {
-                    // Merge, don't replace: the new sweep's box is offset from
-                    // the old one, and wholesale replacement blinked away icons
-                    // (rain) that were still inside the visible region.
-                    // A point this sweep read replaces the old one even when it
-                    // came back quiet — keyed on `found` alone, a cleared hazard
-                    // stayed for as long as the view did. A point it tried and
-                    // failed keeps its old reading; one the grid no longer covers
-                    // (after a pan) keeps it until a re-sweep would have renewed it.
-                    func gridKey(_ c: CLLocationCoordinate2D) -> String {
-                        "\(Int(c.latitude * 50))|\(Int(c.longitude * 50))"
-                    }
-                    let readKeys = Set(sampled.map(gridKey))
-                    let triedKeys = Set(gridPts.map(gridKey))
-                    let now = Date()
-                    let kept = viewportHazards.filter { hz in
-                        let key = gridKey(hz.coordinate)
-                        guard !readKeys.contains(key) else { return false }
-                        guard triedKeys.contains(key)
-                            || now.timeIntervalSince(hz.sampledAt) < Self.viewportResweepSeconds
-                        else { return false }
-                        let r = region
-                        return abs(hz.coordinate.latitude - r.center.latitude) < r.span.latitudeDelta / 2
-                            && abs(hz.coordinate.longitude - r.center.longitude) < r.span.longitudeDelta / 2
-                    }
-                    viewportHazards = found + kept
-                    merged = viewportHazards
-                    // Once per sweep, not per render: the areas and their icons
-                    // (one per area, from the areas themselves). This sweep's ZIP
-                    // outlines are looked up below, so no placeholder circles yet
-                    // for US points new to the map.
-                    let sp = flowsSignposter.beginInterval("badge-sweep")
-                    rebuildRiskOverlays(ringsResolved: false)
-                    flowsSignposter.endInterval("badge-sweep", sp)
-                }
-                // Real ZIP borders for elevated US points (Census TIGERweb) —
-                // the overlay outlines the actual affected ZCTA, sized by the
-                // risk's true footprint, not a synthetic shape.
-                // MERGE rather than replace: ZCTA rings stay pinned to their
-                // ZIPs across grid refreshes instead of shifting with resampling
-                // (the "cold areas keep moving" complaint). Rings whose ZIP no
-                // longer has any elevated point age out.
-                var rings = zctaRings
-                var liveCodes = Set<String>()
-                var placed = zipOfPoint
-                var lookups = 0
-                // Every elevated point gets a real ZIP boundary (ZCTAFetcher caches
-                // by cell, and the lattice re-reads the same points, so repeat
-                // sweeps are nearly free) — risk areas draw as actual ZIP shapes,
-                // with circles only where there is no ZIP. Same floor as the
-                // icons: striped AREAS are the map's loudest element and must not
-                // paint for clear-band scores.
-                let ranked = merged
-                    .filter({ $0.realized >= model.riskDisplayFloor })
-                    .sorted(by: { $0.realized > $1.realized })
-                // Worst first, at most 48 lookups a sweep; past the cap, a
-                // point an earlier sweep placed keeps its ZIP rather than
-                // dropping it — the "ZIPs come and go" flicker.
-                var wanted: [(id: String, at: CLLocationCoordinate2D)] = []
-                for hz in ranked where lookups < 48 {
-                    if rings[placed[hz.id] ?? ""] == nil || placed[hz.id] == nil {
-                        lookups += 1
-                        wanted.append((hz.id, hz.coordinate))
-                    }
-                }
-                // Six at a time: one after another, a storm region new to the
-                // map stayed blank for up to 48 round trips.
-                var next = 0
-                while next < wanted.count {
-                    if Task.isCancelled { return }   // superseded: skip remaining fetches
-                    let batch = wanted[next..<min(next + 6, wanted.count)]
-                    next += 6
-                    await withTaskGroup(of: (String, ZCTAFetcher.ZCTA?).self) { group in
-                        for point in batch {
-                            let id = point.id, at = point.at
-                            group.addTask { (id, await ZCTAFetcher.shared.zcta(containing: at)) }
-                        }
-                        for await (id, z) in group {
-                            guard let z else { continue }
-                            rings[z.code] = z.ring
-                            placed[id] = z.code
-                        }
-                    }
-                }
-                // A lookup still loading (or failed) keeps what the last one
-                // found.
-                for hz in ranked {
-                    if let code = placed[hz.id], rings[code] != nil { liveCodes.insert(code) }
-                }
-                rings = rings.filter { liveCodes.contains($0.key) }
-                if viewportHazardKey == key {
-                    zctaRings = rings
-                    // Only points still on the map are remembered.
-                    let onMap = Set(merged.map(\.id))
-                    zipOfPoint = placed.filter { onMap.contains($0.key) }
-                    // The areas, and one icon per area from them.
-                    rebuildRiskOverlays(ringsResolved: true)
                 }
             }
-          }
         }
     }
 
@@ -1383,14 +1492,18 @@ struct ContentView: View {
     private func refreshViewportBadgeEvents() {
         let warned = viewportHazards.compactMap { hz in
             hz.alertEvent.map {
-                (item: BadgeClustering.Item(coordinate: hz.coordinate,
-                                            kind: HazardStyle.kind(forEvent: $0),
-                                            score: hz.realized),
-                 label: $0)
+                (
+                    item: BadgeClustering.Item(
+                        coordinate: hz.coordinate,
+                        kind: HazardStyle.kind(forEvent: $0),
+                        score: hz.realized),
+                    label: $0
+                )
             }
         }
-        let events = BadgeClustering.labels(for: clusteredBadgesCache, from: warned,
-                                            radiusMeters: viewportHazardRadius * 2.5)
+        let events = BadgeClustering.labels(
+            for: clusteredBadgesCache, from: warned,
+            radiusMeters: viewportHazardRadius * 2.5)
         var byID: [String: String] = [:]
         for (badge, event) in zip(clusteredBadgesCache, events) {
             if let event { byID[badge.stableID] = event }
@@ -1419,27 +1532,35 @@ struct ContentView: View {
         // predictorFamilies directly).
         let norms = ClimateProfiles.seasonalNorms(
             week: SeasonalRiskModel.week(), latitude: latitude, longitude: longitude)
-        let tempBeyond = c.temperatureF.map {
-            ClimateProfiles.temperatureBeyondNormal(tempF: $0, norms: norms)
-        } ?? false
-        if !tempBeyond { out["heat"] = 0; out["cold"] = 0 }
-        let windBeyond = c.windMph.map {
-            ClimateProfiles.windBeyondNormal(windMph: $0, norms: norms)
-        } ?? false
+        let tempBeyond =
+            c.temperatureF.map {
+                ClimateProfiles.temperatureBeyondNormal(tempF: $0, norms: norms)
+            } ?? false
+        if !tempBeyond {
+            out["heat"] = 0
+            out["cold"] = 0
+        }
+        let windBeyond =
+            c.windMph.map {
+                ClimateProfiles.windBeyondNormal(windMph: $0, norms: norms)
+            } ?? false
         if !windBeyond { out["wind"] = 0 }
         return out
     }
 
     /// Which hazard drives these conditions — heat/cold vs wind vs rain.
     nonisolated private static func dominantKind(
-        _ c: ForecastConditions, latitude: Double, longitude: Double) -> HazardKind {
+        _ c: ForecastConditions, latitude: Double, longitude: Double
+    ) -> HazardKind {
         let band = ClimateProfiles.profile(latitude: latitude, longitude: longitude)
-        let t = c.temperatureF.map {
-            RiskEquations.temperatureRisk(tempF: $0, comfortLowF: band.comfortLowF,
-                                          comfortHighF: band.comfortHighF,
-                                          recordLowF: band.recordLowF,
-                                          recordHighF: band.recordHighF)
-        } ?? 0
+        let t =
+            c.temperatureF.map {
+                RiskEquations.temperatureRisk(
+                    tempF: $0, comfortLowF: band.comfortLowF,
+                    comfortHighF: band.comfortHighF,
+                    recordLowF: band.recordLowF,
+                    recordHighF: band.recordHighF)
+            } ?? 0
         let w = c.windMph.map(RiskEquations.windRisk(mph:)) ?? 0
         let p = c.popPercent.map(RiskEquations.popRisk(pct:)) ?? 0
         // Every icon honors the seasonal-normal gate: heat/cold and WIND only
@@ -1447,12 +1568,14 @@ struct ContentView: View {
         // ordinary breezy or warm day falls through to precipitation.
         let norms = ClimateProfiles.seasonalNorms(
             week: SeasonalRiskModel.week(), latitude: latitude, longitude: longitude)
-        let tempBeyond = c.temperatureF.map {
-            ClimateProfiles.temperatureBeyondNormal(tempF: $0, norms: norms)
-        } ?? false
-        let windBeyond = c.windMph.map {
-            ClimateProfiles.windBeyondNormal(windMph: $0, norms: norms)
-        } ?? false
+        let tempBeyond =
+            c.temperatureF.map {
+                ClimateProfiles.temperatureBeyondNormal(tempF: $0, norms: norms)
+            } ?? false
+        let windBeyond =
+            c.windMph.map {
+                ClimateProfiles.windBeyondNormal(windMph: $0, norms: norms)
+            } ?? false
         if t >= w && t >= p && tempBeyond {
             let hot = (c.temperatureF ?? 70) > band.comfortHighF
             return hot ? HazardStyle.heat : HazardStyle.cold
@@ -1471,22 +1594,30 @@ struct ContentView: View {
     private var travelerMarker: some View {
         let (symbol, color): (String, Color) = {
             if let itin = model.transitItinerary {
-                let rail = itin.mode.lowercased().contains("rail")
+                let rail =
+                    itin.mode.lowercased().contains("rail")
                     || itin.mode.lowercased().contains("amtrak")
-                let rideSymbol = itin.mode == "Plane" ? "airplane"
-                    : itin.mode == "Ship" ? "ferry.fill"
-                    : rail ? "tram.fill" : "bus.fill"
+                let rideSymbol =
+                    itin.mode == "Plane"
+                    ? "airplane"
+                    : itin.mode == "Ship"
+                        ? "ferry.fill"
+                        : rail ? "tram.fill" : "bus.fill"
                 guard let here = model.location.coordinate,
-                      let leg = Self.nearestLeg(of: itin, to: here) else {
+                    let leg = Self.nearestLeg(of: itin, to: here)
+                else {
                     return (rideSymbol, .purple)
                 }
                 return switch leg.kind {
                 case .walk: ("figure.walk", .green)
-                case .drive: ("car.fill", .blue)   // park-and-ride, a rental, or a hailed ride
+                case .drive: ("car.fill", .blue)  // park-and-ride, a rental, or a hailed ride
                 // A city bus or train to or from the main ride shows its own
                 // vehicle, not the train's or the plane's.
-                case .ride: (leg.local ? TransitPlanning.vehicleSymbol(leg.vehicle) : rideSymbol,
-                             .purple)
+                case .ride:
+                    (
+                        leg.local ? TransitPlanning.vehicleSymbol(leg.vehicle) : rideSymbol,
+                        .purple
+                    )
                 }
             }
             if model.walkingMode { return ("figure.walk", .green) }
@@ -1502,8 +1633,10 @@ struct ContentView: View {
             let aspect = VehicleAspect.forCamera(
                 pitchDegrees: camPitch,
                 relativeBearing: camHeading - (drawnHeading ?? camHeading))
-            return (model.vehicleShape.symbol(aspect),
-                    Self.markerColor(model.vehicleColorName))
+            return (
+                model.vehicleShape.symbol(aspect),
+                Self.markerColor(model.vehicleColorName)
+            )
         }()
         // Heading-up camera already rotates the WORLD to the course — rotating
         // the marker again pointed it wrong by 2×course. On a free camera,
@@ -1516,7 +1649,8 @@ struct ContentView: View {
         // let the icon's rotation and its front/back/side view disagree, and
         // would jitter on GPS course noise the smoothing exists to absorb.
         let markerHeading = drawnHeading
-        let rotate = model.mode == .navigating && markerHeading != nil
+        let rotate =
+            model.mode == .navigating && markerHeading != nil
             && !cameraFollows
         // A fixed glyph: the disc is a fixed size, so a glyph that grew with
         // the text-size setting was cut off by the circle at large sizes.
@@ -1528,14 +1662,16 @@ struct ContentView: View {
             .clipShape(Circle())
             .overlay(Circle().stroke(.white, lineWidth: 2.5))
             .shadow(radius: 3)
-            .rotationEffect(.degrees(
-                rotate ? (markerHeading ?? 0) - cameraHeading : 0))
+            .rotationEffect(
+                .degrees(
+                    rotate ? (markerHeading ?? 0) - cameraHeading : 0))
     }
 
     /// Which itinerary leg the traveler is currently ON: nearest leg polyline
     /// to the GPS fix (sampled every ~10th vertex — 3 legs, render-cheap).
     nonisolated private static func nearestLeg(
-        of itin: TransitItinerary, to here: CLLocationCoordinate2D) -> TransitLeg? {
+        of itin: TransitItinerary, to here: CLLocationCoordinate2D
+    ) -> TransitLeg? {
         var best: (TransitLeg, Double)?
         for leg in itin.legs {
             guard let poly = leg.polyline else { continue }
@@ -1562,9 +1698,11 @@ struct ContentView: View {
     /// no longer draws it as one. Judged as the cards are (on foot, only No
     /// highways).
     private var grayAlternates: [PlannedRoute] {
-        RouteFilter.offered(model.passableChoices, judged: model.judgingFilters,
-                            limits: model.judgingLimits)
-            .filter { $0.id != model.highlightedRouteID }
+        RouteFilter.offered(
+            model.passableChoices, judged: model.judgingFilters,
+            limits: model.judgingLimits
+        )
+        .filter { $0.id != model.highlightedRouteID }
     }
 
     /// Camera moves WE initiate, stamped so gesture detection can ignore them.
@@ -1578,15 +1716,20 @@ struct ContentView: View {
     /// walking-close on the ground and on approach, continent-wide at cruise.
     private func flightCamera(for fix: CLLocation) -> MapCamera? {
         guard model.transitItinerary?.mode == "Plane",
-              let poly = model.transitItinerary?.mainRide?.polyline,
-              poly.pointCount >= 2 else { return nil }
+            let poly = model.transitItinerary?.mainRide?.polyline,
+            poly.pointCount >= 2
+        else { return nil }
         var board = CLLocationCoordinate2D()
         var alight = CLLocationCoordinate2D()
         poly.getCoordinates(&board, range: NSRange(location: 0, length: 1))
-        poly.getCoordinates(&alight, range: NSRange(location: poly.pointCount - 1,
-                                                    length: 1))
-        let nearest = min(POIRanking.meters(board, fix.coordinate),
-                          POIRanking.meters(alight, fix.coordinate))
+        poly.getCoordinates(
+            &alight,
+            range: NSRange(
+                location: poly.pointCount - 1,
+                length: 1))
+        let nearest = min(
+            POIRanking.meters(board, fix.coordinate),
+            POIRanking.meters(alight, fix.coordinate))
         return MapCamera(
             centerCoordinate: fix.coordinate,
             distance: CameraZoom.flightAltitude(metersToNearestAirport: nearest),
@@ -1607,7 +1750,7 @@ struct ContentView: View {
                     Color.clear
                         .allowsHitTesting(false)
                         .onReceive(redAlertTimer) { _ in
-                            redAlertTick += 1   // grow the reach circle
+                            redAlertTick += 1  // grow the reach circle
                         }
                 }
             }
@@ -1623,20 +1766,23 @@ struct ContentView: View {
         // vehicle; follow it backward to walk out the way you came in.
         if model.breadcrumbs.showTrail, model.breadcrumbs.points.count >= 2 {
             MapPolyline(coordinates: model.breadcrumbs.points)
-                .stroke(Color.orange.opacity(0.95),
-                        style: StrokeStyle(lineWidth: 4, lineCap: .round, dash: [8, 6]))
+                .stroke(
+                    Color.orange.opacity(0.95),
+                    style: StrokeStyle(lineWidth: 4, lineCap: .round, dash: [8, 6]))
         }
         // OFFLINE LIFELINE, the other half: the ROAD AHEAD, saved to disk
         // for trips between towns. With no signal Apple can't route, but
         // this line already knows the way — so it draws whenever the
         // network is gone and nothing live is on the map.
         if model.breadcrumbs.isOffline, model.navigation.route == nil,
-           let here = model.location.coordinate,
-           let saved = model.corridors.nearest(to: here),
-           saved.coordinates.count >= 2 {
+            let here = model.location.coordinate,
+            let saved = model.corridors.nearest(to: here),
+            saved.coordinates.count >= 2
+        {
             MapPolyline(coordinates: saved.coordinates)
-                .stroke(Color.purple.opacity(0.9),
-                        style: StrokeStyle(lineWidth: 5, lineCap: .round, dash: [14, 8]))
+                .stroke(
+                    Color.purple.opacity(0.9),
+                    style: StrokeStyle(lineWidth: 5, lineCap: .round, dash: [14, 8]))
             if let end = saved.destination {
                 Annotation(saved.destinationName, coordinate: end) {
                     // Fixed glyph in a fixed disc (see travelerMarker).
@@ -1663,8 +1809,9 @@ struct ContentView: View {
             // blue circle is how far the remaining fuel can take you,
             // shrinking toward the car as the tank approaches empty.
             if model.mode == .navigating, !model.walkingMode,
-               let frac = model.vehicle.displayedFuelFraction, frac <= 0.25,
-               let rangeMiles = model.vehicle.expectedRangeMiles, rangeMiles > 0 {
+                let frac = model.vehicle.displayedFuelFraction, frac <= 0.25,
+                let rangeMiles = model.vehicle.expectedRangeMiles, rangeMiles > 0
+            {
                 MapCircle(center: here, radius: rangeMiles * 1609.344)
                     .foregroundStyle(Color.blue.opacity(0.06))
                     .stroke(Color.blue.opacity(0.55), lineWidth: 2)
@@ -1680,9 +1827,10 @@ struct ContentView: View {
         // vehicle as much as a spreading hazard — so a lookout alert
         // draws it too.
         if let warning = model.imminentWarning,
-           warning.action == .shelter || warning.action == .lookout,
-           let incident = warning.incidentCoordinate {
-            let _ = redAlertTick   // re-evaluate as time passes
+            warning.action == .shelter || warning.action == .lookout,
+            let incident = warning.incidentCoordinate
+        {
+            let _ = redAlertTick  // re-evaluate as time passes
             let elapsed = Date().timeIntervalSince(warning.onset ?? Date())
             let radius = PursuitReach.radiusMeters(
                 elapsedSeconds: elapsed, speedMph: warning.reachSpeedMph)
@@ -1693,10 +1841,12 @@ struct ContentView: View {
                 ZStack {
                     Circle().fill(Theme.riskRed).frame(width: 34, height: 34)
                     // Fixed glyph in a fixed disc (see travelerMarker).
-                    Image(systemName: warning.vehicleEntity?.kind.symbol
-                          ?? "exclamationmark.octagon.fill")
-                        .font(.system(size: 16, weight: .bold))
-                        .foregroundStyle(.white)
+                    Image(
+                        systemName: warning.vehicleEntity?.kind.symbol
+                            ?? "exclamationmark.octagon.fill"
+                    )
+                    .font(.system(size: 16, weight: .bold))
+                    .foregroundStyle(.white)
                 }
                 .overlay(Circle().stroke(.white, lineWidth: 2))
                 .shadow(radius: 3)
@@ -1832,7 +1982,8 @@ struct ContentView: View {
                         .stroke(Color.gray.opacity(0.55), lineWidth: 5)
                 }
                 if let hl = model.routeChoices
-                    .first(where: { $0.id == model.highlightedRouteID }) {
+                    .first(where: { $0.id == model.highlightedRouteID })
+                {
                     riskStrokedRoute(hl)
                     if model.show3DMap { steepGradeMarkers(hl) }
                 }
@@ -1845,17 +1996,19 @@ struct ContentView: View {
             if let itin = model.transitItinerary {
                 ForEach(itin.legs) { leg in
                     if let poly = leg.polyline {
-                        let color: Color = switch leg.kind {
-                        case .walk: .green
-                        case .drive: .blue
-                        case .ride: .purple
-                        }
+                        let color: Color =
+                            switch leg.kind {
+                            case .walk: .green
+                            case .drive: .blue
+                            case .ride: .purple
+                            }
                         MapPolyline(poly)
-                            .stroke(color,
-                                    style: StrokeStyle(
-                                        lineWidth: leg.kind == .ride ? 4 : 5,
-                                        lineCap: .round,
-                                        dash: leg.kind == .ride ? [10, 8] : []))
+                            .stroke(
+                                color,
+                                style: StrokeStyle(
+                                    lineWidth: leg.kind == .ride ? 4 : 5,
+                                    lineCap: .round,
+                                    dash: leg.kind == .ride ? [10, 8] : []))
                     }
                 }
             }
@@ -1870,14 +2023,17 @@ struct ContentView: View {
                 if next.weatherScored, !next.riskSegments.isEmpty {
                     ForEach(next.riskSegments) { seg in
                         MapPolyline(coordinates: seg.coordinates)
-                            .stroke(FlowsCore.riskBand(score: seg.risk).color.opacity(0.6),
-                                    style: StrokeStyle(lineWidth: 5, lineCap: .round,
-                                                       dash: [8, 6]))
+                            .stroke(
+                                FlowsCore.riskBand(score: seg.risk).color.opacity(0.6),
+                                style: StrokeStyle(
+                                    lineWidth: 5, lineCap: .round,
+                                    dash: [8, 6]))
                     }
                 } else {
                     MapPolyline(next.route.polyline)
-                        .stroke((next.weatherScored ? next.riskBand.color : Color.gray).opacity(0.6),
-                                style: StrokeStyle(lineWidth: 5, dash: [8, 6]))
+                        .stroke(
+                            (next.weatherScored ? next.riskBand.color : Color.gray).opacity(0.6),
+                            style: StrokeStyle(lineWidth: 5, dash: [8, 6]))
                 }
             }
             riskStrokedRoute(route)
@@ -1888,16 +2044,19 @@ struct ContentView: View {
             // direction overall.
             if route.isWalkingEstimate, model.walkingRefinedPath.count >= 2 {
                 MapPolyline(coordinates: model.walkingRefinedPath)
-                    .stroke(Color.green,
-                            style: StrokeStyle(lineWidth: 6, lineCap: .round))
+                    .stroke(
+                        Color.green,
+                        style: StrokeStyle(lineWidth: 6, lineCap: .round))
             }
         }
 
         ForEach(model.poi.results) { ranked in
             // Annotation, not Marker: Marker swallows taps, which left
             // tourist stars (and every other stop pin) dead to clicks.
-            Annotation(BrandMark.displayName(ranked.item.name ?? "Stop"),
-                       coordinate: ranked.item.placemark.coordinate) {
+            Annotation(
+                BrandMark.displayName(ranked.item.name ?? "Stop"),
+                coordinate: ranked.item.placemark.coordinate
+            ) {
                 poiPin(ranked)
             }
         }
@@ -1911,153 +2070,181 @@ struct ContentView: View {
         // The reader turns a tap's screen point into a map coordinate, so a
         // tap on a coloured ZIP opens its card like tapping its icon does.
         MapReader { proxy in
-        Group {
-            // Apple's own places on the map (a Starbucks, a park) are
-            // tappable where the system lets an app see them: "Add it to
-            // your trip?". Older systems keep the plain map.
-            if #available(iOS 18.0, macOS 15.0, *) {
-                Map(position: $camera, interactionModes: .all,
-                    selection: featureSelection, scope: mapScope) { mapLayers }
-            } else {
-                Map(position: $camera, interactionModes: .all, scope: mapScope) { mapLayers }
+            Group {
+                // Apple's own places on the map (a Starbucks, a park) are
+                // tappable where the system lets an app see them: "Add it to
+                // your trip?". Older systems keep the plain map.
+                if #available(iOS 18.0, macOS 15.0, *) {
+                    Map(
+                        position: $camera, interactionModes: .all,
+                        selection: featureSelection, scope: mapScope
+                    ) { mapLayers }
+                } else {
+                    Map(position: $camera, interactionModes: .all, scope: mapScope) { mapLayers }
+                }
             }
-        }
-        // Apple's traffic layer is exactly the "live conditions" underlay the
-        // web app approximates with 511 feeds — free, continent-wide.
-        .mapStyle(.standard(elevation: model.show3DMap ? .realistic : .flat,
-                            showsTraffic: true))
-        // Terrain relief only READS at an angle: toggling 3D on pitches the
-        // camera over the current view (flat country still looks flat — the
-        // Rockies don't). Toggling off levels it back.
-        // Corridor ZIP areas follow the active route (highlight in choosing,
-        // the driven route in navigation) and refresh when hydration lands.
-        .task(id: "\(model.highlightedRouteID?.uuidString ?? "")|\(model.navigation.route?.id.uuidString ?? "")|\(model.routeChoices.filter(\.weatherScored).count)|\(model.routeMetadataVersion)") {
-            let active = model.mode == .navigating
-                ? model.navigation.route
-                : model.routeChoices.first(where: { $0.id == model.highlightedRouteID })
-            if let active, active.weatherScored {
-                await rebuildCorridorAreas(for: active)
+            // Apple's traffic layer is exactly the "live conditions" underlay the
+            // web app approximates with 511 feeds — free, continent-wide.
+            .mapStyle(
+                .standard(
+                    elevation: model.show3DMap ? .realistic : .flat,
+                    showsTraffic: true)
+            )
+            // Terrain relief only READS at an angle: toggling 3D on pitches the
+            // camera over the current view (flat country still looks flat — the
+            // Rockies don't). Toggling off levels it back.
+            // Corridor ZIP areas follow the active route (highlight in choosing,
+            // the driven route in navigation) and refresh when hydration lands.
+            .task(
+                id:
+                    "\(model.highlightedRouteID?.uuidString ?? "")|\(model.navigation.route?.id.uuidString ?? "")|\(model.routeChoices.filter(\.weatherScored).count)|\(model.routeMetadataVersion)"
+            ) {
+                let active =
+                    model.mode == .navigating
+                    ? model.navigation.route
+                    : model.routeChoices.first(where: { $0.id == model.highlightedRouteID })
+                if let active, active.weatherScored {
+                    await rebuildCorridorAreas(for: active)
+                }
             }
-        }
-        .onChange(of: model.show3DMap) { _, on in
-            guard let region = visibleRegion else { return }
-            let distance = cameraDistance > 0 ? cameraDistance
-                : max(region.span.latitudeDelta * 111_000 * 1.4, 1_200)
-            moveCamera(.camera(MapCamera(centerCoordinate: region.center,
-                                         distance: distance, heading: 0,
-                                         pitch: on ? 55 : 0)))
-        }
-        // MapKit's own compass lives top-right, where the phone's status
-        // icons cover it — the built-ins stay off. While driving the
-        // directions banner carries a compass instead (NavigationHUD);
-        // a north-up planning map has nothing to report.
-        .mapControls { }
-        .mapScope(mapScope)
-        // A drag is DEFINITIVE user intent: stop chasing GPS immediately.
-        // (The old stamp-window heuristic never fired at 1 Hz guidance —
-        // every settle looked programmatic and the map fought every pan.)
-        // Applies to the flight-phase follow too — panning while a plane
-        // itinerary is chosen pauses it; picking the plane card resumes.
-        .simultaneousGesture(DragGesture(minimumDistance: 8).onChanged { _ in
-            releaseCameraToUser()
-        })
-        // Pinch and two-finger rotate are user intent too, and neither one
-        // is a drag. Without these the automatic zoom kept overriding a
-        // pinch: the settle-window backstop can't tell them apart, because
-        // guidance moves the camera about once a second, so every gesture
-        // landed inside the "we just moved it ourselves" window.
-        .simultaneousGesture(MagnifyGesture().onChanged { _ in
-            releaseCameraToUser()
-        })
-        .simultaneousGesture(RotateGesture().onChanged { _ in
-            releaseCameraToUser()
-        })
-        // Click-off dismiss: a click/tap on the MAP closes any open floating
-        // panel or menu (settings, fuel/food/store menus, stop list, slider
-        // card, towing card). Annotation buttons (risk symbols, gas-price
-        // pins) and the chrome cards sit deeper in the hierarchy, so their
-        // own taps win and this never fires for them — selections still work.
-        // A tap INSIDE a coloured risk area opens that area's card instead.
-        .onTapGesture(coordinateSpace: .local) { point in
-            if let tapped = proxy.convert(point, from: .local),
-               let info = riskAreaInfo(at: tapped) {
-                hazardInfo = info
-                model.poi.touristDetail = nil   // shares the bottom-center slot
-                return
+            .onChange(of: model.show3DMap) { _, on in
+                guard let region = visibleRegion else { return }
+                let distance =
+                    cameraDistance > 0
+                    ? cameraDistance
+                    : max(region.span.latitudeDelta * 111_000 * 1.4, 1_200)
+                moveCamera(
+                    .camera(
+                        MapCamera(
+                            centerCoordinate: region.center,
+                            distance: distance, heading: 0,
+                            pitch: on ? 55 : 0)))
             }
-            hazardInfo = nil
-            model.dismissFloatingPanels()
-        }
-        // `.onEnd` is LOAD-BEARING for the ZIP overlay: RiskFieldService's
-        // zips(in:) memo holds only ~8 region keys, so a stable region during
-        // a pan keeps it hitting. `.continuous` would make every frame a memo
-        // miss running a full grid select (at continental zoom, a sort of all
-        // ~33k entries per frame).
-        .onReceive(model.location.$latest.compactMap { $0 }) { fix in
-            // Slide to the new fix instead of teleporting. A large step is
-            // the GPS correcting itself (leaving a tunnel), and animating
-            // across that would draw the car through buildings — so that
-            // one snaps.
-            let now = Date()
-            let gap = lastFixAt.map { now.timeIntervalSince($0) } ?? 1
-            lastFixAt = now
-            // Ease toward the new course rather than snapping to it. GPS
-            // course steps in whole degrees and jumps at a turn, so a marker
-            // pinned straight to it flicks round; easing the short way makes
-            // the turn read as a turn. (Crossing north eases 10°, not 350° —
-            // VehicleTrack.easedHeading.)
-            let reported = VehicleTrack.heading(courseDegrees: fix.course,
-                                                speedMps: max(fix.speed, 0),
-                                                previous: drawnHeading)
-            // Written only when they move: a write redraws the map's layers,
-            // and standing at a light sends the same fix each second.
-            let heading: Double?
-            if let reported, let current = drawnHeading {
-                heading = VehicleTrack.easedHeading(from: current,
-                                                    to: reported,
-                                                    fraction: 0.45)
-            } else {
-                heading = reported
+            // MapKit's own compass lives top-right, where the phone's status
+            // icons cover it — the built-ins stay off. While driving the
+            // directions banner carries a compass instead (NavigationHUD);
+            // a north-up planning map has nothing to report.
+            .mapControls {}
+            .mapScope(mapScope)
+            // A drag is DEFINITIVE user intent: stop chasing GPS immediately.
+            // (The old stamp-window heuristic never fired at 1 Hz guidance —
+            // every settle looked programmatic and the map fought every pan.)
+            // Applies to the flight-phase follow too — panning while a plane
+            // itinerary is chosen pauses it; picking the plane card resumes.
+            .simultaneousGesture(
+                DragGesture(minimumDistance: 8).onChanged { _ in
+                    releaseCameraToUser()
+                }
+            )
+            // Pinch and two-finger rotate are user intent too, and neither one
+            // is a drag. Without these the automatic zoom kept overriding a
+            // pinch: the settle-window backstop can't tell them apart, because
+            // guidance moves the camera about once a second, so every gesture
+            // landed inside the "we just moved it ourselves" window.
+            .simultaneousGesture(
+                MagnifyGesture().onChanged { _ in
+                    releaseCameraToUser()
+                }
+            )
+            .simultaneousGesture(
+                RotateGesture().onChanged { _ in
+                    releaseCameraToUser()
+                }
+            )
+            // Click-off dismiss: a click/tap on the MAP closes any open floating
+            // panel or menu (settings, fuel/food/store menus, stop list, slider
+            // card, towing card). Annotation buttons (risk symbols, gas-price
+            // pins) and the chrome cards sit deeper in the hierarchy, so their
+            // own taps win and this never fires for them — selections still work.
+            // A tap INSIDE a coloured risk area opens that area's card instead.
+            .onTapGesture(coordinateSpace: .local) { point in
+                if let tapped = proxy.convert(point, from: .local),
+                    let info = riskAreaInfo(at: tapped)
+                {
+                    hazardInfo = info
+                    model.poi.touristDetail = nil  // shares the bottom-center slot
+                    return
+                }
+                hazardInfo = nil
+                model.dismissFloatingPanels()
             }
-            if heading.map({ h in drawnHeading.map { abs($0 - h) > 0.05 } ?? true })
-                ?? (drawnHeading != nil) {
-                drawnHeading = heading
-            }
-            guard let previous = drawnFix else {
-                drawnFix = fix.coordinate
-                return
-            }
-            if CLLocation(latitude: previous.latitude, longitude: previous.longitude)
-                .distance(from: fix) < 0.3 { return }
-            if VehicleTrack.shouldAnimate(from: previous, to: fix.coordinate) {
-                withAnimation(.linear(duration: VehicleTrack.slideSeconds(gap: gap))) {
+            // `.onEnd` is LOAD-BEARING for the ZIP overlay: RiskFieldService's
+            // zips(in:) memo holds only ~8 region keys, so a stable region during
+            // a pan keeps it hitting. `.continuous` would make every frame a memo
+            // miss running a full grid select (at continental zoom, a sort of all
+            // ~33k entries per frame).
+            .onReceive(model.location.$latest.compactMap { $0 }) { fix in
+                // Slide to the new fix instead of teleporting. A large step is
+                // the GPS correcting itself (leaving a tunnel), and animating
+                // across that would draw the car through buildings — so that
+                // one snaps.
+                let now = Date()
+                let gap = lastFixAt.map { now.timeIntervalSince($0) } ?? 1
+                lastFixAt = now
+                // Ease toward the new course rather than snapping to it. GPS
+                // course steps in whole degrees and jumps at a turn, so a marker
+                // pinned straight to it flicks round; easing the short way makes
+                // the turn read as a turn. (Crossing north eases 10°, not 350° —
+                // VehicleTrack.easedHeading.)
+                let reported = VehicleTrack.heading(
+                    courseDegrees: fix.course,
+                    speedMps: max(fix.speed, 0),
+                    previous: drawnHeading)
+                // Written only when they move: a write redraws the map's layers,
+                // and standing at a light sends the same fix each second.
+                let heading: Double?
+                if let reported, let current = drawnHeading {
+                    heading = VehicleTrack.easedHeading(
+                        from: current,
+                        to: reported,
+                        fraction: 0.45)
+                } else {
+                    heading = reported
+                }
+                if heading.map({ h in drawnHeading.map { abs($0 - h) > 0.05 } ?? true })
+                    ?? (drawnHeading != nil)
+                {
+                    drawnHeading = heading
+                }
+                guard let previous = drawnFix else {
+                    drawnFix = fix.coordinate
+                    return
+                }
+                if CLLocation(latitude: previous.latitude, longitude: previous.longitude)
+                    .distance(from: fix) < 0.3
+                {
+                    return
+                }
+                if VehicleTrack.shouldAnimate(from: previous, to: fix.coordinate) {
+                    withAnimation(.linear(duration: VehicleTrack.slideSeconds(gap: gap))) {
+                        drawnFix = fix.coordinate
+                    }
+                } else {
                     drawnFix = fix.coordinate
                 }
-            } else {
-                drawnFix = fix.coordinate
             }
-        }
-        .onMapCameraChange(frequency: .onEnd) { context in
-            visibleRegion = context.region
-            cameraDistance = context.camera.distance
-            cameraHeading = context.camera.heading
-            cameraPitch = context.camera.pitch
-            refreshViewportHazards(context.region)
+            .onMapCameraChange(frequency: .onEnd) { context in
+                visibleRegion = context.region
+                cameraDistance = context.camera.distance
+                cameraHeading = context.camera.heading
+                cameraPitch = context.camera.pitch
+                refreshViewportHazards(context.region)
 
-            // A camera settle we didn't initiate while navigating = the user
-            // panned/zoomed. Stop chasing GPS until they re-center. The
-            // window is generous: the GO jump (state-wide choices view down
-            // to street level) can take MapKit well past the animation's
-            // nominal 0.8 s, and a settle just outside a tight window read
-            // as a user pan — killing the chase before the trip even moved.
-            // Real pans are caught by the drag gesture above; this backstop
-            // only needs to catch stationary pinches.
-            if model.mode == .navigating, cameraFollows,
-               Date().timeIntervalSince(programmaticCameraMove) > 4.0 {
-                cameraFollows = false
+                // A camera settle we didn't initiate while navigating = the user
+                // panned/zoomed. Stop chasing GPS until they re-center. The
+                // window is generous: the GO jump (state-wide choices view down
+                // to street level) can take MapKit well past the animation's
+                // nominal 0.8 s, and a settle just outside a tight window read
+                // as a user pan — killing the chase before the trip even moved.
+                // Real pans are caught by the drag gesture above; this backstop
+                // only needs to catch stationary pinches.
+                if model.mode == .navigating, cameraFollows,
+                    Date().timeIntervalSince(programmaticCameraMove) > 4.0
+                {
+                    cameraFollows = false
+                }
             }
-        }
-        .ignoresSafeArea()
+            .ignoresSafeArea()
         }
         .ignoresSafeArea()
     }
@@ -2075,16 +2262,19 @@ struct ContentView: View {
     /// lookup read the same list.
     private var choroplethZIPs: [ChoroplethZIP] {
         guard model.showRiskField, model.riskField.loaded, model.mode != .navigating,
-              let region = visibleRegion,
-              // Family index hoisted above the loop — it was re-resolved
-              // once per rendered ZIP (up to 220 per frame).
-              let fi = model.riskField.familyIndex(model.overlayFamily) else { return [] }
+            let region = visibleRegion,
+            // Family index hoisted above the loop — it was re-resolved
+            // once per rendered ZIP (up to 220 per frame).
+            let fi = model.riskField.familyIndex(model.overlayFamily)
+        else { return [] }
         return model.riskField.zips(in: region, family: model.overlayFamily, limit: 220)
             .compactMap { entry in
                 guard let ring = entry.ring, fi < entry.scores.count,
-                      entry.scores[fi] >= model.riskDisplayFloor else { return nil }
-                return ChoroplethZIP(id: entry.id, ring: ring, score: entry.scores[fi],
-                                     entry: entry)
+                    entry.scores[fi] >= model.riskDisplayFloor
+                else { return nil }
+                return ChoroplethZIP(
+                    id: entry.id, ring: ring, score: entry.scores[fi],
+                    entry: entry)
             }
     }
 
@@ -2094,29 +2284,35 @@ struct ContentView: View {
     /// when the tap is on plain map.
     private func riskAreaInfo(at c: CLLocationCoordinate2D) -> HazardTapInfo? {
         if sweepLayersShown,
-           let ov = (zctaOverlays + blobOverlays)
-            .filter({ RiskAreaFallback.contains($0.ring, c) })
-            .max(by: { $0.score < $1.score }) {
+            let ov = (zctaOverlays + blobOverlays)
+                .filter({ RiskAreaFallback.contains($0.ring, c) })
+                .max(by: { $0.score < $1.score })
+        {
             // The live warning in force in this area, when one is.
-            let event = viewportHazards
+            let event =
+                viewportHazards
                 .filter { $0.alertEvent != nil && RiskAreaFallback.contains(ov.ring, $0.coordinate) }
                 .max(by: { $0.realized < $1.realized })?.alertEvent
             return HazardTapInfo(kind: ov.kind, coordinate: c, score: ov.score, event: event)
         }
         if let route = activeRouteForAreas, corridorAreaRouteID == route.id,
-           let area = (alertAreas + corridorAreasToDraw)
-            .first(where: { RiskAreaFallback.contains($0.ring, c) }) {
-            return HazardTapInfo(kind: area.kind, coordinate: c, score: area.score,
-                                 event: area.event)
+            let area = (alertAreas + corridorAreasToDraw)
+                .first(where: { RiskAreaFallback.contains($0.ring, c) })
+        {
+            return HazardTapInfo(
+                kind: area.kind, coordinate: c, score: area.score,
+                event: area.event)
         }
         if let hit = choroplethZIPs.first(where: { RiskAreaFallback.contains($0.ring, c) }) {
             let families = Dictionary(
                 zip(model.riskField.families, hit.entry.scores),
                 uniquingKeysWith: { a, _ in a })
-            let kind = HazardStyle.dominantFamily(families.filter { $0.key != "environmental" })
+            let kind =
+                HazardStyle.dominantFamily(families.filter { $0.key != "environmental" })
                 .map(HazardStyle.kind(forFamily:)) ?? HazardStyle.kind(forFamily: "environmental")
-            return HazardTapInfo(kind: kind, coordinate: hit.entry.centroid, score: hit.score,
-                                 longTerm: true)
+            return HazardTapInfo(
+                kind: kind, coordinate: hit.entry.centroid, score: hit.score,
+                longTerm: true)
         }
         return nil
     }
@@ -2153,9 +2349,12 @@ struct ContentView: View {
         // they counted the instruments while walking, and none of the
         // offers, prompts or chips that also sit up there.
         if let measured = chromeCover.value.top { return measured }
-        var f = 0.16                                   // directions banner
+        var f = 0.16  // directions banner
         if model.vehicle.profile != nil,
-           !model.collapsedPanels.contains("fuel") { f += 0.10 }
+            !model.collapsedPanels.contains("fuel")
+        {
+            f += 0.10
+        }
         if model.imminentWarning != nil { f += 0.12 }
         return f
     }
@@ -2169,7 +2368,7 @@ struct ContentView: View {
     /// worse than one that never moved on its own.
     private func releaseCameraToUser() {
         guard cameraFollows else { return }
-        chaseAngle = nil        // the driver owns the angle now
+        chaseAngle = nil  // the driver owns the angle now
         // No mode guard. The follow camera also runs while PLANNING (a
         // passenger scouting the route in a moving car), and gating the
         // release on .navigating meant those drags did nothing at all: the
@@ -2188,7 +2387,7 @@ struct ContentView: View {
             model.poi.choose(ranked)
             if kind == .tourist {
                 model.poi.touristDetail = ranked
-                hazardInfo = nil   // shares the bottom-center slot
+                hazardInfo = nil  // shares the bottom-center slot
             }
         } label: {
             VStack(spacing: 2) {
@@ -2285,9 +2484,11 @@ struct ContentView: View {
             .map { RiskEquations.realizedRisk([$0: poly.severity]) } ?? poly.severity
     }
 
-    private func alertPolygonBadge(_ poly: WeatherAlertService.AlertPolygon,
-                                   kind: HazardKind,
-                                   at center: CLLocationCoordinate2D) -> some View {
+    private func alertPolygonBadge(
+        _ poly: WeatherAlertService.AlertPolygon,
+        kind: HazardKind,
+        at center: CLLocationCoordinate2D
+    ) -> some View {
         let score = Self.alertBadgeScore(poly)
         return hazardBadge(kind, at: center, score: score, event: poly.event)
     }
@@ -2316,15 +2517,20 @@ struct ContentView: View {
         // ONE symbol at the center of each contiguous risk area — clustered
         // once per route change (rebuildCorridorAreas), never per frame; falls
         // back to a live cluster only until that first rebuild lands.
-        let clustered = corridorAreaRouteID == route.id
+        let clustered =
+            corridorAreaRouteID == route.id
             ? corridorBadges
             : BadgeClustering.cluster(
-                worthASymbol.map { BadgeClustering.Item(coordinate: $0.coordinate,
-                                                        kind: corridorKind($0), score: $0.risk) },
+                worthASymbol.map {
+                    BadgeClustering.Item(
+                        coordinate: $0.coordinate,
+                        kind: corridorKind($0), score: $0.risk)
+                },
                 minSeparationMeters: 80_000)
         // The live cluster's warnings too: which badges give way to the
         // sweep's depends on them.
-        let events = corridorAreaRouteID == route.id
+        let events =
+            corridorAreaRouteID == route.id
             ? corridorBadgeEvents : corridorEvents(for: clustered, from: worthASymbol)
         let badges = corridorBadgesToDraw(clustered, events: events)
         ForEach(badges, id: \.stableID) { badge in
@@ -2374,16 +2580,19 @@ struct ContentView: View {
             sameHazard: { badge, shown in
                 // A warning's symbol gives way only to one that names it:
                 // its tap card must still say the warning is in force.
-                BadgeClustering.sameHazard(badgeEvent: events[badge.stableID],
-                                           shownEvent: viewportBadgeEvents[shown.stableID])
+                BadgeClustering.sameHazard(
+                    badgeEvent: events[badge.stableID],
+                    shownEvent: viewportBadgeEvents[shown.stableID])
             })
     }
 
     /// A corridor badge, which names the live warning its samples carry on
     /// the tap card. (Its own function for the same compiler reason as
     /// `alertPolygonBadge`.)
-    private func corridorBadge(_ badge: BadgeClustering.Item<HazardKind>,
-                               event: String?) -> some View {
+    private func corridorBadge(
+        _ badge: BadgeClustering.Item<HazardKind>,
+        event: String?
+    ) -> some View {
         hazardBadge(badge.kind, at: badge.coordinate, score: badge.score, event: event)
     }
 
@@ -2407,8 +2616,9 @@ struct ContentView: View {
     private func viewportHazardBadge(_ item: BadgeClustering.Item<HazardKind>) -> some View {
         // Matched once per sweep (refreshViewportBadgeEvents); a badge no
         // warning reaches falls back to climatology.
-        hazardBadge(item.kind, at: item.coordinate, score: item.score,
-                    event: viewportBadgeEvents[item.stableID])
+        hazardBadge(
+            item.kind, at: item.coordinate, score: item.score,
+            event: viewportBadgeEvents[item.stableID])
     }
 
     /// Tapping a risk symbol opens its summary card ("what is this flood
@@ -2420,9 +2630,10 @@ struct ContentView: View {
         let size = badgeSize
         return Button {
             if let coordinate {
-                hazardInfo = HazardTapInfo(kind: kind, coordinate: coordinate, score: score,
-                                           event: event)
-                model.poi.touristDetail = nil   // shares the bottom-center slot
+                hazardInfo = HazardTapInfo(
+                    kind: kind, coordinate: coordinate, score: score,
+                    event: event)
+                model.poi.touristDetail = nil  // shares the bottom-center slot
             }
         } label: {
             Image(systemName: kind.symbol)
@@ -2467,18 +2678,22 @@ struct ContentView: View {
                                 .clipShape(Capsule())
                         }
                     }
-                    Text(info.event.map { "\($0) is in effect here." }
-                         ?? fieldSummary
-                         ?? "Conditions here could make driving harder. Drive with "
-                         + "care and watch for official warnings.")
-                        .scaledFont(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(3)
+                    Text(
+                        info.event.map { "\($0) is in effect here." }
+                            ?? fieldSummary
+                            ?? "Conditions here could make driving harder. Drive with "
+                            + "care and watch for official warnings."
+                    )
+                    .scaledFont(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(3)
                     if info.longTerm {
-                        Text("This ZIP's long-term risk, from 20 years of storm "
-                             + "records — not today's weather.")
-                            .scaledFont(.caption2)
-                            .foregroundStyle(.secondary)
+                        Text(
+                            "This ZIP's long-term risk, from 20 years of storm "
+                                + "records — not today's weather."
+                        )
+                        .scaledFont(.caption2)
+                        .foregroundStyle(.secondary)
                     }
                     if let score = info.score {
                         Text(String(format: "Local risk score %.0f%%", score * 100))
@@ -2487,8 +2702,11 @@ struct ContentView: View {
                     }
                     // Expert actions, SCALED to the band — mild elevation
                     // gets proportionate advice (NWS/CDC/FEMA guidance).
-                    ForEach(RiskAdvice.actions(kindName: info.kind.name,
-                                               band: band ?? .green), id: \.self) { line in
+                    ForEach(
+                        RiskAdvice.actions(
+                            kindName: info.kind.name,
+                            band: band ?? .green), id: \.self
+                    ) { line in
                         Label(line, systemImage: "checkmark.circle")
                             .scaledFont(.caption2)
                             .foregroundStyle(.primary.opacity(0.85))
@@ -2497,14 +2715,18 @@ struct ContentView: View {
                     // specific alert link when one is active, else the
                     // official point-forecast/hazards page.
                     if let url = info.sourceURL
-                        ?? RiskAdvice.officialURL(latitude: info.coordinate.latitude,
-                                                  longitude: info.coordinate.longitude) {
+                        ?? RiskAdvice.officialURL(
+                            latitude: info.coordinate.latitude,
+                            longitude: info.coordinate.longitude)
+                    {
                         Link("Official warning page →", destination: url)
                             .scaledFont(.caption, weight: .bold)
                     }
                 }
                 Spacer()
-                Button { hazardInfo = nil } label: {
+                Button {
+                    hazardInfo = nil
+                } label: {
                     Image(systemName: "xmark.circle.fill")
                         .scaledFont(size: 18)
                         .foregroundStyle(.secondary)
@@ -2550,11 +2772,12 @@ struct ContentView: View {
         for sample in risky.prefix(20) {
             guard let z = await ZCTAFetcher.shared.zcta(containing: sample.coordinate)
             else { continue }
-            if Task.isCancelled { return }   // a newer route superseded this run
+            if Task.isCancelled { return }  // a newer route superseded this run
             guard seenCodes.insert(z.code).inserted else { continue }
-            areas.append(CorridorHazardArea(
-                id: z.code, ring: z.ring, kind: corridorKind(sample),
-                score: sample.risk, event: sample.worstEvent))
+            areas.append(
+                CorridorHazardArea(
+                    id: z.code, ring: z.ring, kind: corridorKind(sample),
+                    score: sample.risk, event: sample.worstEvent))
         }
         guard !Task.isCancelled else { return }
         corridorAreas = areas
@@ -2571,17 +2794,19 @@ struct ContentView: View {
                 guard let z = await ZCTAFetcher.shared.zcta(containing: p) else { continue }
                 if Task.isCancelled { return }
                 guard codes.insert(z.code).inserted else { continue }
-                warned.append(CorridorHazardArea(
-                    id: "\(poly.id.uuidString)|\(z.code)", ring: z.ring, kind: kind,
-                    score: score, event: poly.event, alertID: poly.id))
+                warned.append(
+                    CorridorHazardArea(
+                        id: "\(poly.id.uuidString)|\(z.code)", ring: z.ring, kind: kind,
+                        score: score, event: poly.event, alertID: poly.id))
             }
             if codes.isEmpty {
                 let c = RiskAreaFallback.centroid(of: poly.coordinates)
                 let reach = poly.coordinates.map { POIRanking.meters($0, c) }.max() ?? 10_000
-                warned.append(CorridorHazardArea(
-                    id: "\(poly.id.uuidString)|circle",
-                    ring: RiskAreaFallback.circleRing(center: c, radiusMeters: reach),
-                    kind: kind, score: score, event: poly.event, alertID: poly.id))
+                warned.append(
+                    CorridorHazardArea(
+                        id: "\(poly.id.uuidString)|circle",
+                        ring: RiskAreaFallback.circleRing(center: c, radiusMeters: reach),
+                        kind: kind, score: score, event: poly.event, alertID: poly.id))
             }
         }
         guard !Task.isCancelled else { return }
@@ -2592,8 +2817,11 @@ struct ContentView: View {
         // worse); the areas above come from the lower display floor.
         let worthASymbol = risky.filter { $0.risk >= model.riskIconFloor }
         corridorBadges = BadgeClustering.cluster(
-            worthASymbol.map { BadgeClustering.Item(coordinate: $0.coordinate,
-                                                    kind: corridorKind($0), score: $0.risk) },
+            worthASymbol.map {
+                BadgeClustering.Item(
+                    coordinate: $0.coordinate,
+                    kind: corridorKind($0), score: $0.risk)
+            },
             minSeparationMeters: 80_000)
         corridorBadgeEvents = corridorEvents(for: corridorBadges, from: worthASymbol)
         corridorAreaRouteID = route.id
@@ -2602,18 +2830,26 @@ struct ContentView: View {
     /// The live warning each corridor badge names on its tap card, by
     /// `stableID`. The badge sits at its samples' centroid, so each warned
     /// sample joins the nearest badge of its kind (BadgeClustering.labels).
-    private func corridorEvents(for badges: [BadgeClustering.Item<HazardKind>],
-                                from risky: [RiskSample]) -> [String: String] {
+    private func corridorEvents(
+        for badges: [BadgeClustering.Item<HazardKind>],
+        from risky: [RiskSample]
+    ) -> [String: String] {
         let warned = risky.compactMap { sample in
             sample.worstEvent.map {
-                (item: BadgeClustering.Item(coordinate: sample.coordinate,
-                                            kind: corridorKind(sample), score: sample.risk),
-                 label: $0)
+                (
+                    item: BadgeClustering.Item(
+                        coordinate: sample.coordinate,
+                        kind: corridorKind(sample), score: sample.risk),
+                    label: $0
+                )
             }
         }
         var events: [String: String] = [:]
-        for (badge, event) in zip(badges, BadgeClustering.labels(
-            for: badges, from: warned, radiusMeters: 80_000)) {
+        for (badge, event) in zip(
+            badges,
+            BadgeClustering.labels(
+                for: badges, from: warned, radiusMeters: 80_000))
+        {
             if let event { events[badge.stableID] = event }
         }
         return events
@@ -2629,17 +2865,19 @@ struct ContentView: View {
     private func steepGradeMarkers(_ route: PlannedRoute) -> some MapContent {
         ForEach(Array(route.steepMarkers.enumerated()), id: \.offset) { _, m in
             Annotation("", coordinate: m.coordinate) {
-                Label(String(format: "%.0f%%", abs(m.gradePercent)),
-                      systemImage: m.gradePercent > 0
-                        ? "arrow.up.right" : "arrow.down.right")
-                    .scaledFont(size: 10, weight: .heavy)
-                    .padding(.horizontal, 6).padding(.vertical, 3)
-                    // Neutral ink: an orange or red sign on the road read as
-                    // a risk colour, and the road's only colour is its risk.
-                    .background(Color.black.opacity(0.78))
-                    .foregroundStyle(.white)
-                    .clipShape(Capsule())
-                    .shadow(radius: 2)
+                Label(
+                    String(format: "%.0f%%", abs(m.gradePercent)),
+                    systemImage: m.gradePercent > 0
+                        ? "arrow.up.right" : "arrow.down.right"
+                )
+                .scaledFont(size: 10, weight: .heavy)
+                .padding(.horizontal, 6).padding(.vertical, 3)
+                // Neutral ink: an orange or red sign on the road read as
+                // a risk colour, and the road's only colour is its risk.
+                .background(Color.black.opacity(0.78))
+                .foregroundStyle(.white)
+                .clipShape(Capsule())
+                .shadow(radius: 2)
             }
         }
     }
@@ -2662,15 +2900,17 @@ struct ContentView: View {
             // round caps close any seam.
             ForEach(route.riskSegments) { seg in
                 MapPolyline(coordinates: seg.coordinates)
-                    .stroke(FlowsCore.riskBand(score: seg.risk).color,
-                            style: StrokeStyle(lineWidth: 7, lineCap: .round))
+                    .stroke(
+                        FlowsCore.riskBand(score: seg.risk).color,
+                        style: StrokeStyle(lineWidth: 7, lineCap: .round))
             }
         } else {
             // Not checked yet (or the check failed) is gray, never the pale
             // green of a route that was checked and found clear.
             MapPolyline(route.route.polyline)
-                .stroke(route.weatherScored ? route.riskBand.color : Color.gray,
-                        lineWidth: 7)
+                .stroke(
+                    route.weatherScored ? route.riskBand.color : Color.gray,
+                    lineWidth: 7)
         }
     }
 
@@ -2686,17 +2926,21 @@ struct ContentView: View {
     private var chromeLayer: some View {
         switch model.mode {
         case .planning, .choosing:
-            PlanningChrome(isCompact: isCompact, camera: $camera,
-                           detailCards: hasDetailCards ? AnyView(detailCards) : nil,
-                           showsRecenter: model.mode == .planning && !cameraFollows
-                               && model.location.coordinate != nil,
-                           showsLegend: legendHasRoom && model.mode == .choosing,
-                           legendChecking: viewportSweeping)
-                .environment(\.mapKeyComesBack, legendWouldHaveRoom)
+            PlanningChrome(
+                isCompact: isCompact, camera: $camera,
+                detailCards: hasDetailCards ? AnyView(detailCards) : nil,
+                showsRecenter: model.mode == .planning && !cameraFollows
+                    && model.location.coordinate != nil,
+                showsLegend: legendHasRoom && model.mode == .choosing,
+                legendChecking: viewportSweeping
+            )
+            .environment(\.mapKeyComesBack, legendWouldHaveRoom)
         case .navigating:
-            NavigationHUD(isCompact: isCompact,
-                          detailCards: hasDetailCards ? AnyView(detailCards) : nil)
-                .environment(\.mapKeyComesBack, legendWouldHaveRoom)
+            NavigationHUD(
+                isCompact: isCompact,
+                detailCards: hasDetailCards ? AnyView(detailCards) : nil
+            )
+            .environment(\.mapKeyComesBack, legendWouldHaveRoom)
         }
     }
 
@@ -2720,10 +2964,12 @@ private struct VehicleOnboardingCard: View {
         VStack(alignment: .leading, spacing: 2) {
             Text("Add your vehicle")
                 .scaledFont(size: 14, weight: .bold)
-            Text("Track range from mpg + tank size + how you drive, and "
-                 + "get fuel stops before you need them.")
-                .scaledFont(.caption)
-                .foregroundStyle(.secondary)
+            Text(
+                "Track range from mpg + tank size + how you drive, and "
+                    + "get fuel stops before you need them."
+            )
+            .scaledFont(.caption)
+            .foregroundStyle(.secondary)
         }
         .fixedSize(horizontal: false, vertical: true)
     }
@@ -2740,7 +2986,9 @@ private struct VehicleOnboardingCard: View {
     }
 
     private var dismiss: some View {
-        Button { model.vehicleOnboardingDismissed = true } label: {
+        Button {
+            model.vehicleOnboardingDismissed = true
+        } label: {
             Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
         }
         .buttonStyle(.plain)
@@ -2777,7 +3025,7 @@ private struct PlanningChrome: View {
     @EnvironmentObject private var model: AppModel
     @Environment(\.golden) private var golden
     #if os(iOS)
-    @Environment(\.verticalSizeClass) private var verticalSizeClass
+        @Environment(\.verticalSizeClass) private var verticalSizeClass
     #endif
     let isCompact: Bool
     @Binding var camera: MapCameraPosition
@@ -2796,9 +3044,9 @@ private struct PlanningChrome: View {
     /// Whether the Mac's settings panel is open in the top-right column.
     private var settingsInColumn: Bool {
         #if os(macOS)
-        model.showSettings
+            model.showSettings
         #else
-        false
+            false
         #endif
     }
 
@@ -2821,10 +3069,10 @@ private struct PlanningChrome: View {
             }
             CollapsedPanelTray()
             #if os(macOS)
-            if model.showSettings {
-                SettingsPanelCard()
-                    .chromeRegion("settings-panel")
-            }
+                if model.showSettings {
+                    SettingsPanelCard()
+                        .chromeRegion("settings-panel")
+                }
             #endif
         }
     }
@@ -2836,9 +3084,9 @@ private struct PlanningChrome: View {
     /// beside it grew and shrank.
     private var trayInRow: Bool {
         #if os(iOS)
-        verticalSizeClass == .compact
+            verticalSizeClass == .compact
         #else
-        false
+            false
         #endif
     }
 
@@ -2924,8 +3172,11 @@ private struct PlanningChrome: View {
             .frame(minHeight: min(golden.bottomClear * 0.6, golden.size.height / 8), alignment: .bottom)
             // No wider than the cards: a scroll view catches the map's drags
             // across its whole width.
-            .frame(maxWidth: isCompact ? .infinity
-                   : (detailCards == nil ? (nagWidth ?? golden.cardMax) : golden.cardMax))
+            .frame(
+                maxWidth: isCompact
+                    ? .infinity
+                    : (detailCards == nil ? (nagWidth ?? golden.cardMax) : golden.cardMax)
+            )
             // Yields before the rows around it: the red alert above and the
             // crash check-in below keep their room first.
             .layoutPriority(-0.5)
@@ -2988,7 +3239,7 @@ private struct PlanningChrome: View {
                         showsNag: model.needsVehicleOnboarding && detailCards == nil
                             && !redAlertUp,
                         nagWidth: nil)
-                    PlannerPanel(camera: $camera)     // planner bottom-center
+                    PlannerPanel(camera: $camera)  // planner bottom-center
                         // The planner the driver is typing into gets its room
                         // first; the cards above it scroll in what is left.
                         .layoutPriority(1)
@@ -3028,8 +3279,9 @@ private struct PlanningChrome: View {
                         LegendCard(inStack: true, checking: legendChecking)
                     }
                 }
-                .frame(width: settingsInColumn ? max(golden.sidePanel, 340) : golden.sideColumn,
-                       alignment: .trailing)
+                .frame(
+                    width: settingsInColumn ? max(golden.sidePanel, 340) : golden.sideColumn,
+                    alignment: .trailing)
             }
             .padding(golden.pad)
         } else {
@@ -3063,8 +3315,9 @@ private struct PlanningChrome: View {
                     // directly above it rather than floating on a
                     // phone-tuned padding that lands mid-map on a tablet.
                     // The nag waits while a red alert is up.
-                    cardsAbovePlanner(showsNag: model.needsVehicleOnboarding && !redAlertUp,
-                                      nagWidth: golden.sidePanel)
+                    cardsAbovePlanner(
+                        showsNag: model.needsVehicleOnboarding && !redAlertUp,
+                        nagWidth: golden.sidePanel)
                     PlannerPanel(camera: $camera)
                         .frame(width: golden.sidePanel)
                         .layoutPriority(1)
@@ -3106,14 +3359,20 @@ struct OfflinePill: View {
         let offline = model.breadcrumbs.isOffline
         HStack(spacing: 8) {
             Image(systemName: offline ? "wifi.slash" : "wifi")
-            Text(offline ? "No signal — FLOWS can't find new routes right now."
-                         : "Signal is back.")
-                .scaledFont(.footnote, weight: .semibold)
+            Text(
+                offline
+                    ? "No signal — FLOWS can't find new routes right now."
+                    : "Signal is back."
+            )
+            .scaledFont(.footnote, weight: .semibold)
             if model.breadcrumbs.points.count >= 2 {
-                Button(model.breadcrumbs.showTrail
-                       ? "Hide my trail"
-                       : String(format: "Find my way back (%.1f mi trail)",
-                                model.breadcrumbs.wayBack().meters / 1609.344)) {
+                Button(
+                    model.breadcrumbs.showTrail
+                        ? "Hide my trail"
+                        : String(
+                            format: "Find my way back (%.1f mi trail)",
+                            model.breadcrumbs.wayBack().meters / 1609.344)
+                ) {
                     model.breadcrumbs.showTrail.toggle()
                 }
                 .scaledFont(.footnote, weight: .bold)
@@ -3128,26 +3387,26 @@ struct OfflinePill: View {
 }
 
 #if os(macOS)
-/// Settings on the Mac: a panel rather than a modal sheet, so a click on the
-/// map (or Done) closes it. It opens inside the chrome's own stacks — under
-/// the gear and its icons while planning, above the drive bar while driving —
-/// instead of floating over whatever sat in the top-right.
-struct SettingsPanelCard: View {
-    @Environment(\.golden) private var golden
+    /// Settings on the Mac: a panel rather than a modal sheet, so a click on the
+    /// map (or Done) closes it. It opens inside the chrome's own stacks — under
+    /// the gear and its icons while planning, above the drive bar while driving —
+    /// instead of floating over whatever sat in the top-right.
+    struct SettingsPanelCard: View {
+        @Environment(\.golden) private var golden
 
-    var body: some View {
-        SettingsSheet()
-            // At least the sheet's own 340 pt width. Its height is whatever
-            // the column or card stack has left, up to the cap: the sheet
-            // scrolls, and a fixed 480 pt floor ran the gear, the planner or
-            // the route list off a small window.
-            .frame(width: max(golden.sidePanel, 340))
-            .frame(maxHeight: max(golden.size.height / Theme.phi, 480))
-            .background(Theme.cardBackground)
-            .clipShape(RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous))
-            .shadow(color: Theme.cardShadow, radius: 18, y: 6)
+        var body: some View {
+            SettingsSheet()
+                // At least the sheet's own 340 pt width. Its height is whatever
+                // the column or card stack has left, up to the cap: the sheet
+                // scrolls, and a fixed 480 pt floor ran the gear, the planner or
+                // the route list off a small window.
+                .frame(width: max(golden.sidePanel, 340))
+                .frame(maxHeight: max(golden.size.height / Theme.phi, 480))
+                .background(Theme.cardBackground)
+                .clipShape(RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous))
+                .shadow(color: Theme.cardShadow, radius: 18, y: 6)
+        }
     }
-}
 #endif
 
 /// Set on the main actor when the sweep's slow feeds have all come in.
@@ -3235,114 +3494,128 @@ struct FilterSlidersCard: View {
     @EnvironmentObject private var model: AppModel
     @Environment(\.golden) private var golden
     #if os(iOS)
-    @Environment(\.horizontalSizeClass) private var sizeClass
-    private var isCompact: Bool { sizeClass == .compact }
+        @Environment(\.horizontalSizeClass) private var sizeClass
+        private var isCompact: Bool { sizeClass == .compact }
     #else
-    private let isCompact = false
+        private let isCompact = false
     #endif
 
     var body: some View {
         // A map click hides the card (click-off dismiss); touching any
         // filter brings it back.
         if !model.filterCardsHidden,
-           model.routeFilters.contains(.lowBridges) || model.routeFilters.contains(.mountainGrades)
-            || model.routeFilters.contains(.bridgeWeight) {
+            model.routeFilters.contains(.lowBridges) || model.routeFilters.contains(.mountainGrades)
+                || model.routeFilters.contains(.bridgeWeight)
+        {
             // Compact layouts span the window width (240 pt reads as a side
             // panel only next to a desktop map) and scroll when all three
             // filter sections are open — stacked above the route list they
             // pushed it off a phone screen.
             ScrollWhenTight {
-            VStack(alignment: .leading, spacing: 8) {
-                HStack {
-                    Text("Vehicle limits")
-                        .scaledFont(.caption, weight: .bold)
-                        .foregroundStyle(.secondary)
-                    Spacer()
-                    // X = minimize into the round limits icon at the top right.
-                    Button {
-                        withAnimation(.easeInOut(duration: 0.2)) {
-                            _ = model.collapsedPanels.insert("sliders")
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack {
+                        Text("Vehicle limits")
+                            .scaledFont(.caption, weight: .bold)
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        // X = minimize into the round limits icon at the top right.
+                        Button {
+                            withAnimation(.easeInOut(duration: 0.2)) {
+                                _ = model.collapsedPanels.insert("sliders")
+                            }
+                        } label: {
+                            Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
                         }
-                    } label: {
-                        Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
+                        .buttonStyle(.plain)
+                        .help("Tuck the limits card away")
                     }
-                    .buttonStyle(.plain)
-                    .help("Tuck the limits card away")
-                }
-                if model.routeFilters.contains(.lowBridges) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Vehicle height: " + FilterLimits.feetAndInches(feet: model.vehicleHeightFeet))
-                            .scaledFont(.caption, weight: .semibold)
-                        Slider(value: $model.vehicleHeightFeet,
-                               in: VehicleSpecs.heightSliderFloorFeet...16, step: 0.25)
-                        // Spell out the effect: height + 2 ft margin.
-                        Text("Avoiding posted clearances of "
-                             + FilterLimits.feetAndInches(feet: model.vehicleHeightFeet + 2)
-                             + " or lower (your height + 2 ft margin).")
-                            .scaledFont(size: 9)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-                if model.routeFilters.contains(.mountainGrades) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        // Degrees, the unit a driver towing heavy thinks in —
-                        // 14° ≈ a 25% grade. Percent shown for the data-minded.
-                        Text(String(format: "Max grade: %.1f° (%.0f%%)", model.maxGradeDegrees,
-                                    FilterLimits.degreesToPercent(model.maxGradeDegrees)))
-                            .scaledFont(.caption, weight: .semibold)
-                        Slider(value: $model.maxGradeDegrees, in: 2...15, step: 0.5)
-                        Text("Routes must stay flatter than this.")
-                            .scaledFont(size: 9)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-                if model.routeFilters.contains(.bridgeWeight) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        // The SAME weights the towing card uses — change
-                        // either place and both follow.
-                        HStack {
-                            Text(vehicleWeightLabel)
+                    if model.routeFilters.contains(.lowBridges) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Vehicle height: " + FilterLimits.feetAndInches(feet: model.vehicleHeightFeet))
                                 .scaledFont(.caption, weight: .semibold)
-                            if model.towVehicleWeightLbs > 0 {
-                                Button("Clear") { model.towVehicleWeightLbs = 0 }
-                                    .scaledFont(.caption2)
-                                    .buttonStyle(.plain)
-                                    .foregroundStyle(.blue)
+                            Slider(
+                                value: $model.vehicleHeightFeet,
+                                in: VehicleSpecs.heightSliderFloorFeet...16, step: 0.25)
+                            // Spell out the effect: height + 2 ft margin.
+                            Text(
+                                "Avoiding posted clearances of "
+                                    + FilterLimits.feetAndInches(feet: model.vehicleHeightFeet + 2)
+                                    + " or lower (your height + 2 ft margin)."
+                            )
+                            .scaledFont(size: 9)
+                            .foregroundStyle(.secondary)
+                        }
+                    }
+                    if model.routeFilters.contains(.mountainGrades) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            // Degrees, the unit a driver towing heavy thinks in —
+                            // 14° ≈ a 25% grade. Percent shown for the data-minded.
+                            Text(
+                                String(
+                                    format: "Max grade: %.1f° (%.0f%%)", model.maxGradeDegrees,
+                                    FilterLimits.degreesToPercent(model.maxGradeDegrees))
+                            )
+                            .scaledFont(.caption, weight: .semibold)
+                            Slider(value: $model.maxGradeDegrees, in: 2...15, step: 0.5)
+                            Text("Routes must stay flatter than this.")
+                                .scaledFont(size: 9)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    if model.routeFilters.contains(.bridgeWeight) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            // The SAME weights the towing card uses — change
+                            // either place and both follow.
+                            HStack {
+                                Text(vehicleWeightLabel)
+                                    .scaledFont(.caption, weight: .semibold)
+                                if model.towVehicleWeightLbs > 0 {
+                                    Button("Clear") { model.towVehicleWeightLbs = 0 }
+                                        .scaledFont(.caption2)
+                                        .buttonStyle(.plain)
+                                        .foregroundStyle(.blue)
+                                }
+                            }
+                            Slider(value: $model.towVehicleWeightLbs, in: 2000...40000, step: 100)
+                            Text(String(format: "Towing weight: %.0f lb", model.towTrailerWeightLbs))
+                                .scaledFont(.caption, weight: .semibold)
+                            Slider(value: $model.towTrailerWeightLbs, in: 0...45000, step: 100)
+                            // Spell out the effect: the whole rig vs posted limits.
+                            if let rig = model.filterLimits.rigWeightLbs {
+                                // With no vehicle weight and no rating to stand
+                                // in, the rig is the trailer alone — say so.
+                                let vehicleCounted =
+                                    model.towVehicleWeightLbs > 0
+                                    || model.towingRatings.gvwrLbs != nil
+                                Text(
+                                    String(
+                                        format: "Avoiding roads and bridges with "
+                                            + "weight signs under %.0f lb (%@).", rig,
+                                        vehicleCounted
+                                            ? "your vehicle + what you tow"
+                                            : "what you tow — set your vehicle's weight too")
+                                )
+                                .scaledFont(size: 9)
+                                .foregroundStyle(.secondary)
+                            } else {
+                                Text(
+                                    "Set your weights so routes can be checked "
+                                        + "against posted weight signs."
+                                )
+                                .scaledFont(size: 9)
+                                .foregroundStyle(.secondary)
                             }
                         }
-                        Slider(value: $model.towVehicleWeightLbs, in: 2000...40000, step: 100)
-                        Text(String(format: "Towing weight: %.0f lb", model.towTrailerWeightLbs))
-                            .scaledFont(.caption, weight: .semibold)
-                        Slider(value: $model.towTrailerWeightLbs, in: 0...45000, step: 100)
-                        // Spell out the effect: the whole rig vs posted limits.
-                        if let rig = model.filterLimits.rigWeightLbs {
-                            // With no vehicle weight and no rating to stand
-                            // in, the rig is the trailer alone — say so.
-                            let vehicleCounted = model.towVehicleWeightLbs > 0
-                                || model.towingRatings.gvwrLbs != nil
-                            Text(String(format: "Avoiding roads and bridges with "
-                                        + "weight signs under %.0f lb (%@).", rig,
-                                        vehicleCounted ? "your vehicle + what you tow"
-                                            : "what you tow — set your vehicle's weight too"))
-                                .scaledFont(size: 9)
-                                .foregroundStyle(.secondary)
-                        } else {
-                            Text("Set your weights so routes can be checked "
-                                 + "against posted weight signs.")
-                                .scaledFont(size: 9)
-                                .foregroundStyle(.secondary)
-                        }
+                    }
+                    // Per-route verdicts against YOUR limits — moving a slider
+                    // shows its effect here immediately, and excluded routes
+                    // drop from the list.
+                    Divider()
+                    ForEach(model.routeChoices.prefix(4)) { r in
+                        routeVerdictRow(r)
                     }
                 }
-                // Per-route verdicts against YOUR limits — moving a slider
-                // shows its effect here immediately, and excluded routes
-                // drop from the list.
-                Divider()
-                ForEach(model.routeChoices.prefix(4)) { r in
-                    routeVerdictRow(r)
-                }
-            }
-            .padding(golden.padCard)
+                .padding(golden.padCard)
             }
             .collapsibleMenu("sliders")
             .frame(maxWidth: isCompact ? .infinity : golden.sideColumn)
@@ -3410,11 +3683,13 @@ extension FilterSlidersCard {
             if model.routeFilters.contains(.mountainGrades) {
                 if let g = r.maxGradePercent {
                     let deg = atan(g / 100) * 180 / .pi
-                    Label(String(format: "%.1f°", deg),
-                          systemImage: limits.passesGrade(g)
-                              ? "checkmark.circle.fill" : "xmark.octagon.fill")
-                        .scaledFont(size: 9, weight: .bold)
-                        .foregroundStyle(limits.passesGrade(g) ? Theme.riskGreen : Theme.riskRed)
+                    Label(
+                        String(format: "%.1f°", deg),
+                        systemImage: limits.passesGrade(g)
+                            ? "checkmark.circle.fill" : "xmark.octagon.fill"
+                    )
+                    .scaledFont(size: 9, weight: .bold)
+                    .foregroundStyle(limits.passesGrade(g) ? Theme.riskGreen : Theme.riskRed)
                 } else {
                     Text("grade…").scaledFont(size: 9).foregroundStyle(.secondary)
                 }
@@ -3432,15 +3707,17 @@ extension FilterSlidersCard {
                 if let cl = r.clearancesMeters {
                     let worst = cl.min()
                     let passes = limits.passesClearances(cl)
-                    Label(worst.map { w -> String in
-                        // Whole inches FIRST. Truncating feet and then inches turned a posted
-                        // 13'0" (3.9624 m → 12.99999 ft) into 12'11", one inch under the sign.
-                        let inches = Int((w / 0.0254).rounded())
-                        return String(format: "%d'%d\"", inches / 12, inches % 12)
-                    } ?? "no low posts",
-                          systemImage: passes ? "checkmark.circle.fill" : "xmark.octagon.fill")
-                        .scaledFont(size: 9, weight: .bold)
-                        .foregroundStyle(passes ? Theme.riskGreen : Theme.riskRed)
+                    Label(
+                        worst.map { w -> String in
+                            // Whole inches FIRST. Truncating feet and then inches turned a posted
+                            // 13'0" (3.9624 m → 12.99999 ft) into 12'11", one inch under the sign.
+                            let inches = Int((w / 0.0254).rounded())
+                            return String(format: "%d'%d\"", inches / 12, inches % 12)
+                        } ?? "no low posts",
+                        systemImage: passes ? "checkmark.circle.fill" : "xmark.octagon.fill"
+                    )
+                    .scaledFont(size: 9, weight: .bold)
+                    .foregroundStyle(passes ? Theme.riskGreen : Theme.riskRed)
                 } else if r.clearanceDataUnavailable {
                     // The lookup failed: say so, not "still checking".
                     Text("no bridge data").scaledFont(size: 9, weight: .bold)
@@ -3464,10 +3741,12 @@ extension FilterSlidersCard {
                     Text("set weight").scaledFont(size: 9).foregroundStyle(.secondary)
                 } else if let wl = r.weightLimitsLbs {
                     let passes = limits.passesWeightLimits(wl)
-                    Label(wl.min().map { String(format: "%.0f lb", $0) } ?? "no weight signs",
-                          systemImage: passes ? "checkmark.circle.fill" : "xmark.octagon.fill")
-                        .scaledFont(size: 9, weight: .bold)
-                        .foregroundStyle(passes ? Theme.riskGreen : Theme.riskRed)
+                    Label(
+                        wl.min().map { String(format: "%.0f lb", $0) } ?? "no weight signs",
+                        systemImage: passes ? "checkmark.circle.fill" : "xmark.octagon.fill"
+                    )
+                    .scaledFont(size: 9, weight: .bold)
+                    .foregroundStyle(passes ? Theme.riskGreen : Theme.riskRed)
                 } else if r.clearanceDataUnavailable {
                     Text("no weight data").scaledFont(size: 9, weight: .bold)
                         .foregroundStyle(Theme.riskYellow)
@@ -3565,15 +3844,18 @@ struct CollapsedPanelTray: View {
     /// towing — minimize back into that button instead.)
     static let panels: [PanelBadge] = [
         PanelBadge(id: "planner", symbol: "magnifyingglass", name: "Trip planner"),
-        PanelBadge(id: "routes", symbol: "arrow.triangle.turn.up.right.circle",
-                   name: "Route choices"),
+        PanelBadge(
+            id: "routes", symbol: "arrow.triangle.turn.up.right.circle",
+            name: "Route choices"),
         PanelBadge(id: "sliders", symbol: "slider.horizontal.3", name: "Vehicle limits"),
         PanelBadge(id: "legend", symbol: "list.bullet.rectangle", name: "Map key"),
-        PanelBadge(id: "fuel", symbol: "gauge.with.dots.needle.bottom.50percent",
-                   name: "Driving instruments"),
+        PanelBadge(
+            id: "fuel", symbol: "gauge.with.dots.needle.bottom.50percent",
+            name: "Driving instruments"),
         // A warning closed with its X: still in force, waiting here.
-        PanelBadge(id: AppModel.warningPanelID, symbol: "exclamationmark.triangle.fill",
-                   name: "Warning"),
+        PanelBadge(
+            id: AppModel.warningPanelID, symbol: "exclamationmark.triangle.fill",
+            name: "Warning"),
     ]
 
     /// A column under the gear, or a row beside it where a column will not
@@ -3584,17 +3866,20 @@ struct CollapsedPanelTray: View {
     /// driver built, not the order this list happens to declare them in.
     @MainActor
     static func visible(_ model: AppModel, mapKeyComesBack: Bool) -> [PanelBadge] {
-        let screen: ChromeScreen = switch model.mode {
-        case .planning: .planning
-        case .choosing: .choosing
-        case .navigating: .driving
-        }
+        let screen: ChromeScreen =
+            switch model.mode {
+            case .planning: .planning
+            case .choosing: .choosing
+            case .navigating: .driving
+            }
         // Only the icons whose menu comes back on this screen (TuckedMenus).
         return model.collapsedPanels.order.compactMap { id in
             panels.first {
-                $0.id == id && TuckedMenus.comesBack(id, on: screen,
-                                                     mapKeyComesBack: mapKeyComesBack,
-                                                     hasWarning: model.imminentWarning != nil)
+                $0.id == id
+                    && TuckedMenus.comesBack(
+                        id, on: screen,
+                        mapKeyComesBack: mapKeyComesBack,
+                        hasWarning: model.imminentWarning != nil)
             }
         }
     }
@@ -3613,7 +3898,8 @@ struct CollapsedPanelTray: View {
         // offset that knew nothing about the alert banner, the route pill or
         // the directions window beneath it.
         if !tucked.isEmpty {
-            let layout = axis == .horizontal
+            let layout =
+                axis == .horizontal
                 ? AnyLayout(HStackLayout(spacing: 8)) : AnyLayout(VStackLayout(spacing: 8))
             layout {
                 ForEach(tucked) { panel in
@@ -3662,48 +3948,57 @@ struct WelcomeCard: View {
             // (a phone held sideways at the largest text size) instead of
             // running off both edges.
             ScrollWhenTight {
-            VStack(alignment: .leading, spacing: 12) {
-                Label("Welcome to FLOWS", systemImage: "cloud.sun.fill")
-                    .scaledFont(size: 18, weight: .bold)
-                Text("One permission runs the whole app: your location. It "
-                     + "powers navigation, the weather-risk map around you, "
-                     + "and stops ahead. FLOWS asks for it right after this.")
+                VStack(alignment: .leading, spacing: 12) {
+                    Label("Welcome to FLOWS", systemImage: "cloud.sun.fill")
+                        .scaledFont(size: 18, weight: .bold)
+                    Text(
+                        "One permission runs the whole app: your location. It "
+                            + "powers navigation, the weather-risk map around you, "
+                            + "and stops ahead. FLOWS asks for it right after this."
+                    )
                     .scaledFont(.callout)
-                Text("Nothing else is asked up front — each of these asks "
-                     + "only the first time you use it:")
+                    Text(
+                        "Nothing else is asked up front — each of these asks "
+                            + "only the first time you use it:"
+                    )
                     .scaledFont(.caption)
                     .foregroundStyle(.secondary)
-                // Every later ask is listed, each named the way Settings
-                // names its switch, so none arrives unannounced.
-                permissionRow("bell.fill",
-                              "Notifications — the first time you start a trip, "
-                              + "so warnings can reach you outside the app")
-                permissionRow("dot.radiowaves.right",
-                              "Bluetooth — right after this, to listen for tire "
-                              + "sensors and car plug-ins (turn it off in Settings "
-                              + "→ Vehicle link)")
-                permissionRow("music.note",
-                              "Music library — the first time you press play")
-                permissionRow("mic.fill",
-                              "Microphone and speech — the first time you "
-                              + "answer FLOWS by voice, or on iPhone at your "
-                              + "first trip, so FLOWS can hear you if it asks "
-                              + "after a crash")
-                #if os(iOS)
-                permissionRow("person.wave.2.fill",
-                              "Personal Voice — only if you turn on “Speak "
-                              + "with your Personal Voice” in Settings")
-                #endif
-                Button {
-                    model.completeOnboarding()
-                } label: {
-                    Text("Get started")
-                        .scaledFont(size: 15, weight: .bold)
-                        .frame(maxWidth: .infinity, minHeight: Theme.tapMinimum)
+                    // Every later ask is listed, each named the way Settings
+                    // names its switch, so none arrives unannounced.
+                    permissionRow(
+                        "bell.fill",
+                        "Notifications — the first time you start a trip, "
+                            + "so warnings can reach you outside the app")
+                    permissionRow(
+                        "dot.radiowaves.right",
+                        "Bluetooth — right after this, to listen for tire "
+                            + "sensors and car plug-ins (turn it off in Settings "
+                            + "→ Vehicle link)")
+                    permissionRow(
+                        "music.note",
+                        "Music library — the first time you press play")
+                    permissionRow(
+                        "mic.fill",
+                        "Microphone and speech — the first time you "
+                            + "answer FLOWS by voice, or on iPhone at your "
+                            + "first trip, so FLOWS can hear you if it asks "
+                            + "after a crash")
+                    #if os(iOS)
+                        permissionRow(
+                            "person.wave.2.fill",
+                            "Personal Voice — only if you turn on “Speak "
+                                + "with your Personal Voice” in Settings")
+                    #endif
+                    Button {
+                        model.completeOnboarding()
+                    } label: {
+                        Text("Get started")
+                            .scaledFont(size: 15, weight: .bold)
+                            .frame(maxWidth: .infinity, minHeight: Theme.tapMinimum)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(Theme.cta)
                 }
-                .buttonStyle(.borderedProminent)
-                .tint(Theme.cta)
-            }
             }
             .padding(20)
             .frame(maxWidth: 440)
@@ -3729,9 +4024,12 @@ struct SettingsSheet: View {
     /// Body shape for the map marker — "Match my vehicle" reads it from the
     /// make, model and weight already on file.
     private var vehicleShapePicker: some View {
-        Picker("Shape", selection: Binding(
-            get: { model.vehicleShapeOverride },
-            set: { model.vehicleShapeOverride = $0 })) {
+        Picker(
+            "Shape",
+            selection: Binding(
+                get: { model.vehicleShapeOverride },
+                set: { model.vehicleShapeOverride = $0 })
+        ) {
             Text("Match my vehicle").tag(VehicleShape?.none)
             ForEach(VehicleShape.allCases) { shape in
                 Text(shape.title).tag(VehicleShape?.some(shape))
@@ -3745,12 +4043,16 @@ struct SettingsSheet: View {
         HStack(spacing: 8) {
             ForEach(AppModel.vehicleColorChoices, id: \.self) { name in
                 let chosen = model.vehicleColorName == name
-                Button { model.vehicleColorName = name } label: {
+                Button {
+                    model.vehicleColorName = name
+                } label: {
                     Circle()
                         .fill(ContentView.markerColor(name))
                         .frame(width: 24, height: 24)
-                        .overlay(Circle().stroke(chosen ? Color.primary : Color.clear,
-                                                 lineWidth: 2.5))
+                        .overlay(
+                            Circle().stroke(
+                                chosen ? Color.primary : Color.clear,
+                                lineWidth: 2.5))
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("\(name) vehicle marker")
@@ -3767,19 +4069,24 @@ struct SettingsSheet: View {
         Text("Voice")
             .scaledFont(size: 14, weight: .semibold)
         HStack(spacing: 8) {
-            Picker("Voice", selection: Binding(
-                // A pick that is no longer on the device shows as the
-                // automatic one, which is what speaks then.
-                get: {
-                    model.voiceChoices.contains { $0.id == model.voiceID }
-                        ? model.voiceID : SpeechVoiceRules.automaticID
-                },
-                set: { model.voiceID = $0 })) {
+            Picker(
+                "Voice",
+                selection: Binding(
+                    // A pick that is no longer on the device shows as the
+                    // automatic one, which is what speaks then.
+                    get: {
+                        model.voiceChoices.contains { $0.id == model.voiceID }
+                            ? model.voiceID : SpeechVoiceRules.automaticID
+                    },
+                    set: { model.voiceID = $0 })
+            ) {
                 Text("Best one here").tag(SpeechVoiceRules.automaticID)
                 ForEach(model.voiceChoices) { choice in
-                    Text(SpeechVoiceRules.label(
-                        choice, region: SpeechVoiceRules.region(of: choice.language)))
-                        .tag(choice.id)
+                    Text(
+                        SpeechVoiceRules.label(
+                            choice, region: SpeechVoiceRules.region(of: choice.language))
+                    )
+                    .tag(choice.id)
                 }
             }
             .pickerStyle(.menu)
@@ -3796,53 +4103,62 @@ struct SettingsSheet: View {
             Slider(
                 value: Binding(
                     get: {
-                        Double(min(max(model.voiceSpeedStep, 0),
-                                   SpeechVoiceRules.speeds.count - 1))
+                        Double(
+                            min(
+                                max(model.voiceSpeedStep, 0),
+                                SpeechVoiceRules.speeds.count - 1))
                     },
                     set: { model.voiceSpeedStep = Int($0.rounded()) }),
                 in: 0...Double(SpeechVoiceRules.speeds.count - 1),
-                step: 1)
-                .accessibilityLabel("Speaking speed")
+                step: 1
+            )
+            .accessibilityLabel("Speaking speed")
             Text("Faster").scaledFont(.caption)
         }
         Text(voiceHelp)
             .scaledFont(.caption2)
             .foregroundStyle(.secondary)
         #if os(iOS)
-        if model.personalVoiceAnnouncements {
-            Text("Personal Voice is on (under Accessibility, below). When the "
-                 + "phone has yours ready, FLOWS speaks with it, not this pick.")
+            if model.personalVoiceAnnouncements {
+                Text(
+                    "Personal Voice is on (under Accessibility, below). When the "
+                        + "phone has yours ready, FLOWS speaks with it, not this pick."
+                )
                 .scaledFont(.caption2)
                 .foregroundStyle(.secondary)
-        }
+            }
         #endif
     }
 
     private var voiceHelp: String {
         #if os(macOS)
-        let device = "Mac"
-        let path = "System Settings → Accessibility → Spoken Content → "
-            + "System voice → Manage Voices"
+            let device = "Mac"
+            let path =
+                "System Settings → Accessibility → Spoken Content → "
+                + "System voice → Manage Voices"
         #else
-        let device = "phone"
-        let path = "phone Settings → Accessibility → Spoken Content → Voices → English"
+            let device = "phone"
+            let path = "phone Settings → Accessibility → Spoken Content → Voices → English"
         #endif
         var lines: [String] = []
         if let voice = model.voiceInUse {
             let name = SpeechVoiceRules.label(
                 voice, region: SpeechVoiceRules.region(of: voice.language))
-            lines.append("FLOWS is speaking with \(name). More free voices: \(path). "
-                         + "The ones marked Enhanced or Premium sound the most like "
-                         + "a person, and \"Best one here\" takes a woman's voice "
-                         + "first.")
+            lines.append(
+                "FLOWS is speaking with \(name). More free voices: \(path). "
+                    + "The ones marked Enhanced or Premium sound the most like "
+                    + "a person, and \"Best one here\" takes a woman's voice "
+                    + "first.")
         } else {
-            lines.append("The voices that came with this \(device) sound like a "
-                         + "machine. Better ones are free: \(path). Get one marked "
-                         + "Enhanced or Premium, and FLOWS starts using it on its "
-                         + "own — a woman's voice first.")
+            lines.append(
+                "The voices that came with this \(device) sound like a "
+                    + "machine. Better ones are free: \(path). Get one marked "
+                    + "Enhanced or Premium, and FLOWS starts using it on its "
+                    + "own — a woman's voice first.")
         }
-        lines.append("The \"Are you OK?\" question after a crash keeps the plain "
-                     + "voice, so it always starts right away.")
+        lines.append(
+            "The \"Are you OK?\" question after a crash keeps the plain "
+                + "voice, so it always starts right away.")
         return lines.joined(separator: " ")
     }
 
@@ -3880,8 +4196,10 @@ struct SettingsSheet: View {
 
     /// A key field with its "Get one" steps beside it: the web addresses
     /// sit in the steps, not in the field's name.
-    private func keyField(_ placeholder: String, text: Binding<String>, steps title: String,
-                          _ steps: [String], link: String, url: String) -> some View {
+    private func keyField(
+        _ placeholder: String, text: Binding<String>, steps title: String,
+        _ steps: [String], link: String, url: String
+    ) -> some View {
         HStack(spacing: 6) {
             SecureField(placeholder, text: text)
                 .textFieldStyle(.roundedBorder)
@@ -3910,55 +4228,71 @@ struct SettingsSheet: View {
     private var keyFields: some View {
         VStack(alignment: .leading, spacing: 8) {
             keyLabel("Google Places key (a free amount each month) — stars, $ and open hours")
-            keyField("Paste key", text: $model.googlePlacesAPIKey,
-                     steps: "How to get a Google Places key:",
-                     ["Open console.cloud.google.com",
-                      "Make a project and turn on the Places API",
-                      "Make an API key",
-                      "Paste the key here"],
-                     link: "Open the Google Cloud page",
-                     url: "https://console.cloud.google.com/")
+            keyField(
+                "Paste key", text: $model.googlePlacesAPIKey,
+                steps: "How to get a Google Places key:",
+                [
+                    "Open console.cloud.google.com",
+                    "Make a project and turn on the Places API",
+                    "Make an API key",
+                    "Paste the key here",
+                ],
+                link: "Open the Google Cloud page",
+                url: "https://console.cloud.google.com/")
             keyLabel("Yelp key (free for 30 days, then paid) — stars and $")
-            keyField("Paste key", text: $model.yelpAPIKey,
-                     steps: "How to get a Yelp key:",
-                     ["Open business.yelp.com/data/products/places-api",
-                      "Start the free 30-day trial (5,000 calls)",
-                      "Create an app to get your API key",
-                      "Paste the key here"],
-                     link: "Open the Yelp API page",
-                     url: "https://business.yelp.com/data/products/places-api/")
+            keyField(
+                "Paste key", text: $model.yelpAPIKey,
+                steps: "How to get a Yelp key:",
+                [
+                    "Open business.yelp.com/data/products/places-api",
+                    "Start the free 30-day trial (5,000 calls)",
+                    "Create an app to get your API key",
+                    "Paste the key here",
+                ],
+                link: "Open the Yelp API page",
+                url: "https://business.yelp.com/data/products/places-api/")
             keyLabel("TomTom key (free plan) — live gas prices")
-            keyField("Paste key", text: $model.tomtomAPIKey,
-                     steps: "How to get a TomTom key:",
-                     ["Open developer.tomtom.com",
-                      "Make a free account",
-                      "Copy the API key it gives you",
-                      "Paste the key here"],
-                     link: "Open the TomTom developer page",
-                     url: "https://developer.tomtom.com/")
+            keyField(
+                "Paste key", text: $model.tomtomAPIKey,
+                steps: "How to get a TomTom key:",
+                [
+                    "Open developer.tomtom.com",
+                    "Make a free account",
+                    "Copy the API key it gives you",
+                    "Paste the key here",
+                ],
+                link: "Open the TomTom developer page",
+                url: "https://developer.tomtom.com/")
             // Big chains carry a known $ level with no key at all
             // (BrandKnowledge), so "hidden without one" was not true.
-            Text("With a Google Places or Yelp key, hotels and food show "
-                 + "review stars (yellow→gold) and $ price levels ($ = easy "
-                 + "on a small budget, $$$$$ = the priciest). Without one, "
-                 + "only big chains show $.")
-                .scaledFont(.caption2)
-                .foregroundStyle(.secondary)
+            Text(
+                "With a Google Places or Yelp key, hotels and food show "
+                    + "review stars (yellow→gold) and $ price levels ($ = easy "
+                    + "on a small budget, $$$$$ = the priciest). Without one, "
+                    + "only big chains show $."
+            )
+            .scaledFont(.caption2)
+            .foregroundStyle(.secondary)
             keyLabel("Spotify token (optional) — play, pause and skip Spotify in FLOWS")
-            keyField("Paste token", text: $model.spotifyWebToken,
-                     steps: "How to get a Spotify token:",
-                     ["Open developer.spotify.com (free account)",
-                      "Create an app in the developer dashboard",
-                      "Make an access token with the playback-state permissions",
-                      "Paste the token here"],
-                     link: "Open the Spotify developer page",
-                     url: "https://developer.spotify.com/documentation/web-api")
-            Text("With a token, Spotify play, pause, and skip work right in "
-                 + "FLOWS (needs Spotify Premium; a token expires after about "
-                 + "an hour). It is kept in the device's locked Keychain. "
-                 + "Without one, FLOWS opens the Spotify app instead.")
-                .scaledFont(.caption2)
-                .foregroundStyle(.secondary)
+            keyField(
+                "Paste token", text: $model.spotifyWebToken,
+                steps: "How to get a Spotify token:",
+                [
+                    "Open developer.spotify.com (free account)",
+                    "Create an app in the developer dashboard",
+                    "Make an access token with the playback-state permissions",
+                    "Paste the token here",
+                ],
+                link: "Open the Spotify developer page",
+                url: "https://developer.spotify.com/documentation/web-api")
+            Text(
+                "With a token, Spotify play, pause, and skip work right in "
+                    + "FLOWS (needs Spotify Premium; a token expires after about "
+                    + "an hour). It is kept in the device's locked Keychain. "
+                    + "Without one, FLOWS opens the Spotify app instead."
+            )
+            .scaledFont(.caption2)
+            .foregroundStyle(.secondary)
         }
         .padding(.top, 4)
     }
@@ -3994,25 +4328,33 @@ struct SettingsSheet: View {
             HStack(spacing: 8) {
                 // An ID is stored exactly as typed: the default sentence
                 // capitals and autocorrect would change a hand-typed one.
-                TextField("Client ID", text: Binding(
-                    get: { model.smartcar.clientID },
-                    set: { model.smartcar.clientID = $0 }))
-                    .textFieldStyle(.roundedBorder)
-                    .autocorrectionDisabled()
-                    #if os(iOS)
+                TextField(
+                    "Client ID",
+                    text: Binding(
+                        get: { model.smartcar.clientID },
+                        set: { model.smartcar.clientID = $0 })
+                )
+                .textFieldStyle(.roundedBorder)
+                .autocorrectionDisabled()
+                #if os(iOS)
                     .textInputAutocapitalization(.never)
-                    #endif
-                SecureField("Client Secret", text: Binding(
-                    get: { model.smartcar.clientSecret },
-                    set: { model.smartcar.clientSecret = $0 }))
-                    .textFieldStyle(.roundedBorder)
+                #endif
+                SecureField(
+                    "Client Secret",
+                    text: Binding(
+                        get: { model.smartcar.clientSecret },
+                        set: { model.smartcar.clientSecret = $0 })
+                )
+                .textFieldStyle(.roundedBorder)
             }
-            Text("Set up once at dashboard.smartcar.com: make an app, set its "
-                 + "redirect address to flows://smartcar, paste its Client ID "
-                 + "and Secret here, then tap Connect. Your car's real fuel "
-                 + "level and tire pressures then replace FLOWS's own guess.")
-                .scaledFont(.caption2)
-                .foregroundStyle(.secondary)
+            Text(
+                "Set up once at dashboard.smartcar.com: make an app, set its "
+                    + "redirect address to flows://smartcar, paste its Client ID "
+                    + "and Secret here, then tap Connect. Your car's real fuel "
+                    + "level and tire pressures then replace FLOWS's own guess."
+            )
+            .scaledFont(.caption2)
+            .foregroundStyle(.secondary)
         }
         .padding(.top, 4)
     }
@@ -4036,837 +4378,939 @@ struct SettingsSheet: View {
 
     var body: some View {
         VStack(spacing: 0) {
-        // The header stays put while everything under it scrolls: the close
-        // X is always in the top-right corner, never a scroll away (owner,
-        // 2026-10-01).
-        HStack {
-            Text("Settings")
-                .scaledFont(size: 17, weight: .bold)
-            Spacer()
-            Button { model.showSettings = false } label: {
-                Image(systemName: "xmark.circle.fill")
-                    .scaledFont(size: 22)
-                    .foregroundStyle(.secondary)
-                    .frame(width: Theme.tapMinimum, height: Theme.tapMinimum)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Close settings")
-            .help("Close settings")
-        }
-        .padding(.leading, 20)
-        .padding(.trailing, 8)
-        .padding(.vertical, 4)
-        Divider()
-        ScrollView {
-        // Lazy on purpose: the page is some 170 rows, and a plain VStack
-        // built every one of them before the sheet could come up — most of
-        // a second of nothing after the first tap on the gear. A lazy stack
-        // builds the rows on screen and the rest as they scroll in. Rows
-        // that scroll away may be rebuilt, so anything a row must remember
-        // (a fold left open) lives in this view's own state, not the row's.
-        LazyVStack(alignment: .leading, spacing: 14) {
-            Text("Fuel type")
-                .scaledFont(size: 14, weight: .semibold)
-            Picker("Fuel type", selection: Binding(
-                get: { model.poi.fuelType },
-                set: { model.poi.fuelType = $0 })) {
-                Text("Not set").tag(FuelType?.none)
-                ForEach(FuelType.allCases) { fuel in
-                    Label(fuel.rawValue, systemImage: fuel.symbol).tag(FuelType?.some(fuel))
-                }
-            }
-            .pickerStyle(.inline)
-            .labelsHidden()
-            Text("Used to pick which stations Gas searches for and how they're "
-                 + "ranked (fill cost + detour time). Station-level prices need a "
-                 + "licensed feed — until then stations rank by detour time.")
-                .scaledFont(.caption)
-                .foregroundStyle(.secondary)
-
-            Divider()
-            Text("Music")
-                .scaledFont(size: 14, weight: .semibold)
-            Picker("Music app", selection: $model.musicProvider) {
-                ForEach(MusicProvider.allCases) { provider in
-                    Label(provider.displayName, systemImage: provider.symbol)
-                        .tag(provider)
-                }
-            }
-            .pickerStyle(.menu)
-            .labelsHidden()
-            .tint(Theme.riskGreen)
-            Text("The little player in the drive bar uses this app. AM/FM "
-                 + "radio plays right here in FLOWS — no account needed. "
-                 + "Apple Music plays here too, and so does Spotify: on a "
-                 + "Mac right away, on iPhone once a Spotify token is added "
-                 + "under “Keys for extra info”. No other music service lets "
-                 + "outside apps control it, so the rest open in their own "
-                 + "app. The same rule drives the Siri and CarPlay buttons.")
-                .scaledFont(.caption)
-                .foregroundStyle(.secondary)
-
-            Divider()
-            Text("Police and fire calls on the map")
-                .scaledFont(size: 14, weight: .semibold)
-            Toggle("Show calls heard nearby", isOn: Binding(
-                get: { model.scanner.enabled },
-                set: { model.scanner.enabled = $0 }))
-                .scaledFont(.caption)
-            Text("Police calls show on the map as small blue police icons "
-                 + "— red for medical, orange for fire — near you and along "
-                 + "your route, and fade out over time. A gun, a robbery or a "
-                 + "fire within about a mile is also said out loud. They come "
-                 + "from the 911 lists cities publish for free (San Francisco "
-                 + "police and Seattle fire so far, a few minutes behind)"
-                 + (model.scanner.available
-                    ? ", and from the police and fire radio set up for this device."
-                    : ".")
-                 + " Treat them as a heads-up, not a fact.")
-                .scaledFont(.caption)
-                .foregroundStyle(.secondary)
-            ForEach([model.openDispatch.status, model.scanner.status].compactMap { $0 },
-                    id: \.self) { status in
-                Text(status).scaledFont(.caption2).foregroundStyle(.secondary)
-            }
-
-            Divider()
-            Text("Your vehicle on the map")
-                .scaledFont(size: 14, weight: .semibold)
-            vehicleShapePicker
-            vehicleColorRow
-            Text("The marker is drawn from the angle the camera is looking "
-                 + "from — the roof flat on the map, the back when following "
-                 + "behind. Shape starts from the vehicle you entered.")
-                .scaledFont(.caption)
-                .foregroundStyle(.secondary)
-
-            Divider()
-            Text("Screen light")
-                .scaledFont(size: 14, weight: .semibold)
-            Picker("Screen light", selection: Binding(
-                get: { model.appearanceOverride },
-                set: { model.appearanceOverride = $0 })) {
-                Text("Follow the sun").tag(Bool?.none)
-                Text("Always light").tag(Bool?.some(false))
-                Text("Always dark").tag(Bool?.some(true))
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            Text(model.appearanceOverride == nil
-                 ? "Bright by day and dark by night, on the sunset and sunrise "
-                   + "where you are — not on a set hour. Dusk in Miami in June "
-                   + "and dusk in Fairbanks in December are hours apart."
-                 : "Pinned. Pick \"Follow the sun\" to have it change on its own "
-                   + "at dusk and dawn.")
-                .scaledFont(.caption)
-                .foregroundStyle(.secondary)
-
-            Divider()
-            Text("Vehicle limits")
-                .scaledFont(size: 14, weight: .semibold)
+            // The header stays put while everything under it scrolls: the close
+            // X is always in the top-right corner, never a scroll away (owner,
+            // 2026-10-01).
             HStack {
-                Text("Height " + FilterLimits.feetAndInches(feet: model.vehicleHeightFeet))
-                    .scaledFont(.caption)
-                    .frame(width: 90, alignment: .leading)
-                Slider(value: $model.vehicleHeightFeet,
-                       in: VehicleSpecs.heightSliderFloorFeet...16, step: 0.25)
-            }
-            HStack {
-                Text(String(format: "Max grade %.1f°", model.maxGradeDegrees))
-                    .scaledFont(.caption)
-                    .frame(width: 90, alignment: .leading)
-                Slider(value: $model.maxGradeDegrees, in: 2...15, step: 0.5)
-            }
-            HStack(spacing: 8) {
-                Text("Preset from your vehicle — the slope where you'd really "
-                     + "want the parking brake. Towing or a heavy rig lowers it. "
-                     + "Move the slider to pick your own.")
-                    .scaledFont(.caption2)
-                    .foregroundStyle(.secondary)
-                Button("Use my vehicle's number") {
-                    model.applyVehicleMaxGradeDefault(force: true)
-                }
-                .buttonStyle(.plain)
-                .scaledFont(.caption2, weight: .bold)
-                .foregroundStyle(.blue)
-                .fixedSize()
-            }
-
-            Divider()
-            Text("Notifications")
-                .scaledFont(size: 14, weight: .semibold)
-            Toggle(isOn: $model.notifyImminent) {
-                Text("Storm and emergency warnings just ahead").scaledFont(.caption)
-            }
-            Toggle(isOn: $model.notifyEscalation) {
-                Text("Warn me when my route gets riskier").scaledFont(.caption)
-            }
-            Toggle(isOn: $model.voiceAlerts) {
-                Text("Speak alerts and faster-route offers out loud "
-                     + "(answer with a plain yes or no)").scaledFont(.caption)
-            }
-            Toggle(isOn: $model.speakTurns) {
-                Text("Turn-by-turn voice directions").scaledFont(.caption)
-            }
-            Toggle(isOn: $model.notifyFuel) {
-                Text("Remind me when to get fuel").scaledFont(.caption)
-            }
-            Toggle(isOn: $model.crashDetectionEnabled) {
-                Text("Ask if I'm OK after a crash (iPhone)").scaledFont(.caption)
-            }
-            Toggle(isOn: $model.radioAutoSwitch) {
-                // Named as the drive bar names the radio; only weather
-                // stations move — AM/FM music stays on its station.
-                Text("\(model.truckerUI ? "Trucker" : "Emergency") radio switches to the "
-                     + "nearest weather station as you drive").scaledFont(.caption)
-            }
-            // Part of the fuel reminders: with those off it asks nothing,
-            // so it greys out rather than show an ON that does nothing.
-            Toggle(isOn: $model.refuelCheckInsEnabled) {
-                Text("After I stop at a gas station, ask if I filled up")
-                    .scaledFont(.caption)
-            }
-            .disabled(!model.notifyFuel)
-            // Last in the section, with what turning it off does right under
-            // it (owner, 2026-10-01).
-            Toggle(isOn: $model.notifyTraffic) {
-                Text("Show traffic jams and road work").scaledFont(.caption)
-            }
-            Text("Off hides them, and FLOWS stops asking about faster roads. "
-                 + "It still takes a faster road on its own when it is just "
-                 + "as safe.")
-                .scaledFont(.caption2)
-                .foregroundStyle(.secondary)
-
-            Divider()
-            voiceSection
-
-            Divider()
-            Text("Text size")
-                .scaledFont(size: 14, weight: .semibold)
-            HStack(spacing: 10) {
-                Text("A").scaledFont(size: 12, weight: .semibold)
-                Slider(
-                    value: Binding(
-                        get: {
-                            Double(model.textSizeIndex >= 0
-                                ? min(model.textSizeIndex, model.textSizeMaxIndex)
-                                : min(TextScale.index(of: systemTypeSize),
-                                      model.textSizeMaxIndex))
-                        },
-                        set: { model.textSizeIndex = Int($0.rounded()) }),
-                    in: 0...Double(max(model.textSizeMaxIndex, 1)),
-                    step: 1)
-                    .accessibilityLabel("Text size")
-                Text("A").scaledFont(size: 22, weight: .semibold)
-            }
-            if model.textSizeIndex >= 0 {
-                Button("Match the phone's text size") { model.textSizeIndex = -1 }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(.blue)
-                    .scaledFont(.caption, weight: .bold)
-            }
-            Text("Bigger or smaller words, your pick. The top end is capped "
-                 + "to this screen's size, so words never warp or fall off "
-                 + "the edge. Until you move the slider, FLOWS follows the "
-                 + "phone's own text-size setting.")
-                .scaledFont(.caption2)
-                .foregroundStyle(.secondary)
-
-            Divider()
-            Text("Accessibility")
-                .scaledFont(size: 14, weight: .semibold)
-            Toggle(isOn: $model.wordFindingHelp) {
-                Text("Word-finding help (stays on the phone)").scaledFont(.caption)
-            }
-            Text("When FLOWS asks you a question out loud (which stop, which "
-                 + "station) and can't make out your answer, the phone's own "
-                 + "helper matches your words to the choices — \"the one with "
-                 + "the tacos\" finds Taco Bell. Nothing you say leaves the "
-                 + "phone. Needs Apple Intelligence; off or unsupported, FLOWS "
-                 + "just asks again.")
-                .scaledFont(.caption2)
-                .foregroundStyle(.secondary)
-            // Whether it works HERE, and a way to see it work: it only ever
-            // acts inside a spoken question, so there was nothing to check.
-            HStack(spacing: 8) {
-                Text(IntentClarifier.statusText)
-                    .scaledFont(.caption2, weight: .semibold)
-                Spacer(minLength: 4)
-                Button(wordFindingTrying ? "Trying…" : "Try it") {
-                    wordFindingTrying = true
-                    Task {
-                        let options = ["Starbucks", "Taco Bell", "Shell"]
-                        let pick = await IntentClarifier.pick(reply: "the one with the tacos",
-                                                              options: options)
-                        wordFindingTrying = false
-                        wordFindingResult = pick.map {
-                            "\"The one with the tacos\" → \(options[$0]). It's working."
-                        } ?? "It couldn't pick one here, so FLOWS would ask again."
-                    }
-                }
-                .buttonStyle(.plain)
-                .scaledFont(.caption, weight: .bold)
-                .foregroundStyle(.blue)
-                .disabled(wordFindingTrying)
-            }
-            if let wordFindingResult {
-                Text(wordFindingResult)
-                    .scaledFont(.caption2)
-                    .foregroundStyle(.secondary)
-            }
-            #if os(iOS)
-            // iPhone only: the Mac never switched voices, so its switch
-            // turned on and changed nothing.
-            Toggle(isOn: $model.personalVoiceAnnouncements) {
-                Text("Speak with your Personal Voice").scaledFont(.caption)
-            }
-            Text("If you've made a Personal Voice (phone Settings → "
-                 + "Accessibility → Personal Voice), FLOWS can speak its "
-                 + "alerts and directions with it. The phone asks once for "
-                 + "permission.")
-                .scaledFont(.caption2)
-                .foregroundStyle(.secondary)
-            #endif
-            Toggle(isOn: $model.hapticAlerts) {
-                Text("Vibration tap with every spoken alert").scaledFont(.caption)
-            }
-            Text("A felt tap lands with each alert and faster-route offer — "
-                 + "for drivers who can't hear the voice, the tap IS the "
-                 + "announcement, and the banner carries the words.")
-                .scaledFont(.caption2)
-                .foregroundStyle(.secondary)
-            Text("More help from the phone itself: Vocal Shortcuts (phone "
-                 + "Settings → Accessibility) can trigger any FLOWS Siri "
-                 + "command with any sound you can make — made for people "
-                 + "who find talking hard. Type to Siri types those same commands. "
-                 + "Live Speech can speak a typed reply out loud when FLOWS "
-                 + "asks a question.")
-                .scaledFont(.caption2)
-                .foregroundStyle(.secondary)
-            Button {
-                showDemoGallery = true
-            } label: {
-                Label("Preview alerts & notifications", systemImage: "eye")
-                    .scaledFont(.caption, weight: .bold)
-            }
-            .buttonStyle(.plain)
-            .foregroundStyle(.blue)
-
-            Divider()
-            Text("Emergency")
-                .scaledFont(size: 14, weight: .semibold)
-            HStack(spacing: 8) {
-                // A name and a number are kept as typed: autocorrect offered
-                // "Smithsonian" for Smithson, and one tap on the space bar
-                // would have sent the crash text to the wrong name.
-                TextField("Contact name", text: $model.emergencyContactName)
-                    .textFieldStyle(.roundedBorder)
-                    .autocorrectionDisabled()
-                    #if os(iOS)
-                    .textContentType(.name)
-                    .textInputAutocapitalization(.words)
-                    #endif
-                TextField("Contact phone", text: $model.emergencyContactPhone)
-                    .textFieldStyle(.roundedBorder)
-                    .autocorrectionDisabled()
-                    #if os(iOS)
-                    .textContentType(.telephoneNumber)
-                    .keyboardType(.phonePad)
-                    #endif
-                #if os(iOS)
-                // iOS never exposes Medical ID contacts to apps — the
-                // Contacts picker is the sanctioned import path.
-                Button { showContactPicker = true } label: {
-                    Image(systemName: "person.crop.circle.badge.plus")
-                }
-                .buttonStyle(.plain)
-                .foregroundStyle(.blue)
-                #endif
-            }
-            // Short enough to show whole on a phone; the words under it say
-            // who reads the notes.
-            TextField("Medical notes (allergies, health problems)",
-                      text: $model.medicalNotes)
-                .textFieldStyle(.roundedBorder)
-            Text("After a crash FLOWS asks out loud if you need help, and "
-                 + "keeps asking until you answer or close it. If you say "
-                 + "yes: one tap calls 911 (a phone never lets an app call "
-                 + "on its own). With a contact's phone number saved, a "
-                 + "ready-to-send text tells them where you are (map spot, "
-                 + "address, time, vehicle, notes), and one more tap calls "
-                 + "them. Apps can't read the Medical ID in the Health app, "
-                 + "so the notes here go in the text instead.")
-                .scaledFont(.caption)
-                .foregroundStyle(.secondary)
-
-            Divider()
-            Toggle(isOn: $model.truckerUI) {
-                Label("Trucker mode", systemImage: "truck.box.fill")
-                    .scaledFont(size: 14, weight: .semibold)
-            }
-            // The truck route badge shows for everyone (truckerRouteID), so it
-            // is not listed as something this switch adds.
-            Text("Adds showers, legal truck parking, truck-friendly motels, and "
-                 + "diesel-by-cost. The drive-bar radio works for everyone — "
-                 + "this just renames it trucker radio.")
-                .scaledFont(.caption)
-                .foregroundStyle(.secondary)
-
-            Divider()
-            Text("Vehicle")
-                .scaledFont(size: 14, weight: .semibold)
-            HStack(spacing: 8) {
-                if let v = model.vehicle.profile {
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text(v.displayName.isEmpty ? "My vehicle" : v.displayName)
-                            .scaledFont(.caption, weight: .semibold)
-                        // "left now", not "range": the editor's rated range
-                        // is tank times mileage, and this one follows how
-                        // the car is driven — two "range" numbers for one
-                        // truck read as a mistake.
-                        Text(String(format: "%.0f %@ tank · %.0f mi/%@ · about %.0f mi left now",
-                                    v.tankCapacityUnits,
-                                    v.fuelType == .electric ? "kWh" : "gal",
-                                    v.ratedMilesPerUnit,
-                                    v.fuelType == .electric ? "kWh" : "gal",
-                                    model.vehicle.expectedRangeMiles ?? v.ratedRangeMiles))
-                            .scaledFont(.caption2)
-                            .foregroundStyle(.secondary)
-                    }
-                } else {
-                    Text("No vehicle on file — add one for range tracking + fuel timing.")
-                        .scaledFont(.caption)
-                        .foregroundStyle(.secondary)
-                }
+                Text("Settings")
+                    .scaledFont(size: 17, weight: .bold)
                 Spacer()
-                Button(model.vehicle.profile == nil ? "Add vehicle" : "Edit") {
+                Button {
                     model.showSettings = false
-                    model.showVehicleEditor = true
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .scaledFont(size: 22)
+                        .foregroundStyle(.secondary)
+                        .frame(width: Theme.tapMinimum, height: Theme.tapMinimum)
+                        .contentShape(Rectangle())
                 }
-                .scaledFont(.caption, weight: .bold)
                 .buttonStyle(.plain)
-                .foregroundStyle(.blue)
+                .accessibilityLabel("Close settings")
+                .help("Close settings")
             }
-
+            .padding(.leading, 20)
+            .padding(.trailing, 8)
+            .padding(.vertical, 4)
             Divider()
-            Text("Map zoom while driving")
-                .scaledFont(size: 14, weight: .semibold)
-            Picker("Map zoom", selection: $model.cameraZoomMode) {
-                ForEach(AppModel.CameraZoomMode.allCases) { mode in
-                    Text(mode.rawValue).tag(mode)
-                }
-            }
-            .pickerStyle(.menu)
-            .labelsHidden()
-            if model.cameraZoomMode == .manual {
-                HStack {
-                    Text(zoomLabel(model.manualZoomMeters))
-                        .scaledFont(.caption)
-                        .frame(width: 90, alignment: .leading)
-                    // Log scale: the useful range spans street level to
-                    // continent, and a linear slider spends most of its
-                    // travel in the far end nobody drives at.
-                    Slider(value: Binding(
-                        get: { log10(model.manualZoomMeters) },
-                        set: { model.manualZoomMeters = pow(10, $0) }),
-                        in: log10(150)...log10(200_000))
-                }
-            }
-            Text("Automatic follows the road: close together in town where "
-                 + "turns come fast, farther out on a highway between exits, "
-                 + "and tight on the turn itself. Walking always stays close. "
-                 + "Flying stays far until the airport. Pick another option to "
-                 + "hold one view — handy for seeing the walking and flying "
-                 + "views without walking or flying.")
-                .scaledFont(.caption)
-                .foregroundStyle(.secondary)
-
-            Divider()
-            Toggle(isOn: $model.show3DMap) {
-                Label("3D terrain", systemImage: "mountain.2.fill")
-                    .scaledFont(size: 14, weight: .semibold)
-            }
-            Text("Shows hills and mountains in 3D and tilts the map so you "
-                 + "can see them. Signs mark the steepest stretches of the "
-                 + "route you pick or drive with their slope.")
-                .scaledFont(.caption2)
-                .foregroundStyle(.secondary)
-
-            Divider()
-            Text("Trip needs")
-                .scaledFont(size: 14, weight: .semibold)
-            Toggle(isOn: $model.tripNeedsEnabled) {
-                Text("Schedule recurring stops")
-                    .scaledFont(.caption)
-            }
-            if model.tripNeedsEnabled {
-                HStack {
-                    Text(String(format: "Rest every %.0f min", model.tripRestMinutes))
-                        .scaledFont(.caption)
-                        .frame(width: 130, alignment: .leading)
-                    Slider(value: $model.tripRestMinutes, in: 60...240, step: 15)
-                }
-                HStack {
-                    // %g keeps the half hour: the 3.5 h default read "4 h".
-                    Text(String(format: "Food every %g h", model.tripFoodMinutes / 60))
-                        .scaledFont(.caption)
-                        .frame(width: 130, alignment: .leading)
-                    Slider(value: $model.tripFoodMinutes, in: 90...360, step: 30)
-                }
-                HStack {
-                    Text(model.derivedFuelIntervalMiles.map {
-                        String(format: model.vehicle.profile?.fuelType == .electric
-                               ? "Charge every ~%.0f mi" : "Fuel every ~%.0f mi", $0)
-                    } ?? "Fuel: add a vehicle")
-                        .scaledFont(.caption)
-                        .frame(width: 130, alignment: .leading)
-                    if model.vehicle.profile != nil {
-                        Slider(value: Binding(
-                            get: { model.tripFuelMilesOverride
-                                ?? model.derivedFuelIntervalMiles ?? 300 },
-                            set: { model.tripFuelMilesOverride = $0 }),
-                            in: 50...1200, step: 25)
+            ScrollView {
+                // Lazy on purpose: the page is some 170 rows, and a plain VStack
+                // built every one of them before the sheet could come up — most of
+                // a second of nothing after the first tap on the gear. A lazy stack
+                // builds the rows on screen and the rest as they scroll in. Rows
+                // that scroll away may be rebuilt, so anything a row must remember
+                // (a fold left open) lives in this view's own state, not the row's.
+                LazyVStack(alignment: .leading, spacing: 14) {
+                    Text("Fuel type")
+                        .scaledFont(size: 14, weight: .semibold)
+                    Picker(
+                        "Fuel type",
+                        selection: Binding(
+                            get: { model.poi.fuelType },
+                            set: { model.poi.fuelType = $0 })
+                    ) {
+                        Text("Not set").tag(FuelType?.none)
+                        ForEach(FuelType.allCases) { fuel in
+                            Label(fuel.rawValue, systemImage: fuel.symbol).tag(FuelType?.some(fuel))
+                        }
                     }
-                }
-                // Once moved, the slider had no way back to the vehicle's
-                // own number — even after the vehicle changed.
-                if model.tripFuelMilesOverride != nil, model.vehicle.profile != nil {
-                    Button("Use my vehicle's number") { model.tripFuelMilesOverride = nil }
+                    .pickerStyle(.inline)
+                    .labelsHidden()
+                    Text(
+                        "Used to pick which stations Gas searches for and how they're "
+                            + "ranked (fill cost + detour time). Station-level prices need a "
+                            + "licensed feed — until then stations rank by detour time."
+                    )
+                    .scaledFont(.caption)
+                    .foregroundStyle(.secondary)
+
+                    Divider()
+                    Text("Music")
+                        .scaledFont(size: 14, weight: .semibold)
+                    Picker("Music app", selection: $model.musicProvider) {
+                        ForEach(MusicProvider.allCases) { provider in
+                            Label(provider.displayName, systemImage: provider.symbol)
+                                .tag(provider)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                    .labelsHidden()
+                    .tint(Theme.riskGreen)
+                    Text(
+                        "The little player in the drive bar uses this app. AM/FM "
+                            + "radio plays right here in FLOWS — no account needed. "
+                            + "Apple Music plays here too, and so does Spotify: on a "
+                            + "Mac right away, on iPhone once a Spotify token is added "
+                            + "under “Keys for extra info”. No other music service lets "
+                            + "outside apps control it, so the rest open in their own "
+                            + "app. The same rule drives the Siri and CarPlay buttons."
+                    )
+                    .scaledFont(.caption)
+                    .foregroundStyle(.secondary)
+
+                    Divider()
+                    Text("Police and fire calls on the map")
+                        .scaledFont(size: 14, weight: .semibold)
+                    Toggle(
+                        "Show calls heard nearby",
+                        isOn: Binding(
+                            get: { model.scanner.enabled },
+                            set: { model.scanner.enabled = $0 })
+                    )
+                    .scaledFont(.caption)
+                    Text(
+                        "Police calls show on the map as small blue police icons "
+                            + "— red for medical, orange for fire — near you and along "
+                            + "your route, and fade out over time. A gun, a robbery or a "
+                            + "fire within about a mile is also said out loud. They come "
+                            + "from the 911 lists cities publish for free (San Francisco "
+                            + "police and Seattle fire so far, a few minutes behind)"
+                            + (model.scanner.available
+                                ? ", and from the police and fire radio set up for this device."
+                                : ".")
+                            + " Treat them as a heads-up, not a fact."
+                    )
+                    .scaledFont(.caption)
+                    .foregroundStyle(.secondary)
+                    ForEach(
+                        [model.openDispatch.status, model.scanner.status].compactMap { $0 },
+                        id: \.self
+                    ) { status in
+                        Text(status).scaledFont(.caption2).foregroundStyle(.secondary)
+                    }
+
+                    Divider()
+                    Text("Your vehicle on the map")
+                        .scaledFont(size: 14, weight: .semibold)
+                    vehicleShapePicker
+                    vehicleColorRow
+                    Text(
+                        "The marker is drawn from the angle the camera is looking "
+                            + "from — the roof flat on the map, the back when following "
+                            + "behind. Shape starts from the vehicle you entered."
+                    )
+                    .scaledFont(.caption)
+                    .foregroundStyle(.secondary)
+
+                    Divider()
+                    Text("Screen light")
+                        .scaledFont(size: 14, weight: .semibold)
+                    Picker(
+                        "Screen light",
+                        selection: Binding(
+                            get: { model.appearanceOverride },
+                            set: { model.appearanceOverride = $0 })
+                    ) {
+                        Text("Follow the sun").tag(Bool?.none)
+                        Text("Always light").tag(Bool?.some(false))
+                        Text("Always dark").tag(Bool?.some(true))
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                    Text(
+                        model.appearanceOverride == nil
+                            ? "Bright by day and dark by night, on the sunset and sunrise "
+                                + "where you are — not on a set hour. Dusk in Miami in June "
+                                + "and dusk in Fairbanks in December are hours apart."
+                            : "Pinned. Pick \"Follow the sun\" to have it change on its own "
+                                + "at dusk and dawn."
+                    )
+                    .scaledFont(.caption)
+                    .foregroundStyle(.secondary)
+
+                    Divider()
+                    Text("Vehicle limits")
+                        .scaledFont(size: 14, weight: .semibold)
+                    HStack {
+                        Text("Height " + FilterLimits.feetAndInches(feet: model.vehicleHeightFeet))
+                            .scaledFont(.caption)
+                            .frame(width: 90, alignment: .leading)
+                        Slider(
+                            value: $model.vehicleHeightFeet,
+                            in: VehicleSpecs.heightSliderFloorFeet...16, step: 0.25)
+                    }
+                    HStack {
+                        Text(String(format: "Max grade %.1f°", model.maxGradeDegrees))
+                            .scaledFont(.caption)
+                            .frame(width: 90, alignment: .leading)
+                        Slider(value: $model.maxGradeDegrees, in: 2...15, step: 0.5)
+                    }
+                    HStack(spacing: 8) {
+                        Text(
+                            "Preset from your vehicle — the slope where you'd really "
+                                + "want the parking brake. Towing or a heavy rig lowers it. "
+                                + "Move the slider to pick your own."
+                        )
+                        .scaledFont(.caption2)
+                        .foregroundStyle(.secondary)
+                        Button("Use my vehicle's number") {
+                            model.applyVehicleMaxGradeDefault(force: true)
+                        }
                         .buttonStyle(.plain)
                         .scaledFont(.caption2, weight: .bold)
                         .foregroundStyle(.blue)
-                }
-            }
-            Text("Where these start: a rest stop about every 2 hours or 100 "
-                 + "miles keeps you alert, as road-safety experts advise. Food "
-                 + "about every 3½ hours stays ahead of the 30-minute break truck "
-                 + "drivers must take by hour 8. Fuel when about three-quarters "
-                 + "of your tank (or battery) is used, the way you drive — "
-                 + "sooner when towing. Change any of them here.")
-                .scaledFont(.caption)
-                .foregroundStyle(.secondary)
-
-            Divider()
-            Text("Favorites")
-                .scaledFont(size: 14, weight: .semibold)
-            if model.favorites.favorites.isEmpty {
-                Text("Star a destination in the planner to save it here.")
-                    .scaledFont(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            ForEach(model.favorites.favorites) { fav in
-                HStack(spacing: 8) {
-                    Image(systemName: fav.symbol.systemImage)
-                        .foregroundStyle(.secondary)
-                    Text(fav.name).scaledFont(.caption)
-                    Spacer()
-                    Button {
-                        model.favorites.remove(fav)
-                    } label: {
-                        Image(systemName: "trash").scaledFont(.caption)
+                        .fixedSize()
                     }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(.red)
-                }
-            }
 
-            Divider()
-            // Key setup is for the few who want it: folded, so the drive's
-            // own settings aren't buried under developer steps and web
-            // addresses. The name stays: the music note and the stop list
-            // point at it.
-            DisclosureGroup(isExpanded: $keysOpen) {
-                keyFields
-            } label: {
-                Text("Keys for extra info")
-                    .scaledFont(size: 14, weight: .semibold)
-            }
-
-            Divider()
-            Text("Connected vehicle (cloud — Smartcar)")
-                .scaledFont(size: 14, weight: .semibold)
-            // The car's status, Refresh data and Disconnect stay in plain
-            // view: a driver whose sign-in ran out must find them.
-            smartcarStatusRow
-            DisclosureGroup(isExpanded: Binding(
-                get: {
-                    smartcarSetupOpen
-                        ?? (model.smartcar.connectURL == nil && !model.smartcar.connected)
-                },
-                set: { smartcarSetupOpen = $0 })) {
-                smartcarSetup
-            } label: {
-                Text("Set up (one time)").scaledFont(.caption, weight: .semibold)
-            }
-
-            Divider()
-            Text("Vehicle link (Bluetooth)")
-                .scaledFont(size: 14, weight: .semibold)
-            Toggle(isOn: Binding(
-                get: { model.vehicleLink.scanning },
-                set: {
-                    model.vehicleLink.scanning = $0
-                    // Persisted: on by default, and a driver who turns it off
-                    // keeps it off on later launches.
-                    UserDefaults.standard.set($0, forKey: "flows.vehicleLinkScanning")
-                })) {
-                Text("Listen for tire sensors and car plug-ins").scaledFont(.caption)
-            }
-            Text(model.vehicleLink.status).scaledFont(.caption2).foregroundStyle(.secondary)
-            if !model.vehicleLink.tirePressuresPsi.isEmpty {
-                Text(model.vehicleLink.tirePressuresPsi
-                    .sorted { $0.key < $1.key }
-                    .map { String(format: "%@ %.0f psi", $0.key, $0.value) }
-                    .joined(separator: " · "))
-                    .font(.caption.monospacedDigit())
-            }
-            Text("Bluetooth tire-pressure caps send each tire's pressure. A "
-                 + "Bluetooth reader plugged in under the dashboard (such as "
-                 + "OBDLink or Veepeak) sends the real fuel level.")
-                .scaledFont(.caption2)
-                .foregroundStyle(.secondary)
-
-            Divider()
-            Text("Data sources & refresh")
-                .scaledFont(size: 14, weight: .semibold)
-            Text("Weather alerts: the National Weather Service, checked "
-                 + "every 4 minutes while you drive. Risk map: 20 years of "
-                 + "storm records from the national weather agency (NOAA). "
-                 + "Hills: height data from the U.S. map agency (USGS), "
-                 + "looked up for each trip. Low bridges: OpenStreetMap, "
-                 + "looked up for each trip. Flood areas: flood maps from "
-                 + "the national disaster agency (FEMA), looked up for each "
-                 + "trip. Missing data never rules out a route.")
-                .scaledFont(.caption)
-                .foregroundStyle(.secondary)
-            // The risk map's vintage. The text above used to point at a
-            // "generated time in Map Filter" that nothing ever displayed —
-            // the value was published and never read. It was then shown as
-            // the raw stamp ("2026-07-04T11:39:45Z"), which read like stale
-            // live data; it is a long-term pattern, and says so.
-            if let built = model.riskField.generatedUTC.flatMap({
-                RiskFieldService.builtDate($0)
-            }) {
-                Text("Risk map built \(built) from 20 years of storm records — "
-                     + "a long-term pattern, not live weather. Live warnings "
-                     + "come from the Weather Service.")
-                    .scaledFont(.caption)
-                    .foregroundStyle(.secondary)
-            }
-
-            Divider()
-            Text("Your everyday area")
-                .scaledFont(size: 14, weight: .semibold)
-            Text(String(format: "Stops you use often within ~%.0f miles of "
-                 + "home are remembered on this device for instant results. "
-                 + "The area is learned from your trips and "
-                 + "never leaves your phone.",
-                 EverydayPlaces.shared.radiusMiles))
-                .scaledFont(.caption)
-                .foregroundStyle(.secondary)
-
-            Divider()
-            Text("Attribution & licenses")
-                .scaledFont(size: 14, weight: .semibold)
-            Text("Maps, routing, search and traffic: Apple Maps — "
-                 + "© Apple Inc. and its data providers. The Apple logo and "
-                 + "Legal link on the map are required by Apple's terms and "
-                 + "cannot be removed by an app; tapping Legal there opens "
-                 + "Apple's full notices.\n"
-                 + "Places (fuel, food, lodging, medical, transit): Foursquare "
-                 + "Open Source Places, © Foursquare Labs, Inc., licensed under "
-                 + "Apache License 2.0.\n"
-                 + "Low-bridge clearances, weight limits, posted speed limits "
-                 + "and lane guidance: © OpenStreetMap contributors, available "
-                 + "under the Open Database License (ODbL) — "
-                 + "openstreetmap.org/copyright.\n"
-                 + "Train, bus and ferry times and fares: Amtrak and each city's "
-                 + "own bus, rail and ferry service, from the schedules and fares "
-                 + "they publish, found through MobilityData's free list of "
-                 + "transit schedules. Each service's own terms apply.\n"
-                 + "Ferries without a published timetable: the U.S. Bureau of "
-                 + "Transportation Statistics' National Census of Ferry Operators, "
-                 + "public domain.\n"
-                 + "Airports: OurAirports, public domain.\n"
-                 + "Average gas and diesel prices: U.S. Energy Information "
-                 + "Administration (EIA), weekly, public domain.\n"
-                 + "Police and fire calls: the City of San Francisco and the "
-                 + "City of Seattle's public 911 lists, public domain.\n"
-                 + "Chain logos: Brandfetch. Every logo and brand name belongs "
-                 + "to its owner; FLOWS is not affiliated with them.\n"
-                 + "Town locations for rental car links: U.S. Census Bureau, USGS "
-                 + "Geographic Names Information System, Natural Earth and NGA "
-                 + "GEOnet Names Server, public domain.\n"
-                 + "Government feeds (NWS, USGS, FEMA, SPC, NOAA, Census TIGER, "
-                 + "EPA, DOT WZDx, ECCC, SMN) are public-domain or open government "
-                 + "data. FLOWS is not affiliated with any of these agencies.")
-                .scaledFont(.caption)
-                .foregroundStyle(.secondary)
-                .textSelection(.enabled)
-
-            Divider()
-            // The rental partnership, said where anyone looking at the app's
-            // sources and terms will find it — with the partner program's own
-            // link, under FLOWS's code (the owner's rule for every disclosure).
-            Text("Partner links")
-                .scaledFont(size: 14, weight: .semibold)
-            Text(RentalCars.partnerDisclosure)
-                .scaledFont(.caption)
-                .foregroundStyle(.secondary)
-            if let program = RentalCars.partnerProgramURL {
-                Link("DiscoverCars partner program", destination: program)
-                    .scaledFont(.caption, weight: .semibold)
-            }
-
-            Divider()
-
-            // WHAT FLOWS HAS LEARNED — the driver can see everything the app
-            // has inferred about them, and erase it in one press. Learning
-            // about someone without showing them what you learned, or
-            // letting them take it back, isn't a feature.
-            DisclosureGroup("What FLOWS has learned about you", isExpanded: $learnedOpen) {
-                // Counted only while the fold is open: the counts read nine
-                // stores (one loads its file the first time), and building
-                // them for a fold nobody has opened slowed Settings' opening.
-                if learnedOpen {
-                    let summary = SeasonalRiskModel.shared.learningSummary
-                    VStack(alignment: .leading, spacing: 4) {
-                        // "A key that never leaves it" was not true on a Mac,
-                        // whose login keychain rides Time Machine.
-                        Text("All of this is stored on this device only, encrypted "
-                             + "with a key made on it. None of it is sent anywhere.")
+                    Divider()
+                    Text("Notifications")
+                        .scaledFont(size: 14, weight: .semibold)
+                    Toggle(isOn: $model.notifyImminent) {
+                        Text("Storm and emergency warnings just ahead").scaledFont(.caption)
+                    }
+                    Toggle(isOn: $model.notifyEscalation) {
+                        Text("Warn me when my route gets riskier").scaledFont(.caption)
+                    }
+                    Toggle(isOn: $model.voiceAlerts) {
+                        Text(
+                            "Speak alerts and faster-route offers out loud "
+                                + "(answer with a plain yes or no)"
+                        ).scaledFont(.caption)
+                    }
+                    Toggle(isOn: $model.speakTurns) {
+                        Text("Turn-by-turn voice directions").scaledFont(.caption)
+                    }
+                    Toggle(isOn: $model.notifyFuel) {
+                        Text("Remind me when to get fuel").scaledFont(.caption)
+                    }
+                    Toggle(isOn: $model.crashDetectionEnabled) {
+                        Text("Ask if I'm OK after a crash (iPhone)").scaledFont(.caption)
+                    }
+                    Toggle(isOn: $model.radioAutoSwitch) {
+                        // Named as the drive bar names the radio; only weather
+                        // stations move — AM/FM music stays on its station.
+                        Text(
+                            "\(model.truckerUI ? "Trucker" : "Emergency") radio switches to the "
+                                + "nearest weather station as you drive"
+                        ).scaledFont(.caption)
+                    }
+                    // Part of the fuel reminders: with those off it asks nothing,
+                    // so it greys out rather than show an ON that does nothing.
+                    Toggle(isOn: $model.refuelCheckInsEnabled) {
+                        Text("After I stop at a gas station, ask if I filled up")
                             .scaledFont(.caption)
-                            .foregroundStyle(.secondary)
-                        learnedRow("Trips remembered", "\(summary.trips)")
-                        learnedRow("Routes recognized", "\(summary.routes)")
-                        // Until enough trips are in, the radius is the starting
-                        // default — shown as learned, it made a fresh install
-                        // (or a just-erased list) look like it knew something.
-                        learnedRow("Everyday area",
-                                   EverydayPlaces.shared.radiusLearned
-                                       ? String(format: "%.0f mi", EverydayPlaces.shared.radiusMiles)
-                                       : "Not learned yet")
-                        learnedRow("Home area learned",
-                                   EverydayPlaces.shared.homeAnchor == nil ? "No" : "Yes")
-                        learnedRow("Places remembered", "\(EverydayPlaces.shared.allPlaces.count)")
-                        learnedRow("Destinations kept", "\(model.recents.entries.count)")
-                        learnedRow("Choices recorded", "\(ChoiceLogStore.shared.eventCount)")
-                        learnedRow("Alerts learned from", "\(AlertLengthMemory.shared.eventCount)")
-                        learnedRow("Your pace", DrivingProfileStore.shared.profile.etaDescription)
-                        // Where the driver has actually been. The erase button
-                        // reached these four, but this list — "exactly what is
-                        // stored", in the privacy policy's words — left them out.
-                        learnedRow("Trail points saved", "\(model.breadcrumbs.points.count)")
-                        learnedRow("Roads saved for no signal", "\(model.corridors.corridors.count)")
-                        learnedRow("Traffic times learned", "\(model.trafficModel.store.cells.count)")
-                        learnedRow("Fuel use learned", "\(model.roadEfficiency.store.cells.count)")
-                        learnedRow("People you shared trips with",
-                                   "\(model.shareHistory.recipients.count)")
-                        // What decides whether the vehicle-limits card opens
-                        // on its own (LimitsCardHabit).
-                        learnedRow("Recent plans that used vehicle limits",
-                                   "\(model.limitsHabit.filter { $0 != 0 }.count) of "
-                                       + "\(model.limitsHabit.count)")
-                        if let cal = summary.calibration, cal.isFinite {
-                            // An error on the 0–1 risk scale, as a percentage.
-                            learnedRow("How far off risk guesses were",
-                                       "about \(Int((cal * 100).rounded()))%")
-                        }
-                        if summary.tuned {
-                            Text("The risk model has been fine-tuned on your own trips.")
-                                .scaledFont(.caption).foregroundStyle(.secondary)
-                        }
-                        // One press, but not one stray tap: nothing brings it back.
-                        Button(role: .destructive) {
-                            confirmingErase = true
-                        } label: {
-                            Label("Erase everything FLOWS has learned",
-                                  systemImage: "trash")
-                        }
-                        .scaledFont(.caption, weight: .semibold)
-                        .padding(.top, 4)
-                        .alert("Erase everything FLOWS has learned?",
-                               isPresented: $confirmingErase) {
-                            Button("Erase", role: .destructive) {
-                                Task {
-                                    // The list itself lives in AppModel, beside
-                                    // the stores, so a new one is added there.
-                                    await model.eraseEverythingLearned()
-                                    erasedConfirmation = true
-                                    healthLines = await FlowsDiag.shared.recent(120)
-                                }
-                            }
-                            Button("Cancel", role: .cancel) {}
-                        } message: {
-                            Text("This can't be undone.")
-                        }
-                        if erasedConfirmation {
-                            Text("Erased. The app is back to knowing nothing about your travel.")
-                                .scaledFont(.caption)
-                                .foregroundStyle(Theme.riskGreen)
-                        }
                     }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                }
-            }
-            .scaledFont(size: 13, weight: .semibold)
-
-            Divider()
-
-            // App health log: the rotating diagnostic journal's recent
-            // lines — which backup source kicked in, which feed was down —
-            // so a field report can carry the app's own account.
-            DisclosureGroup("App health log", isExpanded: $healthLogOpen) {
-                ScrollView {
-                    Text(healthLines.isEmpty
-                         ? "No problems recorded — every weather and road source is answering."
-                         : healthLines.joined(separator: "\n"))
-                        .scaledFont(size: 9, design: .monospaced)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .textSelection(.enabled)
-                }
-                .frame(maxHeight: 150)
-                HStack(spacing: 12) {
-                    Button("Copy log") {
-                        let text = healthLines.joined(separator: "\n")
-                        #if os(macOS)
-                        NSPasteboard.general.clearContents()
-                        NSPasteboard.general.setString(text, forType: .string)
-                        #else
-                        UIPasteboard.general.string = text
-                        #endif
+                    .disabled(!model.notifyFuel)
+                    // Last in the section, with what turning it off does right under
+                    // it (owner, 2026-10-01).
+                    Toggle(isOn: $model.notifyTraffic) {
+                        Text("Show traffic jams and road work").scaledFont(.caption)
                     }
-                    .scaledFont(.caption)
-                    // The visible tail is a preview; a trip review wants
-                    // the WHOLE journal, so the files themselves ship out —
-                    // only the ones that exist.
-                    let logFiles = FlowsDiag.shared.fileURLs
-                    if !logFiles.isEmpty {
-                        ShareLink(items: logFiles) {
-                            Text("Send full log").scaledFont(.caption)
-                        }
-                    }
-                }
-                Text("After a drive, send the full log to have the music "
-                     + "handoffs, learned buffer times, and any feed "
-                     + "problems reviewed.")
+                    Text(
+                        "Off hides them, and FLOWS stops asking about faster roads. "
+                            + "It still takes a faster road on its own when it is just "
+                            + "as safe."
+                    )
                     .scaledFont(.caption2)
                     .foregroundStyle(.secondary)
+
+                    Divider()
+                    voiceSection
+
+                    Divider()
+                    Text("Text size")
+                        .scaledFont(size: 14, weight: .semibold)
+                    HStack(spacing: 10) {
+                        Text("A").scaledFont(size: 12, weight: .semibold)
+                        Slider(
+                            value: Binding(
+                                get: {
+                                    Double(
+                                        model.textSizeIndex >= 0
+                                            ? min(model.textSizeIndex, model.textSizeMaxIndex)
+                                            : min(
+                                                TextScale.index(of: systemTypeSize),
+                                                model.textSizeMaxIndex))
+                                },
+                                set: { model.textSizeIndex = Int($0.rounded()) }),
+                            in: 0...Double(max(model.textSizeMaxIndex, 1)),
+                            step: 1
+                        )
+                        .accessibilityLabel("Text size")
+                        Text("A").scaledFont(size: 22, weight: .semibold)
+                    }
+                    if model.textSizeIndex >= 0 {
+                        Button("Match the phone's text size") { model.textSizeIndex = -1 }
+                            .buttonStyle(.plain)
+                            .foregroundStyle(.blue)
+                            .scaledFont(.caption, weight: .bold)
+                    }
+                    Text(
+                        "Bigger or smaller words, your pick. The top end is capped "
+                            + "to this screen's size, so words never warp or fall off "
+                            + "the edge. Until you move the slider, FLOWS follows the "
+                            + "phone's own text-size setting."
+                    )
+                    .scaledFont(.caption2)
+                    .foregroundStyle(.secondary)
+
+                    Divider()
+                    Text("Accessibility")
+                        .scaledFont(size: 14, weight: .semibold)
+                    Toggle(isOn: $model.wordFindingHelp) {
+                        Text("Word-finding help (stays on the phone)").scaledFont(.caption)
+                    }
+                    Text(
+                        "When FLOWS asks you a question out loud (which stop, which "
+                            + "station) and can't make out your answer, the phone's own "
+                            + "helper matches your words to the choices — \"the one with "
+                            + "the tacos\" finds Taco Bell. Nothing you say leaves the "
+                            + "phone. Needs Apple Intelligence; off or unsupported, FLOWS "
+                            + "just asks again."
+                    )
+                    .scaledFont(.caption2)
+                    .foregroundStyle(.secondary)
+                    // Whether it works HERE, and a way to see it work: it only ever
+                    // acts inside a spoken question, so there was nothing to check.
+                    HStack(spacing: 8) {
+                        Text(IntentClarifier.statusText)
+                            .scaledFont(.caption2, weight: .semibold)
+                        Spacer(minLength: 4)
+                        Button(wordFindingTrying ? "Trying…" : "Try it") {
+                            wordFindingTrying = true
+                            Task {
+                                let options = ["Starbucks", "Taco Bell", "Shell"]
+                                let pick = await IntentClarifier.pick(
+                                    reply: "the one with the tacos",
+                                    options: options)
+                                wordFindingTrying = false
+                                wordFindingResult =
+                                    pick.map {
+                                        "\"The one with the tacos\" → \(options[$0]). It's working."
+                                    } ?? "It couldn't pick one here, so FLOWS would ask again."
+                            }
+                        }
+                        .buttonStyle(.plain)
+                        .scaledFont(.caption, weight: .bold)
+                        .foregroundStyle(.blue)
+                        .disabled(wordFindingTrying)
+                    }
+                    if let wordFindingResult {
+                        Text(wordFindingResult)
+                            .scaledFont(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                    #if os(iOS)
+                        // iPhone only: the Mac never switched voices, so its switch
+                        // turned on and changed nothing.
+                        Toggle(isOn: $model.personalVoiceAnnouncements) {
+                            Text("Speak with your Personal Voice").scaledFont(.caption)
+                        }
+                        Text(
+                            "If you've made a Personal Voice (phone Settings → "
+                                + "Accessibility → Personal Voice), FLOWS can speak its "
+                                + "alerts and directions with it. The phone asks once for "
+                                + "permission."
+                        )
+                        .scaledFont(.caption2)
+                        .foregroundStyle(.secondary)
+                    #endif
+                    Toggle(isOn: $model.hapticAlerts) {
+                        Text("Vibration tap with every spoken alert").scaledFont(.caption)
+                    }
+                    Text(
+                        "A felt tap lands with each alert and faster-route offer — "
+                            + "for drivers who can't hear the voice, the tap IS the "
+                            + "announcement, and the banner carries the words."
+                    )
+                    .scaledFont(.caption2)
+                    .foregroundStyle(.secondary)
+                    Text(
+                        "More help from the phone itself: Vocal Shortcuts (phone "
+                            + "Settings → Accessibility) can trigger any FLOWS Siri "
+                            + "command with any sound you can make — made for people "
+                            + "who find talking hard. Type to Siri types those same commands. "
+                            + "Live Speech can speak a typed reply out loud when FLOWS "
+                            + "asks a question."
+                    )
+                    .scaledFont(.caption2)
+                    .foregroundStyle(.secondary)
+                    Button {
+                        showDemoGallery = true
+                    } label: {
+                        Label("Preview alerts & notifications", systemImage: "eye")
+                            .scaledFont(.caption, weight: .bold)
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.blue)
+
+                    Divider()
+                    Text("Emergency")
+                        .scaledFont(size: 14, weight: .semibold)
+                    HStack(spacing: 8) {
+                        // A name and a number are kept as typed: autocorrect offered
+                        // "Smithsonian" for Smithson, and one tap on the space bar
+                        // would have sent the crash text to the wrong name.
+                        TextField("Contact name", text: $model.emergencyContactName)
+                            .textFieldStyle(.roundedBorder)
+                            .autocorrectionDisabled()
+                            #if os(iOS)
+                                .textContentType(.name)
+                                .textInputAutocapitalization(.words)
+                            #endif
+                        TextField("Contact phone", text: $model.emergencyContactPhone)
+                            .textFieldStyle(.roundedBorder)
+                            .autocorrectionDisabled()
+                            #if os(iOS)
+                                .textContentType(.telephoneNumber)
+                                .keyboardType(.phonePad)
+                            #endif
+                        #if os(iOS)
+                            // iOS never exposes Medical ID contacts to apps — the
+                            // Contacts picker is the sanctioned import path.
+                            Button {
+                                showContactPicker = true
+                            } label: {
+                                Image(systemName: "person.crop.circle.badge.plus")
+                            }
+                            .buttonStyle(.plain)
+                            .foregroundStyle(.blue)
+                        #endif
+                    }
+                    // Short enough to show whole on a phone; the words under it say
+                    // who reads the notes.
+                    TextField(
+                        "Medical notes (allergies, health problems)",
+                        text: $model.medicalNotes
+                    )
+                    .textFieldStyle(.roundedBorder)
+                    Text(
+                        "After a crash FLOWS asks out loud if you need help, and "
+                            + "keeps asking until you answer or close it. If you say "
+                            + "yes: one tap calls 911 (a phone never lets an app call "
+                            + "on its own). With a contact's phone number saved, a "
+                            + "ready-to-send text tells them where you are (map spot, "
+                            + "address, time, vehicle, notes), and one more tap calls "
+                            + "them. Apps can't read the Medical ID in the Health app, "
+                            + "so the notes here go in the text instead."
+                    )
+                    .scaledFont(.caption)
+                    .foregroundStyle(.secondary)
+
+                    Divider()
+                    Toggle(isOn: $model.truckerUI) {
+                        Label("Trucker mode", systemImage: "truck.box.fill")
+                            .scaledFont(size: 14, weight: .semibold)
+                    }
+                    // The truck route badge shows for everyone (truckerRouteID), so it
+                    // is not listed as something this switch adds.
+                    Text(
+                        "Adds showers, legal truck parking, truck-friendly motels, and "
+                            + "diesel-by-cost. The drive-bar radio works for everyone — "
+                            + "this just renames it trucker radio."
+                    )
+                    .scaledFont(.caption)
+                    .foregroundStyle(.secondary)
+
+                    Divider()
+                    Text("Vehicle")
+                        .scaledFont(size: 14, weight: .semibold)
+                    HStack(spacing: 8) {
+                        if let v = model.vehicle.profile {
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text(v.displayName.isEmpty ? "My vehicle" : v.displayName)
+                                    .scaledFont(.caption, weight: .semibold)
+                                // "left now", not "range": the editor's rated range
+                                // is tank times mileage, and this one follows how
+                                // the car is driven — two "range" numbers for one
+                                // truck read as a mistake.
+                                Text(
+                                    String(
+                                        format: "%.0f %@ tank · %.0f mi/%@ · about %.0f mi left now",
+                                        v.tankCapacityUnits,
+                                        v.fuelType == .electric ? "kWh" : "gal",
+                                        v.ratedMilesPerUnit,
+                                        v.fuelType == .electric ? "kWh" : "gal",
+                                        model.vehicle.expectedRangeMiles ?? v.ratedRangeMiles)
+                                )
+                                .scaledFont(.caption2)
+                                .foregroundStyle(.secondary)
+                            }
+                        } else {
+                            Text("No vehicle on file — add one for range tracking + fuel timing.")
+                                .scaledFont(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        Button(model.vehicle.profile == nil ? "Add vehicle" : "Edit") {
+                            model.showSettings = false
+                            model.showVehicleEditor = true
+                        }
+                        .scaledFont(.caption, weight: .bold)
+                        .buttonStyle(.plain)
+                        .foregroundStyle(.blue)
+                    }
+
+                    Divider()
+                    Text("Map zoom while driving")
+                        .scaledFont(size: 14, weight: .semibold)
+                    Picker("Map zoom", selection: $model.cameraZoomMode) {
+                        ForEach(AppModel.CameraZoomMode.allCases) { mode in
+                            Text(mode.rawValue).tag(mode)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                    .labelsHidden()
+                    if model.cameraZoomMode == .manual {
+                        HStack {
+                            Text(zoomLabel(model.manualZoomMeters))
+                                .scaledFont(.caption)
+                                .frame(width: 90, alignment: .leading)
+                            // Log scale: the useful range spans street level to
+                            // continent, and a linear slider spends most of its
+                            // travel in the far end nobody drives at.
+                            Slider(
+                                value: Binding(
+                                    get: { log10(model.manualZoomMeters) },
+                                    set: { model.manualZoomMeters = pow(10, $0) }),
+                                in: log10(150)...log10(200_000))
+                        }
+                    }
+                    Text(
+                        "Automatic follows the road: close together in town where "
+                            + "turns come fast, farther out on a highway between exits, "
+                            + "and tight on the turn itself. Walking always stays close. "
+                            + "Flying stays far until the airport. Pick another option to "
+                            + "hold one view — handy for seeing the walking and flying "
+                            + "views without walking or flying."
+                    )
+                    .scaledFont(.caption)
+                    .foregroundStyle(.secondary)
+
+                    Divider()
+                    Toggle(isOn: $model.show3DMap) {
+                        Label("3D terrain", systemImage: "mountain.2.fill")
+                            .scaledFont(size: 14, weight: .semibold)
+                    }
+                    Text(
+                        "Shows hills and mountains in 3D and tilts the map so you "
+                            + "can see them. Signs mark the steepest stretches of the "
+                            + "route you pick or drive with their slope."
+                    )
+                    .scaledFont(.caption2)
+                    .foregroundStyle(.secondary)
+
+                    Divider()
+                    Text("Trip needs")
+                        .scaledFont(size: 14, weight: .semibold)
+                    Toggle(isOn: $model.tripNeedsEnabled) {
+                        Text("Schedule recurring stops")
+                            .scaledFont(.caption)
+                    }
+                    if model.tripNeedsEnabled {
+                        HStack {
+                            Text(String(format: "Rest every %.0f min", model.tripRestMinutes))
+                                .scaledFont(.caption)
+                                .frame(width: 130, alignment: .leading)
+                            Slider(value: $model.tripRestMinutes, in: 60...240, step: 15)
+                        }
+                        HStack {
+                            // %g keeps the half hour: the 3.5 h default read "4 h".
+                            Text(String(format: "Food every %g h", model.tripFoodMinutes / 60))
+                                .scaledFont(.caption)
+                                .frame(width: 130, alignment: .leading)
+                            Slider(value: $model.tripFoodMinutes, in: 90...360, step: 30)
+                        }
+                        HStack {
+                            Text(
+                                model.derivedFuelIntervalMiles.map {
+                                    String(
+                                        format: model.vehicle.profile?.fuelType == .electric
+                                            ? "Charge every ~%.0f mi" : "Fuel every ~%.0f mi", $0)
+                                } ?? "Fuel: add a vehicle"
+                            )
+                            .scaledFont(.caption)
+                            .frame(width: 130, alignment: .leading)
+                            if model.vehicle.profile != nil {
+                                Slider(
+                                    value: Binding(
+                                        get: {
+                                            model.tripFuelMilesOverride
+                                                ?? model.derivedFuelIntervalMiles ?? 300
+                                        },
+                                        set: { model.tripFuelMilesOverride = $0 }),
+                                    in: 50...1200, step: 25)
+                            }
+                        }
+                        // Once moved, the slider had no way back to the vehicle's
+                        // own number — even after the vehicle changed.
+                        if model.tripFuelMilesOverride != nil, model.vehicle.profile != nil {
+                            Button("Use my vehicle's number") { model.tripFuelMilesOverride = nil }
+                                .buttonStyle(.plain)
+                                .scaledFont(.caption2, weight: .bold)
+                                .foregroundStyle(.blue)
+                        }
+                    }
+                    Text(
+                        "Where these start: a rest stop about every 2 hours or 100 "
+                            + "miles keeps you alert, as road-safety experts advise. Food "
+                            + "about every 3½ hours stays ahead of the 30-minute break truck "
+                            + "drivers must take by hour 8. Fuel when about three-quarters "
+                            + "of your tank (or battery) is used, the way you drive — "
+                            + "sooner when towing. Change any of them here."
+                    )
+                    .scaledFont(.caption)
+                    .foregroundStyle(.secondary)
+
+                    Divider()
+                    Text("Favorites")
+                        .scaledFont(size: 14, weight: .semibold)
+                    if model.favorites.favorites.isEmpty {
+                        Text("Star a destination in the planner to save it here.")
+                            .scaledFont(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    ForEach(model.favorites.favorites) { fav in
+                        HStack(spacing: 8) {
+                            Image(systemName: fav.symbol.systemImage)
+                                .foregroundStyle(.secondary)
+                            Text(fav.name).scaledFont(.caption)
+                            Spacer()
+                            Button {
+                                model.favorites.remove(fav)
+                            } label: {
+                                Image(systemName: "trash").scaledFont(.caption)
+                            }
+                            .buttonStyle(.plain)
+                            .foregroundStyle(.red)
+                        }
+                    }
+
+                    Divider()
+                    // Key setup is for the few who want it: folded, so the drive's
+                    // own settings aren't buried under developer steps and web
+                    // addresses. The name stays: the music note and the stop list
+                    // point at it.
+                    DisclosureGroup(isExpanded: $keysOpen) {
+                        keyFields
+                    } label: {
+                        Text("Keys for extra info")
+                            .scaledFont(size: 14, weight: .semibold)
+                    }
+
+                    Divider()
+                    Text("Connected vehicle (cloud — Smartcar)")
+                        .scaledFont(size: 14, weight: .semibold)
+                    // The car's status, Refresh data and Disconnect stay in plain
+                    // view: a driver whose sign-in ran out must find them.
+                    smartcarStatusRow
+                    DisclosureGroup(
+                        isExpanded: Binding(
+                            get: {
+                                smartcarSetupOpen
+                                    ?? (model.smartcar.connectURL == nil && !model.smartcar.connected)
+                            },
+                            set: { smartcarSetupOpen = $0 })
+                    ) {
+                        smartcarSetup
+                    } label: {
+                        Text("Set up (one time)").scaledFont(.caption, weight: .semibold)
+                    }
+
+                    Divider()
+                    Text("Vehicle link (Bluetooth)")
+                        .scaledFont(size: 14, weight: .semibold)
+                    Toggle(
+                        isOn: Binding(
+                            get: { model.vehicleLink.scanning },
+                            set: {
+                                model.vehicleLink.scanning = $0
+                                // Persisted: on by default, and a driver who turns it off
+                                // keeps it off on later launches.
+                                UserDefaults.standard.set($0, forKey: "flows.vehicleLinkScanning")
+                            })
+                    ) {
+                        Text("Listen for tire sensors and car plug-ins").scaledFont(.caption)
+                    }
+                    Text(model.vehicleLink.status).scaledFont(.caption2).foregroundStyle(.secondary)
+                    if !model.vehicleLink.tirePressuresPsi.isEmpty {
+                        Text(
+                            model.vehicleLink.tirePressuresPsi
+                                .sorted { $0.key < $1.key }
+                                .map { String(format: "%@ %.0f psi", $0.key, $0.value) }
+                                .joined(separator: " · ")
+                        )
+                        .font(.caption.monospacedDigit())
+                    }
+                    Text(
+                        "Bluetooth tire-pressure caps send each tire's pressure. A "
+                            + "Bluetooth reader plugged in under the dashboard (such as "
+                            + "OBDLink or Veepeak) sends the real fuel level."
+                    )
+                    .scaledFont(.caption2)
+                    .foregroundStyle(.secondary)
+
+                    Divider()
+                    Text("Data sources & refresh")
+                        .scaledFont(size: 14, weight: .semibold)
+                    Text(
+                        "Weather alerts: the National Weather Service, checked "
+                            + "every 4 minutes while you drive. Risk map: 20 years of "
+                            + "storm records from the national weather agency (NOAA). "
+                            + "Hills: height data from the U.S. map agency (USGS), "
+                            + "looked up for each trip. Low bridges: OpenStreetMap, "
+                            + "looked up for each trip. Flood areas: flood maps from "
+                            + "the national disaster agency (FEMA), looked up for each "
+                            + "trip. Missing data never rules out a route."
+                    )
+                    .scaledFont(.caption)
+                    .foregroundStyle(.secondary)
+                    // The risk map's vintage. The text above used to point at a
+                    // "generated time in Map Filter" that nothing ever displayed —
+                    // the value was published and never read. It was then shown as
+                    // the raw stamp ("2026-07-04T11:39:45Z"), which read like stale
+                    // live data; it is a long-term pattern, and says so.
+                    if let built = model.riskField.generatedUTC.flatMap({
+                        RiskFieldService.builtDate($0)
+                    }) {
+                        Text(
+                            "Risk map built \(built) from 20 years of storm records — "
+                                + "a long-term pattern, not live weather. Live warnings "
+                                + "come from the Weather Service."
+                        )
+                        .scaledFont(.caption)
+                        .foregroundStyle(.secondary)
+                    }
+
+                    Divider()
+                    Text("Your everyday area")
+                        .scaledFont(size: 14, weight: .semibold)
+                    Text(
+                        String(
+                            format: "Stops you use often within ~%.0f miles of "
+                                + "home are remembered on this device for instant results. "
+                                + "The area is learned from your trips and "
+                                + "never leaves your phone.",
+                            EverydayPlaces.shared.radiusMiles)
+                    )
+                    .scaledFont(.caption)
+                    .foregroundStyle(.secondary)
+
+                    Divider()
+                    Text("Attribution & licenses")
+                        .scaledFont(size: 14, weight: .semibold)
+                    Text(
+                        "Maps, routing, search and traffic: Apple Maps — "
+                            + "© Apple Inc. and its data providers. The Apple logo and "
+                            + "Legal link on the map are required by Apple's terms and "
+                            + "cannot be removed by an app; tapping Legal there opens "
+                            + "Apple's full notices.\n"
+                            + "Places (fuel, food, lodging, medical, transit): Foursquare "
+                            + "Open Source Places, © Foursquare Labs, Inc., licensed under "
+                            + "Apache License 2.0.\n"
+                            + "Low-bridge clearances, weight limits, posted speed limits "
+                            + "and lane guidance: © OpenStreetMap contributors, available "
+                            + "under the Open Database License (ODbL) — "
+                            + "openstreetmap.org/copyright.\n"
+                            + "Train, bus and ferry times and fares: Amtrak and each city's "
+                            + "own bus, rail and ferry service, from the schedules and fares "
+                            + "they publish, found through MobilityData's free list of "
+                            + "transit schedules. Each service's own terms apply.\n"
+                            + "Ferries without a published timetable: the U.S. Bureau of "
+                            + "Transportation Statistics' National Census of Ferry Operators, "
+                            + "public domain.\n"
+                            + "Airports: OurAirports, public domain.\n"
+                            + "Average gas and diesel prices: U.S. Energy Information "
+                            + "Administration (EIA), weekly, public domain.\n"
+                            + "Police and fire calls: the City of San Francisco and the "
+                            + "City of Seattle's public 911 lists, public domain.\n"
+                            + "Chain logos: Brandfetch. Every logo and brand name belongs "
+                            + "to its owner; FLOWS is not affiliated with them.\n"
+                            + "Town locations for rental car links: U.S. Census Bureau, USGS "
+                            + "Geographic Names Information System, Natural Earth and NGA "
+                            + "GEOnet Names Server, public domain.\n"
+                            + "Government feeds (NWS, USGS, FEMA, SPC, NOAA, Census TIGER, "
+                            + "EPA, DOT WZDx, ECCC, SMN) are public-domain or open government "
+                            + "data. FLOWS is not affiliated with any of these agencies."
+                    )
+                    .scaledFont(.caption)
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+
+                    Divider()
+                    // The rental partnership, said where anyone looking at the app's
+                    // sources and terms will find it — with the partner program's own
+                    // link, under FLOWS's code (the owner's rule for every disclosure).
+                    Text("Partner links")
+                        .scaledFont(size: 14, weight: .semibold)
+                    Text(RentalCars.partnerDisclosure)
+                        .scaledFont(.caption)
+                        .foregroundStyle(.secondary)
+                    if let program = RentalCars.partnerProgramURL {
+                        Link("DiscoverCars partner program", destination: program)
+                            .scaledFont(.caption, weight: .semibold)
+                    }
+
+                    Divider()
+
+                    // WHAT FLOWS HAS LEARNED — the driver can see everything the app
+                    // has inferred about them, and erase it in one press. Learning
+                    // about someone without showing them what you learned, or
+                    // letting them take it back, isn't a feature.
+                    DisclosureGroup("What FLOWS has learned about you", isExpanded: $learnedOpen) {
+                        // Counted only while the fold is open: the counts read nine
+                        // stores (one loads its file the first time), and building
+                        // them for a fold nobody has opened slowed Settings' opening.
+                        if learnedOpen {
+                            let summary = SeasonalRiskModel.shared.learningSummary
+                            VStack(alignment: .leading, spacing: 4) {
+                                // "A key that never leaves it" was not true on a Mac,
+                                // whose login keychain rides Time Machine.
+                                Text(
+                                    "All of this is stored on this device only, encrypted "
+                                        + "with a key made on it. None of it is sent anywhere."
+                                )
+                                .scaledFont(.caption)
+                                .foregroundStyle(.secondary)
+                                learnedRow("Trips remembered", "\(summary.trips)")
+                                learnedRow("Routes recognized", "\(summary.routes)")
+                                // Until enough trips are in, the radius is the starting
+                                // default — shown as learned, it made a fresh install
+                                // (or a just-erased list) look like it knew something.
+                                learnedRow(
+                                    "Everyday area",
+                                    EverydayPlaces.shared.radiusLearned
+                                        ? String(format: "%.0f mi", EverydayPlaces.shared.radiusMiles)
+                                        : "Not learned yet")
+                                learnedRow(
+                                    "Home area learned",
+                                    EverydayPlaces.shared.homeAnchor == nil ? "No" : "Yes")
+                                learnedRow("Places remembered", "\(EverydayPlaces.shared.allPlaces.count)")
+                                learnedRow("Destinations kept", "\(model.recents.entries.count)")
+                                learnedRow("Choices recorded", "\(ChoiceLogStore.shared.eventCount)")
+                                learnedRow("Alerts learned from", "\(AlertLengthMemory.shared.eventCount)")
+                                learnedRow("Your pace", DrivingProfileStore.shared.profile.etaDescription)
+                                // Where the driver has actually been. The erase button
+                                // reached these four, but this list — "exactly what is
+                                // stored", in the privacy policy's words — left them out.
+                                learnedRow("Trail points saved", "\(model.breadcrumbs.points.count)")
+                                learnedRow("Roads saved for no signal", "\(model.corridors.corridors.count)")
+                                learnedRow("Traffic times learned", "\(model.trafficModel.store.cells.count)")
+                                learnedRow("Fuel use learned", "\(model.roadEfficiency.store.cells.count)")
+                                learnedRow(
+                                    "People you shared trips with",
+                                    "\(model.shareHistory.recipients.count)")
+                                // What decides whether the vehicle-limits card opens
+                                // on its own (LimitsCardHabit).
+                                learnedRow(
+                                    "Recent plans that used vehicle limits",
+                                    "\(model.limitsHabit.filter { $0 != 0 }.count) of "
+                                        + "\(model.limitsHabit.count)")
+                                if let cal = summary.calibration, cal.isFinite {
+                                    // An error on the 0–1 risk scale, as a percentage.
+                                    learnedRow(
+                                        "How far off risk guesses were",
+                                        "about \(Int((cal * 100).rounded()))%")
+                                }
+                                if summary.tuned {
+                                    Text("The risk model has been fine-tuned on your own trips.")
+                                        .scaledFont(.caption).foregroundStyle(.secondary)
+                                }
+                                // One press, but not one stray tap: nothing brings it back.
+                                Button(role: .destructive) {
+                                    confirmingErase = true
+                                } label: {
+                                    Label(
+                                        "Erase everything FLOWS has learned",
+                                        systemImage: "trash")
+                                }
+                                .scaledFont(.caption, weight: .semibold)
+                                .padding(.top, 4)
+                                .alert(
+                                    "Erase everything FLOWS has learned?",
+                                    isPresented: $confirmingErase
+                                ) {
+                                    Button("Erase", role: .destructive) {
+                                        Task {
+                                            // The list itself lives in AppModel, beside
+                                            // the stores, so a new one is added there.
+                                            await model.eraseEverythingLearned()
+                                            erasedConfirmation = true
+                                            healthLines = await FlowsDiag.shared.recent(120)
+                                        }
+                                    }
+                                    Button("Cancel", role: .cancel) {}
+                                } message: {
+                                    Text("This can't be undone.")
+                                }
+                                if erasedConfirmation {
+                                    Text("Erased. The app is back to knowing nothing about your travel.")
+                                        .scaledFont(.caption)
+                                        .foregroundStyle(Theme.riskGreen)
+                                }
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                    }
+                    .scaledFont(size: 13, weight: .semibold)
+
+                    Divider()
+
+                    // App health log: the rotating diagnostic journal's recent
+                    // lines — which backup source kicked in, which feed was down —
+                    // so a field report can carry the app's own account.
+                    DisclosureGroup("App health log", isExpanded: $healthLogOpen) {
+                        ScrollView {
+                            Text(
+                                healthLines.isEmpty
+                                    ? "No problems recorded — every weather and road source is answering."
+                                    : healthLines.joined(separator: "\n")
+                            )
+                            .scaledFont(size: 9, design: .monospaced)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .textSelection(.enabled)
+                        }
+                        .frame(maxHeight: 150)
+                        HStack(spacing: 12) {
+                            Button("Copy log") {
+                                let text = healthLines.joined(separator: "\n")
+                                #if os(macOS)
+                                    NSPasteboard.general.clearContents()
+                                    NSPasteboard.general.setString(text, forType: .string)
+                                #else
+                                    UIPasteboard.general.string = text
+                                #endif
+                            }
+                            .scaledFont(.caption)
+                            // The visible tail is a preview; a trip review wants
+                            // the WHOLE journal, so the files themselves ship out —
+                            // only the ones that exist.
+                            let logFiles = FlowsDiag.shared.fileURLs
+                            if !logFiles.isEmpty {
+                                ShareLink(items: logFiles) {
+                                    Text("Send full log").scaledFont(.caption)
+                                }
+                            }
+                        }
+                        Text(
+                            "After a drive, send the full log to have the music "
+                                + "handoffs, learned buffer times, and any feed "
+                                + "problems reviewed."
+                        )
+                        .scaledFont(.caption2)
+                        .foregroundStyle(.secondary)
+                    }
+                    .scaledFont(size: 13, weight: .semibold)
+                    .task { healthLines = await FlowsDiag.shared.recent(120) }
+                }
+                .padding(20)
             }
-            .scaledFont(size: 13, weight: .semibold)
-            .task { healthLines = await FlowsDiag.shared.recent(120) }
-        }
-        .padding(20)
-        }
         }
         // The width floor is for the macOS panel — on an iPhone sheet a
         // 480 pt floor pushed the scroll area past a landscape window's
         // edge. The panel takes its height from the room the Mac window has
         // (SettingsPanelCard).
         #if os(macOS)
-        .frame(minWidth: 340)
+            .frame(minWidth: 340)
         #endif
         .sheet(isPresented: $showDemoGallery) {
             DemoAlertsView()
@@ -4881,17 +5325,17 @@ struct SettingsSheet: View {
         // settings opens bright white in a dark cab.
         .presentationColorScheme(model.resolvedColorScheme)
         #if os(iOS)
-        .sheet(isPresented: $showContactPicker) {
-            ContactPicker { name, phone in
-                model.emergencyContactName = name
-                model.emergencyContactPhone = phone
+            .sheet(isPresented: $showContactPicker) {
+                ContactPicker { name, phone in
+                    model.emergencyContactName = name
+                    model.emergencyContactPhone = phone
+                }
+                .preferredColorScheme(model.resolvedColorScheme)  // inside the sheet, see above
             }
-            .preferredColorScheme(model.resolvedColorScheme)   // inside the sheet, see above
-        }
-        // A sheet is presented into its own environment root and does
-        // NOT inherit the presenter's appearance — say it again here or
-        // settings opens bright white in a dark cab.
-        .presentationColorScheme(model.resolvedColorScheme)
+            // A sheet is presented into its own environment root and does
+            // NOT inherit the presenter's appearance — say it again here or
+            // settings opens bright white in a dark cab.
+            .presentationColorScheme(model.resolvedColorScheme)
         #endif
     }
 }
@@ -5037,11 +5481,12 @@ private struct LegendCard: View {
                         .init(color: Theme.riskYellow, location: 0.70),
                         .init(color: Theme.riskRed, location: 0.92),
                     ],
-                    startPoint: .leading, endPoint: .trailing)
-                    .frame(width: golden.legendDrawWidth, height: 8)
-                    .clipShape(Capsule())
-                    .overlay(alignment: .leading) { percentLines }
-                    .frame(height: 12)
+                    startPoint: .leading, endPoint: .trailing
+                )
+                .frame(width: golden.legendDrawWidth, height: 8)
+                .clipShape(Capsule())
+                .overlay(alignment: .leading) { percentLines }
+                .frame(height: 12)
                 percentLabels
                 HStack {
                     Text("Clear").scaledFont(size: 8)
@@ -5059,9 +5504,10 @@ private struct LegendCard: View {
             // regression.)
             .accessibilityElement(children: .ignore)
             .accessibilityLabel("Risk scale, 0 to 100 percent")
-            .accessibilityValue("Runs from pale green for clear, through green "
-                                + "for normal and yellow for elevated, to "
-                                + "red for severe, with a mark at every 20 percent.")
+            .accessibilityValue(
+                "Runs from pale green for clear, through green "
+                    + "for normal and yellow for elevated, to "
+                    + "red for severe, with a mark at every 20 percent.")
             if model.showWeatherLayer && model.riskField.loaded {
                 Text("Hazards")
                     .scaledFont(.caption2, weight: .bold)
@@ -5073,8 +5519,10 @@ private struct LegendCard: View {
                         .scaledFont(size: 9)
                         .foregroundStyle(.secondary)
                 }
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 72), spacing: 4)],
-                          alignment: .leading, spacing: 3) {
+                LazyVGrid(
+                    columns: [GridItem(.adaptive(minimum: 72), spacing: 4)],
+                    alignment: .leading, spacing: 3
+                ) {
                     ForEach(HazardStyle.legendKinds, id: \.self) { kind in
                         HStack(spacing: 3) {
                             Image(systemName: kind.symbol)
@@ -5153,7 +5601,7 @@ struct VehicleEditorSheet: View {
     @State private var heightFeet: Double = 5.0
     // EPA everything-path state.
     @State private var vehicleYear = ""
-    @State private var useEPADatabase = true   // all makes/models by default
+    @State private var useEPADatabase = true  // all makes/models by default
     @State private var epaYears: [String] = []
     @State private var epaYear = "2025"
     @State private var epaMakes: [String] = []
@@ -5234,10 +5682,10 @@ struct VehicleEditorSheet: View {
         // would rebuild the form and reset its fields. macOS keeps the
         // fixed panel (its sheet sizes to the content).
         #if os(iOS)
-        ScrollView { editorForm }
+            ScrollView { editorForm }
         #else
-        editorForm
-            .frame(minWidth: 420)
+            editorForm
+                .frame(minWidth: 420)
         #endif
     }
 
@@ -5256,69 +5704,75 @@ struct VehicleEditorSheet: View {
             // ratings) from the EPA database + class-typical specs. The
             // sliders live under Fine-tune for trim differences; hand
             // entry is the no-internet/can't-find-it fallback.
-            Text(useEPADatabase
-                 ? "Pick the year, make, and model — FLOWS fills in the rest."
-                 : epaListUnreachable
-                    ? "Can't reach the vehicle list right now — enter your vehicle by hand."
-                    : original != nil && !pickedNewVehicle
-                        ? "Your vehicle on file — change what you need, then save."
-                        : "Enter your vehicle by hand.")
-                .scaledFont(.caption)
-                .foregroundStyle(.secondary)
+            Text(
+                useEPADatabase
+                    ? "Pick the year, make, and model — FLOWS fills in the rest."
+                    : epaListUnreachable
+                        ? "Can't reach the vehicle list right now — enter your vehicle by hand."
+                        : original != nil && !pickedNewVehicle
+                            ? "Your vehicle on file — change what you need, then save."
+                            : "Enter your vehicle by hand."
+            )
+            .scaledFont(.caption)
+            .foregroundStyle(.secondary)
             if useEPADatabase {
                 epaPickers
             } else {
-            // Make → model, filtered from the curated table.
-            HStack(spacing: 8) {
-                Picker("Make", selection: $make) {
-                    ForEach(VehicleSpecs.makes, id: \.self) { Text($0).tag($0) }
-                    Text(Self.customMake).tag(Self.customMake)
-                }
-                .labelsHidden()
-                .onChange(of: make) { _, newMake in
-                    pickedNewVehicle = true
-                    if let first = VehicleSpecs.models(make: newMake).first {
-                        specModel = first.model
-                        apply(first)
-                    } else {
-                        specModel = ""
-                    }
-                }
-                if make == Self.customMake {
-                    TextField("Year (e.g. 2022)", text: $vehicleYear)
-                        .textFieldStyle(.roundedBorder)
-                        .frame(width: 110)
-                }
-                if make != Self.customMake {
-                    Picker("Model", selection: $specModel) {
-                        ForEach(VehicleSpecs.models(make: make)) { spec in
-                            Text(spec.model).tag(spec.model)
-                        }
+                // Make → model, filtered from the curated table.
+                HStack(spacing: 8) {
+                    Picker("Make", selection: $make) {
+                        ForEach(VehicleSpecs.makes, id: \.self) { Text($0).tag($0) }
+                        Text(Self.customMake).tag(Self.customMake)
                     }
                     .labelsHidden()
-                    .onChange(of: specModel) { _, newModel in
+                    .onChange(of: make) { _, newMake in
                         pickedNewVehicle = true
-                        if let spec = VehicleSpecs.spec(make: make, model: newModel) {
-                            apply(spec)
+                        if let first = VehicleSpecs.models(make: newMake).first {
+                            specModel = first.model
+                            apply(first)
+                        } else {
+                            specModel = ""
+                        }
+                    }
+                    if make == Self.customMake {
+                        TextField("Year (e.g. 2022)", text: $vehicleYear)
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 110)
+                    }
+                    if make != Self.customMake {
+                        Picker("Model", selection: $specModel) {
+                            ForEach(VehicleSpecs.models(make: make)) { spec in
+                                Text(spec.model).tag(spec.model)
+                            }
+                        }
+                        .labelsHidden()
+                        .onChange(of: specModel) { _, newModel in
+                            pickedNewVehicle = true
+                            if let spec = VehicleSpecs.spec(make: make, model: newModel) {
+                                apply(spec)
+                            }
                         }
                     }
                 }
-            }
-            if make != Self.customMake, VehicleSpecs.spec(make: make, model: specModel) != nil {
-                Text("Filled from the vehicle table (manufacturer-typical specs — "
-                     + "adjust below if your trim differs).")
+                if make != Self.customMake, VehicleSpecs.spec(make: make, model: specModel) != nil {
+                    Text(
+                        "Filled from the vehicle table (manufacturer-typical specs — "
+                            + "adjust below if your trim differs)."
+                    )
                     .scaledFont(.caption)
                     .foregroundStyle(.secondary)
-            }
+                }
             }
 
-            Button(useEPADatabase
-                   ? "No internet, or can't find it? Enter it by hand"
-                   : "Pick from every US vehicle since 1984 instead") {
+            Button(
+                useEPADatabase
+                    ? "No internet, or can't find it? Enter it by hand"
+                    : "Pick from every US vehicle since 1984 instead"
+            ) {
                 if useEPADatabase {
                     startHandEntry()
                 } else {
-                    handEntryBeforeList = handEntry   // for coming back unchosen
+                    handEntryBeforeList = handEntry  // for coming back unchosen
                     useEPADatabase = true
                     // Back on the list: the model it shows is what Save
                     // writes, so its numbers go back in (hand edits made
@@ -5338,33 +5792,40 @@ struct VehicleEditorSheet: View {
             // the pop-up is three pickers, not a wall of sliders.
             DisclosureGroup(isExpanded: $fineTune) {
                 VStack(alignment: .leading, spacing: 12) {
-            Picker("Fuel", selection: $fuelType) {
-                ForEach(FuelType.allCases) { fuel in
-                    Label(fuel.rawValue, systemImage: fuel.symbol).tag(fuel)
-                }
-            }
-            .pickerStyle(.segmented)
-            HStack {
-                Text(String(format: "Tank: %.0f %@", tankUnits,
-                            fuelType == .electric ? "kWh" : "gal"))
-                    .scaledFont(.caption)
-                    .frame(width: 120, alignment: .leading)
-                Slider(value: $tankUnits, in: fuelType == .electric ? 20...250 : 5...300, step: 1)
-            }
-            HStack {
-                Text(String(format: "Economy: %.1f mi/%@", milesPerUnit,
-                            fuelType == .electric ? "kWh" : "gal"))
-                    .scaledFont(.caption)
-                    .frame(width: 120, alignment: .leading)
-                Slider(value: $milesPerUnit, in: fuelType == .electric ? 1...6 : 4...60,
-                       step: fuelType == .electric ? 0.1 : 0.5)
-            }
-            HStack {
-                Text(String(format: "Height: %.1f ft", heightFeet))
-                    .scaledFont(.caption)
-                    .frame(width: 120, alignment: .leading)
-                Slider(value: $heightFeet, in: VehicleSpecs.minimumHeightFeet...14, step: 0.1)
-            }
+                    Picker("Fuel", selection: $fuelType) {
+                        ForEach(FuelType.allCases) { fuel in
+                            Label(fuel.rawValue, systemImage: fuel.symbol).tag(fuel)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    HStack {
+                        Text(
+                            String(
+                                format: "Tank: %.0f %@", tankUnits,
+                                fuelType == .electric ? "kWh" : "gal")
+                        )
+                        .scaledFont(.caption)
+                        .frame(width: 120, alignment: .leading)
+                        Slider(value: $tankUnits, in: fuelType == .electric ? 20...250 : 5...300, step: 1)
+                    }
+                    HStack {
+                        Text(
+                            String(
+                                format: "Economy: %.1f mi/%@", milesPerUnit,
+                                fuelType == .electric ? "kWh" : "gal")
+                        )
+                        .scaledFont(.caption)
+                        .frame(width: 120, alignment: .leading)
+                        Slider(
+                            value: $milesPerUnit, in: fuelType == .electric ? 1...6 : 4...60,
+                            step: fuelType == .electric ? 0.1 : 0.5)
+                    }
+                    HStack {
+                        Text(String(format: "Height: %.1f ft", heightFeet))
+                            .scaledFont(.caption)
+                            .frame(width: 120, alignment: .leading)
+                        Slider(value: $heightFeet, in: VehicleSpecs.minimumHeightFeet...14, step: 0.1)
+                    }
                 }
                 .padding(.top, 6)
             } label: {
@@ -5378,12 +5839,15 @@ struct VehicleEditorSheet: View {
                     fineTune = true
                 }
             }
-            Text(String(format: "Rated range ~%.0f mi. Height feeds the low-bridge "
+            Text(
+                String(
+                    format: "Rated range ~%.0f mi. Height feeds the low-bridge "
                         + "filter automatically; on the road FLOWS adjusts range for "
                         + "how you drive and recommends fuel stops early.",
-                        tankUnits * milesPerUnit))
-                .scaledFont(.caption)
-                .foregroundStyle(.secondary)
+                    tankUnits * milesPerUnit)
+            )
+            .scaledFont(.caption)
+            .foregroundStyle(.secondary)
             HStack {
                 if model.vehicle.profile != nil {
                     Button("Mark tank full") { model.vehicle.filledUp() }
@@ -5427,7 +5891,8 @@ struct VehicleEditorSheet: View {
                     // An edit that left the economy alone keeps it exactly —
                     // re-rounding the scaled figures would drift each Save.
                     if let split = citySplit,
-                       !(keepsOriginal && milesPerUnit == original?.ratedMilesPerUnit) {
+                        !(keepsOriginal && milesPerUnit == original?.ratedMilesPerUnit)
+                    {
                         let combined = 1 / (0.55 / split.city + 0.45 / split.highway)
                         let f = combined > 0 ? milesPerUnit / combined : 1
                         profile.cityMilesPerUnit = (split.city * f * 10).rounded() / 10
@@ -5444,18 +5909,19 @@ struct VehicleEditorSheet: View {
                     // Only for a new vehicle or a changed height or model: an
                     // edit of the colour must not turn back on what the
                     // driver turned off in Settings.
-                    let changed = original == nil || heightFeet != openedHeightFeet
+                    let changed =
+                        original == nil || heightFeet != openedHeightFeet
                         || profile.model != original?.model
                     if changed, heightFeet >= 9 || VehicleSpecs.soundsLikeBigRig(profile.model) {
                         model.truckerUI = true
                     }
-                    model.poi.fuelType = fuelType   // gas searches follow the vehicle
+                    model.poi.fuelType = fuelType  // gas searches follow the vehicle
                     dismiss()
                 }
                 .buttonStyle(PillCTAStyle())
                 .frame(width: 160)
                 .disabled(awaitingEPAPick)
-                .opacity(awaitingEPAPick ? 0.45 : 1)   // the pill style doesn't dim itself
+                .opacity(awaitingEPAPick ? 0.45 : 1)  // the pill style doesn't dim itself
             }
         }
         .padding(20)
@@ -5476,8 +5942,9 @@ struct VehicleEditorSheet: View {
             return
         }
         guard original == nil, make == Self.customMake,
-              let first = VehicleSpecs.makes.first,
-              let spec = VehicleSpecs.models(make: first).first else { return }
+            let first = VehicleSpecs.makes.first,
+            let spec = VehicleSpecs.models(make: first).first
+        else { return }
         make = first
         specModel = spec.model
         apply(spec)
@@ -5507,10 +5974,11 @@ struct VehicleEditorSheet: View {
 
     private var handEntry: HandEntry {
         get {
-            HandEntry(make: make, specModel: specModel, vehicleYear: vehicleYear,
-                      fuelType: fuelType, tankUnits: tankUnits, milesPerUnit: milesPerUnit,
-                      heightFeet: heightFeet, citySplit: citySplit,
-                      pendingEPARatings: pendingEPARatings, pickedNewVehicle: pickedNewVehicle)
+            HandEntry(
+                make: make, specModel: specModel, vehicleYear: vehicleYear,
+                fuelType: fuelType, tankUnits: tankUnits, milesPerUnit: milesPerUnit,
+                heightFeet: heightFeet, citySplit: citySplit,
+                pendingEPARatings: pendingEPARatings, pickedNewVehicle: pickedNewVehicle)
         }
         nonmutating set {
             make = newValue.make
@@ -5570,7 +6038,7 @@ struct VehicleEditorSheet: View {
             .onChange(of: epaMake) { _, m in
                 Task {
                     let models = await EPAVehicleDatabase.shared.models(year: epaYear, make: m)
-                    guard m == epaMake else { return }   // superseded by a newer tap
+                    guard m == epaMake else { return }  // superseded by a newer tap
                     epaModels = models
                     let first = models.first ?? ""
                     if first == epaModel {
@@ -5585,10 +6053,15 @@ struct VehicleEditorSheet: View {
             }
             // Only the driver's own pick passes through this setter; the
             // list's automatic first entries set the state directly.
-            Picker("Model", selection: Binding(get: { epaModel }, set: { picked in
-                chosenEPAKey = "\(epaYear)|\(epaMake)|\(picked)"
-                epaModel = picked
-            })) {
+            Picker(
+                "Model",
+                selection: Binding(
+                    get: { epaModel },
+                    set: { picked in
+                        chosenEPAKey = "\(epaYear)|\(epaMake)|\(picked)"
+                        epaModel = picked
+                    })
+            ) {
                 ForEach(epaModels, id: \.self) { Text($0).tag($0) }
             }
             .labelsHidden()
@@ -5618,15 +6091,18 @@ struct VehicleEditorSheet: View {
         if !epaModel.isEmpty, appliedEPAKey == epaKey {
             // The proof the three answers were enough: everything that got
             // filled in, on one line.
-            Text(String(format: "Filled in: %@ · %.0f %@ tank · %.1f mi/%@ "
+            Text(
+                String(
+                    format: "Filled in: %@ · %.0f %@ tank · %.1f mi/%@ "
                         + "· %.1f ft tall%@",
-                        fuelType.rawValue, tankUnits,
-                        fuelType == .electric ? "kWh" : "gal",
-                        milesPerUnit, fuelType == .electric ? "kWh" : "gal",
-                        heightFeet,
-                        pendingEPARatings?.gvwr != nil ? " · tow ratings" : ""))
-                .scaledFont(.caption)
-                .foregroundStyle(.secondary)
+                    fuelType.rawValue, tankUnits,
+                    fuelType == .electric ? "kWh" : "gal",
+                    milesPerUnit, fuelType == .electric ? "kWh" : "gal",
+                    heightFeet,
+                    pendingEPARatings?.gvwr != nil ? " · tow ratings" : "")
+            )
+            .scaledFont(.caption)
+            .foregroundStyle(.secondary)
         } else if !epaModel.isEmpty, failedEPAKey == epaKey {
             // Save waits for this pick; say why, and offer the retry the
             // picker can't (choosing the same model again changes nothing).
@@ -5702,18 +6178,22 @@ struct CrashCheckInCard: View {
             ScrollWhenTight(maxHeight: golden.size.height / 4) {
                 VStack(alignment: .leading, spacing: 10) {
                     if case .checkingIn(let attempt) = model.crash.state {
-                        Text("Do you need assistance? Say “yes” or “I'm okay” — "
-                             + "or use the buttons. FLOWS keeps asking (attempt \(attempt)) "
-                             + "until you respond.")
-                            .scaledFont(.footnote)
+                        Text(
+                            "Do you need assistance? Say “yes” or “I'm okay” — "
+                                + "or use the buttons. FLOWS keeps asking (attempt \(attempt)) "
+                                + "until you respond."
+                        )
+                        .scaledFont(.footnote)
                     } else {
                         #if os(iOS)
-                        Text(CrashLogic.assistSteps(
-                            contactName: model.emergencyContactName,
-                            hasContactPhone: !model.emergencyContactPhone.isEmpty))
+                            Text(
+                                CrashLogic.assistSteps(
+                                    contactName: model.emergencyContactName,
+                                    hasContactPhone: !model.emergencyContactPhone.isEmpty)
+                            )
                             .scaledFont(.footnote)
-                        Text(model.crash.emergencyReport())
-                            .font(.caption.monospaced())
+                            Text(model.crash.emergencyReport())
+                                .font(.caption.monospaced())
                         #endif
                     }
                 }
@@ -5765,31 +6245,31 @@ struct CrashCheckInCard: View {
     @ViewBuilder
     private var callButtons: some View {
         #if os(iOS)
-        Button("Call 911") { model.crash.call911() }
-            .scaledFont(size: 15, weight: .heavy)
-            .buttonStyle(.plain)
-            .frame(maxWidth: .infinity, minHeight: Theme.tapMinimum)
-            .background(Color.white)
-            .foregroundStyle(Theme.riskRed)
-            .clipShape(Capsule())
-        if !model.emergencyContactPhone.isEmpty {
-            Button("Text report") {
-                model.crash.messageContact(number: model.emergencyContactPhone)
+            Button("Call 911") { model.crash.call911() }
+                .scaledFont(size: 15, weight: .heavy)
+                .buttonStyle(.plain)
+                .frame(maxWidth: .infinity, minHeight: Theme.tapMinimum)
+                .background(Color.white)
+                .foregroundStyle(Theme.riskRed)
+                .clipShape(Capsule())
+            if !model.emergencyContactPhone.isEmpty {
+                Button("Text report") {
+                    model.crash.messageContact(number: model.emergencyContactPhone)
+                }
+                .scaledFont(size: 15, weight: .bold)
+                .buttonStyle(.plain)
+                .frame(maxWidth: .infinity, minHeight: Theme.tapMinimum)
+                .background(Color.white.opacity(0.25))
+                .clipShape(Capsule())
+                Button("Call contact") {
+                    model.crash.callContact(number: model.emergencyContactPhone)
+                }
+                .scaledFont(size: 15, weight: .bold)
+                .buttonStyle(.plain)
+                .frame(maxWidth: .infinity, minHeight: Theme.tapMinimum)
+                .background(Color.white.opacity(0.25))
+                .clipShape(Capsule())
             }
-            .scaledFont(size: 15, weight: .bold)
-            .buttonStyle(.plain)
-            .frame(maxWidth: .infinity, minHeight: Theme.tapMinimum)
-            .background(Color.white.opacity(0.25))
-            .clipShape(Capsule())
-            Button("Call contact") {
-                model.crash.callContact(number: model.emergencyContactPhone)
-            }
-            .scaledFont(size: 15, weight: .bold)
-            .buttonStyle(.plain)
-            .frame(maxWidth: .infinity, minHeight: Theme.tapMinimum)
-            .background(Color.white.opacity(0.25))
-            .clipShape(Capsule())
-        }
         #endif
     }
 

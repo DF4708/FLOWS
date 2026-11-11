@@ -8,10 +8,11 @@
 
 import Foundation
 import SwiftUI
+
 #if os(iOS)
-import UIKit
+    import UIKit
 #elseif os(macOS)
-import AppKit
+    import AppKit
 #endif
 
 /// Music services the mini player can hand playback to. All keyless: each
@@ -126,9 +127,9 @@ enum MusicProvider: String, CaseIterable, Identifiable, Codable {
     /// `MusicController.controlsInPlace` / `AppModel.musicControllable`.
     var controllable: Bool {
         #if os(macOS)
-        return controllable(onMac: true, spotifyLinked: false)
+            return controllable(onMac: true, spotifyLinked: false)
         #else
-        return controllable(onMac: false, spotifyLinked: false)
+            return controllable(onMac: false, spotifyLinked: false)
         #endif
     }
 
@@ -147,7 +148,7 @@ enum MusicProvider: String, CaseIterable, Identifiable, Codable {
     /// The service's signature color, approximated for the badge.
     var badgeColor: Color {
         switch self {
-        case .radio: return Color(red: 0.45, green: 0.32, blue: 0.20)   // radio brown
+        case .radio: return Color(red: 0.45, green: 0.32, blue: 0.20)  // radio brown
         case .appleMusic: return Color(red: 0.98, green: 0.18, blue: 0.32)
         case .spotify: return Color(red: 0.11, green: 0.73, blue: 0.33)
         case .youtubeMusic: return Color(red: 0.93, green: 0.11, blue: 0.14)
@@ -226,7 +227,9 @@ enum MusicProvider: String, CaseIterable, Identifiable, Codable {
         switch self {
         // FLOWS plays radio itself, so its phrases route through FLOWS:
         // "play something" asks what, and "skip" moves to the next station.
-        case .radio: return "Hey Siri, play something in FLOWS — then \u{201C}Hey Siri, skip in FLOWS\u{201D} for another station"
+        case .radio:
+            return
+                "Hey Siri, play something in FLOWS — then \u{201C}Hey Siri, skip in FLOWS\u{201D} for another station"
         case .appleMusic: return "Hey Siri, play country music"
         case .spotify: return "Hey Siri, play country on Spotify"
         case .youtubeMusic: return "Hey Siri, play country on YouTube Music"
@@ -281,9 +284,9 @@ enum MusicProvider: String, CaseIterable, Identifiable, Codable {
     func openSearch(query: String) {
         let url = searchURL(query: query)
         #if os(iOS)
-        UIApplication.shared.open(url)
+            UIApplication.shared.open(url)
         #elseif os(macOS)
-        NSWorkspace.shared.open(url)
+            NSWorkspace.shared.open(url)
         #endif
     }
 
@@ -291,17 +294,17 @@ enum MusicProvider: String, CaseIterable, Identifiable, Codable {
     @MainActor
     func openApp() {
         #if os(iOS)
-        guard let app = appURL else {
-            UIApplication.shared.open(webURL)
-            return
-        }
-        let web = webURL
-        UIApplication.shared.open(app, options: [:]) { opened in
-            if !opened { UIApplication.shared.open(web) }
-        }
+            guard let app = appURL else {
+                UIApplication.shared.open(webURL)
+                return
+            }
+            let web = webURL
+            UIApplication.shared.open(app, options: [:]) { opened in
+                if !opened { UIApplication.shared.open(web) }
+            }
         #elseif os(macOS)
-        if let app = appURL, NSWorkspace.shared.open(app) { return }
-        NSWorkspace.shared.open(webURL)
+            if let app = appURL, NSWorkspace.shared.open(app) { return }
+            NSWorkspace.shared.open(webURL)
         #endif
     }
 }

@@ -39,8 +39,10 @@ enum VehicleTrack {
     static let maxSlide: TimeInterval = 2.5
 
     /// Should the marker SLIDE to this fix, or jump straight to it?
-    static func shouldAnimate(from: CLLocationCoordinate2D,
-                              to: CLLocationCoordinate2D) -> Bool {
+    static func shouldAnimate(
+        from: CLLocationCoordinate2D,
+        to: CLLocationCoordinate2D
+    ) -> Bool {
         POIRanking.meters(from, to) <= teleportMeters
     }
 
@@ -51,16 +53,20 @@ enum VehicleTrack {
 
     /// The direction to point the marker: the reported course while moving,
     /// the last known one while stopped. Never a guess.
-    static func heading(courseDegrees: Double, speedMps: Double,
-                        previous: Double?) -> Double? {
+    static func heading(
+        courseDegrees: Double, speedMps: Double,
+        previous: Double?
+    ) -> Double? {
         guard speedMps > stoppedMps, courseDegrees >= 0 else { return previous }
         return courseDegrees
     }
 
     /// Ease a heading toward a new one the short way round, so a marker
     /// crossing north turns 10° rather than spinning 350°.
-    static func easedHeading(from current: Double, to target: Double,
-                             fraction: Double) -> Double {
+    static func easedHeading(
+        from current: Double, to target: Double,
+        fraction: Double
+    ) -> Double {
         var delta = (target - current).truncatingRemainder(dividingBy: 360)
         if delta > 180 { delta -= 360 }
         if delta < -180 { delta += 360 }
@@ -84,16 +90,18 @@ enum VehicleAspect: String, CaseIterable {
     /// differs from the vehicle's.
     ///
     /// `relativeBearing` is the camera heading minus the vehicle heading.
-    static func forCamera(pitchDegrees: Double,
-                          relativeBearing: Double) -> VehicleAspect {
+    static func forCamera(
+        pitchDegrees: Double,
+        relativeBearing: Double
+    ) -> VehicleAspect {
         // Looking nearly straight down: the roof, whatever the bearing.
         if pitchDegrees < 25 { return .top }
         var delta = relativeBearing.truncatingRemainder(dividingBy: 360)
         if delta > 180 { delta -= 360 }
         if delta < -180 { delta += 360 }
         let a = abs(delta)
-        if a <= 45 { return .rear }      // camera behind, following
-        if a >= 135 { return .front }    // camera ahead, facing the car
+        if a <= 45 { return .rear }  // camera behind, following
+        if a >= 135 { return .front }  // camera ahead, facing the car
         return .side
     }
 }
@@ -166,8 +174,10 @@ enum VehicleShape: String, CaseIterable, Identifiable, Codable {
     /// directly and anything unrecognized stays a car. The exceptions are
     /// the bodies weight cannot tell apart: a bus weighs what a semi does,
     /// so a named bus (or motorcycle) is taken at its word before the ladder.
-    static func matching(make: String?, model: String?,
-                         gvwrLbs: Double?, isTrucker: Bool) -> VehicleShape {
+    static func matching(
+        make: String?, model: String?,
+        gvwrLbs: Double?, isTrucker: Bool
+    ) -> VehicleShape {
         let name = "\(make ?? "") \(model ?? "")".lowercased()
         func has(_ words: [String]) -> Bool { words.contains { name.contains($0) } }
         if has(["motorcycle", "harley", "ducati", "kawasaki ninja"]) { return .motorcycle }
@@ -176,16 +186,28 @@ enum VehicleShape: String, CaseIterable, Identifiable, Codable {
             if gvwr >= 26_000 { return .semi }
             if gvwr >= 10_000 { return .box }
         }
-        if has(["silverado", "f-150", "f150", "f-250", "f-350", "ram 1500",
-                "sierra", "tacoma", "tundra", "colorado", "ranger",
-                "ridgeline", "frontier", "titan", "canyon"]) { return .pickup }
-        if has(["odyssey", "sienna", "pacifica", "transit", "sprinter",
-                "promaster", "carnival", "metris", "express van"]) { return .van }
-        if has(["explorer", "tahoe", "suburban", "highlander", "rav4",
-                "cr-v", "crv", "pilot", "4runner", "wrangler", "bronco",
-                "escape", "equinox", "rogue", "outback", "telluride",
-                "palisade", "expedition", "durango", "grand cherokee",
-                "model y", "model x"]) { return .suv }
+        if has([
+            "silverado", "f-150", "f150", "f-250", "f-350", "ram 1500",
+            "sierra", "tacoma", "tundra", "colorado", "ranger",
+            "ridgeline", "frontier", "titan", "canyon",
+        ]) {
+            return .pickup
+        }
+        if has([
+            "odyssey", "sienna", "pacifica", "transit", "sprinter",
+            "promaster", "carnival", "metris", "express van",
+        ]) {
+            return .van
+        }
+        if has([
+            "explorer", "tahoe", "suburban", "highlander", "rav4",
+            "cr-v", "crv", "pilot", "4runner", "wrangler", "bronco",
+            "escape", "equinox", "rogue", "outback", "telluride",
+            "palisade", "expedition", "durango", "grand cherokee",
+            "model y", "model x",
+        ]) {
+            return .suv
+        }
         if !name.trimmingCharacters(in: .whitespaces).isEmpty { return .car }
         return isTrucker ? .semi : .car
     }

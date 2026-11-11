@@ -21,29 +21,33 @@ final class CameraZoomTests: XCTestCase {
 
     func testCityBlocksHoldTheCloseView() {
         // 300 m blocks, next turn comfortably ahead, city speed.
-        let alt = CameraZoom.drivingAltitude(intersectionSpacingMeters: 300,
-                                             distanceToManeuverMeters: 280,
-                                             speedMps: 12)
+        let alt = CameraZoom.drivingAltitude(
+            intersectionSpacingMeters: 300,
+            distanceToManeuverMeters: 280,
+            speedMps: 12)
         XCTAssertEqual(alt, CameraZoom.cityAltitude, accuracy: 1)
     }
 
     func testHighwayStretchReadsFar() {
         // 12 km between off-ramps at 70 mph → the ceiling, speed-stretched.
-        let alt = CameraZoom.drivingAltitude(intersectionSpacingMeters: 12_000,
-                                             distanceToManeuverMeters: 8_000,
-                                             speedMps: 31)
+        let alt = CameraZoom.drivingAltitude(
+            intersectionSpacingMeters: 12_000,
+            distanceToManeuverMeters: 8_000,
+            speedMps: 31)
         XCTAssertEqual(alt, CameraZoom.highwayAltitude, accuracy: 1)
         // Faster still sees proportionally farther, capped at 1.5×.
-        let fast = CameraZoom.drivingAltitude(intersectionSpacingMeters: 12_000,
-                                              distanceToManeuverMeters: 8_000,
-                                              speedMps: 60)
+        let fast = CameraZoom.drivingAltitude(
+            intersectionSpacingMeters: 12_000,
+            distanceToManeuverMeters: 8_000,
+            speedMps: 60)
         XCTAssertEqual(fast, CameraZoom.highwayAltitude * 1.5, accuracy: 1)
     }
 
     func testImminentTurnPinsToTheIntersection() {
-        let alt = CameraZoom.drivingAltitude(intersectionSpacingMeters: 12_000,
-                                             distanceToManeuverMeters: 200,
-                                             speedMps: 31)
+        let alt = CameraZoom.drivingAltitude(
+            intersectionSpacingMeters: 12_000,
+            distanceToManeuverMeters: 200,
+            speedMps: 31)
         XCTAssertEqual(alt, CameraZoom.intersectionAltitude)
     }
 
@@ -62,9 +66,10 @@ final class CameraZoomTests: XCTestCase {
     func testAltitudeGrowsWithIntersectionSpacing() {
         var last = 0.0
         for spacing in [200.0, 600, 1_500, 3_000, 6_000, 12_000] {
-            let alt = CameraZoom.drivingAltitude(intersectionSpacingMeters: spacing,
-                                                 distanceToManeuverMeters: 20_000,
-                                                 speedMps: 20)
+            let alt = CameraZoom.drivingAltitude(
+                intersectionSpacingMeters: spacing,
+                distanceToManeuverMeters: 20_000,
+                speedMps: 20)
             XCTAssertGreaterThanOrEqual(alt, last)
             last = alt
         }
@@ -79,53 +84,65 @@ final class CameraZoomTests: XCTestCase {
     }
 
     func testTopPanelPushesTheRouteDownIntoTheOpenMap() {
-        let framed = CameraZoom.framedRect(wideRoute, panelEdge: .top,
-                                           windowAspect: 2.17)
+        let framed = CameraZoom.framedRect(
+            wideRoute, panelEdge: .top,
+            windowAspect: 2.17)
         // The camera centers NORTH of the route (smaller y), so the route
         // draws lower on screen — below the panel.
         XCTAssertLessThan(framed.midY, wideRoute.midY)
         // …and the zoom is untouched: shifting, not growing.
-        XCTAssertEqual(framed.size.width,
-                       wideRoute.insetBy(dx: -wideRoute.width * 0.2,
-                                         dy: -wideRoute.height * 0.2).size.width,
-                       accuracy: 1)
+        XCTAssertEqual(
+            framed.size.width,
+            wideRoute.insetBy(
+                dx: -wideRoute.width * 0.2,
+                dy: -wideRoute.height * 0.2
+            ).size.width,
+            accuracy: 1)
     }
 
     func testTheShiftIsBigEnoughToMatterOnAWideRoute() {
         // The bug this replaces: growing a width-constrained rect's height
         // moved the route by nothing. The shift must scale with the FITTED
         // span (width × aspect), not the route's own hairline height.
-        let framed = CameraZoom.framedRect(wideRoute, panelEdge: .top,
-                                           windowAspect: 2.17)
+        let framed = CameraZoom.framedRect(
+            wideRoute, panelEdge: .top,
+            windowAspect: 2.17)
         let shift = wideRoute.midY - framed.midY
-        XCTAssertGreaterThan(shift, wideRoute.size.height * 10,
-                             "shift must come from the fitted span, not route height")
+        XCTAssertGreaterThan(
+            shift, wideRoute.size.height * 10,
+            "shift must come from the fitted span, not route height")
     }
 
     func testSidePanelPushesTheRouteRight() {
-        let framed = CameraZoom.framedRect(wideRoute, panelEdge: .leading,
-                                           windowAspect: 2.17)
+        let framed = CameraZoom.framedRect(
+            wideRoute, panelEdge: .leading,
+            windowAspect: 2.17)
         XCTAssertLessThan(framed.midX, wideRoute.midX)
         XCTAssertEqual(framed.midY, wideRoute.midY, accuracy: 1)
     }
 
     func testNoPanelNoShift() {
-        let framed = CameraZoom.framedRect(wideRoute, panelEdge: .top,
-                                           windowAspect: 2.17, panelFraction: 0)
+        let framed = CameraZoom.framedRect(
+            wideRoute, panelEdge: .top,
+            windowAspect: 2.17, panelFraction: 0)
         XCTAssertEqual(framed.midY, wideRoute.midY, accuracy: 1)
     }
 
     func testFlightPhasesWalkCruiseAndGlide() {
         // On the ground at either airport: the walking view.
-        XCTAssertEqual(CameraZoom.flightAltitude(metersToNearestAirport: 0),
-                       CameraZoom.walkingAltitude)
-        XCTAssertEqual(CameraZoom.flightAltitude(metersToNearestAirport: 2_500),
-                       CameraZoom.walkingAltitude)
+        XCTAssertEqual(
+            CameraZoom.flightAltitude(metersToNearestAirport: 0),
+            CameraZoom.walkingAltitude)
+        XCTAssertEqual(
+            CameraZoom.flightAltitude(metersToNearestAirport: 2_500),
+            CameraZoom.walkingAltitude)
         // Far from both: cruise.
-        XCTAssertEqual(CameraZoom.flightAltitude(metersToNearestAirport: 40_000),
-                       CameraZoom.cruiseAltitude)
-        XCTAssertEqual(CameraZoom.flightAltitude(metersToNearestAirport: 300_000),
-                       CameraZoom.cruiseAltitude)
+        XCTAssertEqual(
+            CameraZoom.flightAltitude(metersToNearestAirport: 40_000),
+            CameraZoom.cruiseAltitude)
+        XCTAssertEqual(
+            CameraZoom.flightAltitude(metersToNearestAirport: 300_000),
+            CameraZoom.cruiseAltitude)
         // Climb-out/approach glides monotonically between the two.
         var last = CameraZoom.walkingAltitude
         for d in [3_000.0, 10_000, 20_000, 30_000, 39_000] {
@@ -156,9 +173,11 @@ final class CameraZoomTests: XCTestCase {
 
     func testCoverMeasuresTheChromeThatIsActuallyOnScreen() {
         let cover = ChromeLayout.cover(
-            top: [CGRect(x: 0, y: 8, width: 400, height: 100),
-                  CGRect(x: 200, y: 116, width: 200, height: 60),
-                  CGRect(x: 0, y: 700, width: 0, height: 0)],
+            top: [
+                CGRect(x: 0, y: 8, width: 400, height: 100),
+                CGRect(x: 200, y: 116, width: 200, height: 60),
+                CGRect(x: 0, y: 700, width: 0, height: 0),
+            ],
             bottom: [CGRect(x: 0, y: 690, width: 400, height: 100)],
             height: 800, insetTop: 50, insetBottom: 50)
         XCTAssertEqual(cover.top ?? -1, (50.0 + 176) / 900, accuracy: 1e-9)

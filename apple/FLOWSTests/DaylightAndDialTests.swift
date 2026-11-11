@@ -17,7 +17,11 @@ final class DaylightAndDialTests: XCTestCase {
 
     private func utc(_ y: Int, _ mo: Int, _ d: Int, _ h: Int, _ mi: Int = 0) -> Date {
         var c = DateComponents()
-        c.year = y; c.month = mo; c.day = d; c.hour = h; c.minute = mi
+        c.year = y
+        c.month = mo
+        c.day = d
+        c.hour = h
+        c.minute = mi
         var cal = Calendar(identifier: .gregorian)
         cal.timeZone = TimeZone(identifier: "UTC")!
         return cal.date(from: c)!
@@ -45,7 +49,7 @@ final class DaylightAndDialTests: XCTestCase {
         // Miami's midsummer dusk comes much earlier in the evening than
         // Madison's — the same wall-clock hour is dark in one and light in
         // the other, which no fixed schedule can express.
-        let t = utc(2026, 6, 22, 1, 30)     // 20:30 in Miami, 20:30 in Madison
+        let t = utc(2026, 6, 22, 1, 30)  // 20:30 in Miami, 20:30 in Madison
         XCTAssertTrue(DaylightClock.isNight(at: miami, now: t))
         XCTAssertFalse(DaylightClock.isNight(at: madison, now: t))
     }
@@ -112,8 +116,9 @@ final class DaylightAndDialTests: XCTestCase {
         // words, given the match order.
         for kind in BroadcastRadio.Kind.allCases {
             let word = kind.tagWords.first ?? ""
-            XCTAssertEqual(BroadcastRadio.kind(forTags: word), kind,
-                           "\(kind.title) is unreachable through its own tag")
+            XCTAssertEqual(
+                BroadcastRadio.kind(forTags: word), kind,
+                "\(kind.title) is unreachable through its own tag")
         }
     }
 
@@ -133,12 +138,15 @@ final class DaylightAndDialTests: XCTestCase {
 
     // MARK: ranking
 
-    private func station(_ id: String, _ lat: Double? = nil,
-                         bitrate: Int = 128) -> BroadcastRadio.Station {
-        BroadcastRadio.Station(id: id, name: id, url: "https://x/\(id)",
-                               tags: "rock", latitude: lat,
-                               longitude: lat == nil ? nil : -89.4,
-                               bitrate: bitrate, kind: .rock)
+    private func station(
+        _ id: String, _ lat: Double? = nil,
+        bitrate: Int = 128
+    ) -> BroadcastRadio.Station {
+        BroadcastRadio.Station(
+            id: id, name: id, url: "https://x/\(id)",
+            tags: "rock", latitude: lat,
+            longitude: lat == nil ? nil : -89.4,
+            bitrate: bitrate, kind: .rock)
     }
 
     func testLocalBeatsLoudWhenRankingTheDial() {

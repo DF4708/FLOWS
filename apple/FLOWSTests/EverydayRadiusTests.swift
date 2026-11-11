@@ -17,8 +17,9 @@ final class EverydayRadiusTests: XCTestCase {
 
     /// A point `miles` due north of home (1° latitude ≈ 69.09 mi).
     private func north(_ miles: Double) -> CLLocationCoordinate2D {
-        CLLocationCoordinate2D(latitude: home.latitude + miles / 69.09,
-                               longitude: home.longitude)
+        CLLocationCoordinate2D(
+            latitude: home.latitude + miles / 69.09,
+            longitude: home.longitude)
     }
 
     private func store(trips: [Double], withHome: Bool = true) -> EverydayStore {
@@ -46,9 +47,10 @@ final class EverydayRadiusTests: XCTestCase {
 
     func testMeanAndSDMatchHandComputedValues() {
         // 10 × 3 mi, 10 × 5 mi, 10 × 7 mi: mean 5, sample SD √(80/29).
-        let s = store(trips: Array(repeating: 3.0, count: 10)
-            + Array(repeating: 5.0, count: 10)
-            + Array(repeating: 7.0, count: 10))
+        let s = store(
+            trips: Array(repeating: 3.0, count: 10)
+                + Array(repeating: 5.0, count: 10)
+                + Array(repeating: 7.0, count: 10))
         XCTAssertEqual(s.meanTripMiles!, 5.0, accuracy: 0.0001)
         XCTAssertEqual(s.tripMilesSD!, (80.0 / 29.0).squareRoot(), accuracy: 0.0001)
         // The radius is the p85 of observed trips — here the 7-mile band.
@@ -59,8 +61,9 @@ final class EverydayRadiusTests: XCTestCase {
     /// old shrink-only rule (min(20, mean+SD)) someone whose everyday range
     /// is 45 miles was pinned at 20 forever and never got instant results.
     func testRadiusGrowsForALongRangeDriver() {
-        let rural = store(trips: Array(repeating: 38.0, count: 20)
-            + Array(repeating: 52.0, count: 15))
+        let rural = store(
+            trips: Array(repeating: 38.0, count: 20)
+                + Array(repeating: 52.0, count: 15))
         XCTAssertGreaterThan(rural.radiusMiles, 20.0)
         XCTAssertLessThanOrEqual(rural.radiusMiles, EverydayStore.hardCapMiles)
         // …and still tightens for a city driver.
@@ -152,37 +155,49 @@ final class EverydayRadiusTests: XCTestCase {
         // 30 × 5 mi trips → radius ≈ 5. A stop 10 mi out must be refused;
         // one 2 mi out is admitted.
         var s = store(trips: Array(repeating: 5.0, count: 30))
-        let far = north(10), near = north(2)
-        XCTAssertFalse(s.remember(name: "Far Diner", lat: far.latitude, lon: far.longitude,
-                                  street: "", city: "", in: .food))
-        XCTAssertTrue(s.remember(name: "Near Diner", lat: near.latitude, lon: near.longitude,
-                                 street: "", city: "", in: .food))
+        let far = north(10)
+        let near = north(2)
+        XCTAssertFalse(
+            s.remember(
+                name: "Far Diner", lat: far.latitude, lon: far.longitude,
+                street: "", city: "", in: .food))
+        XCTAssertTrue(
+            s.remember(
+                name: "Near Diner", lat: near.latitude, lon: near.longitude,
+                street: "", city: "", in: .food))
         XCTAssertEqual(s.ranked(in: .food).map(\.name), ["Near Diner"])
     }
 
     func testCacheNeedsAHomeAnchor() {
         var s = store(trips: Array(repeating: 5.0, count: 30), withHome: false)
-        XCTAssertFalse(s.remember(name: "Cafe", lat: home.latitude, lon: home.longitude,
-                                  street: "", city: "", in: .food))
+        XCTAssertFalse(
+            s.remember(
+                name: "Cafe", lat: home.latitude, lon: home.longitude,
+                street: "", city: "", in: .food))
     }
 
     func testDefaultCircleAdmitsUpToTwentyMilesBeforeSignificance() {
         // No trips yet: the default 20-mile circle still caches near home.
         var s = store(trips: [])
-        XCTAssertTrue(s.remember(name: "Fuel Stop", lat: north(18).latitude,
-                                 lon: north(18).longitude, street: "", city: "",
-                                 in: .fuel))
-        XCTAssertFalse(s.remember(name: "Too Far", lat: north(22).latitude,
-                                  lon: north(22).longitude, street: "", city: "",
-                                  in: .fuel))
+        XCTAssertTrue(
+            s.remember(
+                name: "Fuel Stop", lat: north(18).latitude,
+                lon: north(18).longitude, street: "", city: "",
+                in: .fuel))
+        XCTAssertFalse(
+            s.remember(
+                name: "Too Far", lat: north(22).latitude,
+                lon: north(22).longitude, street: "", city: "",
+                in: .fuel))
     }
 
     func testRepeatSightingsAccumulateIntoOneRecord() {
         var s = store(trips: [])
         let p = north(1)
         for _ in 0..<3 {
-            s.remember(name: "Grocery", lat: p.latitude, lon: p.longitude,
-                       street: "1 Main St", city: "Madison", in: .stores)
+            s.remember(
+                name: "Grocery", lat: p.latitude, lon: p.longitude,
+                street: "1 Main St", city: "Madison", in: .stores)
         }
         let entries = s.ranked(in: .stores)
         XCTAssertEqual(entries.count, 1)
@@ -194,20 +209,23 @@ final class EverydayRadiusTests: XCTestCase {
         var s = store(trips: [])
         for i in 0..<EverydayStore.maxPlacesPerCategory {
             let p = north(Double(i) * 0.02 + 0.1)
-            s.remember(name: "Stop \(i)", lat: p.latitude, lon: p.longitude,
-                       street: "", city: "", in: .food)
+            s.remember(
+                name: "Stop \(i)", lat: p.latitude, lon: p.longitude,
+                street: "", city: "", in: .food)
         }
         // Use everything except "Stop 7", then overflow the cap.
         for e in s.ranked(in: .food) where e.name != "Stop 7" {
-            s.recordUse(id: e.id, in: .food,
-                        contextID: EverydayStore.contextID(
-                            hourBucket: 2, weekend: false,
-                            startLat: home.latitude, startLon: home.longitude),
-                        t: 1)
+            s.recordUse(
+                id: e.id, in: .food,
+                contextID: EverydayStore.contextID(
+                    hourBucket: 2, weekend: false,
+                    startLat: home.latitude, startLon: home.longitude),
+                t: 1)
         }
         let p = north(5)
-        s.remember(name: "Newcomer", lat: p.latitude, lon: p.longitude,
-                   street: "", city: "", in: .food)
+        s.remember(
+            name: "Newcomer", lat: p.latitude, lon: p.longitude,
+            street: "", city: "", in: .food)
         let names = s.ranked(in: .food).map(\.name)
         XCTAssertEqual(names.count, EverydayStore.maxPlacesPerCategory)
         XCTAssertFalse(names.contains("Stop 7"), "the never-used entry is evicted")
@@ -218,12 +236,14 @@ final class EverydayRadiusTests: XCTestCase {
 
     func testMostUsedRanksFirst() {
         var s = store(trips: [])
-        let ctx = EverydayStore.contextID(hourBucket: 3, weekend: false,
-                                          startLat: home.latitude, startLon: home.longitude)
+        let ctx = EverydayStore.contextID(
+            hourBucket: 3, weekend: false,
+            startLat: home.latitude, startLon: home.longitude)
         for (i, name) in ["Rarely", "Often", "Sometimes"].enumerated() {
             let p = north(Double(i + 1))
-            s.remember(name: name, lat: p.latitude, lon: p.longitude,
-                       street: "", city: "", in: .fuel)
+            s.remember(
+                name: name, lat: p.latitude, lon: p.longitude,
+                street: "", city: "", in: .fuel)
         }
         func id(_ name: String) -> String {
             s.ranked(in: .fuel).first { $0.name == name }!.id
@@ -235,13 +255,17 @@ final class EverydayRadiusTests: XCTestCase {
 
     func testUnusedEntriesFallBackToSeenCountThenRecency() {
         var s = store(trips: [])
-        let a = north(1), b = north(2)
-        s.remember(name: "Seen Twice", lat: a.latitude, lon: a.longitude,
-                   street: "", city: "", in: .hotels)
-        s.remember(name: "Seen Twice", lat: a.latitude, lon: a.longitude,
-                   street: "", city: "", in: .hotels)
-        s.remember(name: "Seen Once", lat: b.latitude, lon: b.longitude,
-                   street: "", city: "", in: .hotels)
+        let a = north(1)
+        let b = north(2)
+        s.remember(
+            name: "Seen Twice", lat: a.latitude, lon: a.longitude,
+            street: "", city: "", in: .hotels)
+        s.remember(
+            name: "Seen Twice", lat: a.latitude, lon: a.longitude,
+            street: "", city: "", in: .hotels)
+        s.remember(
+            name: "Seen Once", lat: b.latitude, lon: b.longitude,
+            street: "", city: "", in: .hotels)
         XCTAssertEqual(s.ranked(in: .hotels).map(\.name), ["Seen Twice", "Seen Once"])
     }
 
@@ -253,16 +277,19 @@ final class EverydayRadiusTests: XCTestCase {
         XCTAssertEqual(EverydayStore.hourBucket(4), 1)
         XCTAssertEqual(EverydayStore.hourBucket(12), 3)
         XCTAssertEqual(EverydayStore.hourBucket(23), 5)
-        XCTAssertEqual(EverydayStore.hourBucket(24), 0)   // wraps, never crashes
+        XCTAssertEqual(EverydayStore.hourBucket(24), 0)  // wraps, never crashes
     }
 
     func testContextIDsAreUniquePerContextAndRoundTrip() {
-        let morning = EverydayStore.contextID(hourBucket: 2, weekend: false,
-                                              startLat: 43.0, startLon: -89.4)
-        let weekend = EverydayStore.contextID(hourBucket: 2, weekend: true,
-                                              startLat: 43.0, startLon: -89.4)
-        let elsewhere = EverydayStore.contextID(hourBucket: 2, weekend: false,
-                                                startLat: 44.5, startLon: -88.0)
+        let morning = EverydayStore.contextID(
+            hourBucket: 2, weekend: false,
+            startLat: 43.0, startLon: -89.4)
+        let weekend = EverydayStore.contextID(
+            hourBucket: 2, weekend: true,
+            startLat: 43.0, startLon: -89.4)
+        let elsewhere = EverydayStore.contextID(
+            hourBucket: 2, weekend: false,
+            startLat: 44.5, startLon: -88.0)
         XCTAssertEqual(Set([morning, weekend, elsewhere]).count, 3)
         let parsed = EverydayStore.parseContext(morning)
         XCTAssertNotNil(parsed)
@@ -276,13 +303,16 @@ final class EverydayRadiusTests: XCTestCase {
     func testUsesAccumulatePerContext() {
         var s = store(trips: [])
         let p = north(1)
-        s.remember(name: "Gym", lat: p.latitude, lon: p.longitude,
-                   street: "", city: "", in: .gyms)
+        s.remember(
+            name: "Gym", lat: p.latitude, lon: p.longitude,
+            street: "", city: "", in: .gyms)
         let id = s.ranked(in: .gyms)[0].id
-        let weekdayMorning = EverydayStore.contextID(hourBucket: 2, weekend: false,
-                                                     startLat: 43.0, startLon: -89.4)
-        let weekendMorning = EverydayStore.contextID(hourBucket: 2, weekend: true,
-                                                     startLat: 43.0, startLon: -89.4)
+        let weekdayMorning = EverydayStore.contextID(
+            hourBucket: 2, weekend: false,
+            startLat: 43.0, startLon: -89.4)
+        let weekendMorning = EverydayStore.contextID(
+            hourBucket: 2, weekend: true,
+            startLat: 43.0, startLon: -89.4)
         for _ in 0..<3 { s.recordUse(id: id, in: .gyms, contextID: weekdayMorning, t: 1) }
         s.recordUse(id: id, in: .gyms, contextID: weekendMorning, t: 2)
         let entry = s.ranked(in: .gyms)[0]
@@ -296,13 +326,16 @@ final class EverydayRadiusTests: XCTestCase {
     func testTrainingRowsExportOneRowPerPlaceContext() {
         var s = store(trips: [])
         let p = north(1)
-        s.remember(name: "Cafe", lat: p.latitude, lon: p.longitude,
-                   street: "", city: "", in: .food)
+        s.remember(
+            name: "Cafe", lat: p.latitude, lon: p.longitude,
+            street: "", city: "", in: .food)
         let id = s.ranked(in: .food)[0].id
-        let c1 = EverydayStore.contextID(hourBucket: 1, weekend: false,
-                                         startLat: 43.0, startLon: -89.4)
-        let c2 = EverydayStore.contextID(hourBucket: 4, weekend: true,
-                                         startLat: 43.0, startLon: -89.4)
+        let c1 = EverydayStore.contextID(
+            hourBucket: 1, weekend: false,
+            startLat: 43.0, startLon: -89.4)
+        let c2 = EverydayStore.contextID(
+            hourBucket: 4, weekend: true,
+            startLat: 43.0, startLon: -89.4)
         s.recordUse(id: id, in: .food, contextID: c1, t: 1)
         s.recordUse(id: id, in: .food, contextID: c1, t: 2)
         s.recordUse(id: id, in: .food, contextID: c2, t: 3)
@@ -311,23 +344,27 @@ final class EverydayRadiusTests: XCTestCase {
         let counts = Set(rows.map { Int($0["uses"] ?? 0) })
         XCTAssertEqual(counts, [2, 1])
         for row in rows {
-            XCTAssertEqual(row["category"], 0)   // food is the first category
+            XCTAssertEqual(row["category"], 0)  // food is the first category
             XCTAssertEqual(row["placeLat"] ?? 0, p.latitude, accuracy: 0.001)
         }
     }
 
     func testFeatureVectorIsBoundedAndStable() {
-        let x = EverydayFeatures.vector(hourBucket: 5, weekend: true,
-                                        startLat: 43.0, startLon: -89.4,
-                                        placeLat: 43.1, placeLon: -89.3,
-                                        category: .gyms)
+        let x = EverydayFeatures.vector(
+            hourBucket: 5, weekend: true,
+            startLat: 43.0, startLon: -89.4,
+            placeLat: 43.1, placeLon: -89.3,
+            category: .gyms)
         XCTAssertEqual(x.count, EverydayFeatures.count)
         for v in x { XCTAssertLessThanOrEqual(abs(v), 1.0) }
         // Same inputs → same vector (the net's contract).
-        XCTAssertEqual(x, EverydayFeatures.vector(hourBucket: 5, weekend: true,
-                                                  startLat: 43.0, startLon: -89.4,
-                                                  placeLat: 43.1, placeLon: -89.3,
-                                                  category: .gyms))
+        XCTAssertEqual(
+            x,
+            EverydayFeatures.vector(
+                hourBucket: 5, weekend: true,
+                startLat: 43.0, startLon: -89.4,
+                placeLat: 43.1, placeLon: -89.3,
+                category: .gyms))
     }
 
     // MARK: Persistence shape
@@ -335,12 +372,15 @@ final class EverydayRadiusTests: XCTestCase {
     func testStoreSurvivesACodableRoundTrip() throws {
         var s = store(trips: Array(repeating: 5.0, count: 30))
         let p = north(2)
-        s.remember(name: "Diner", lat: p.latitude, lon: p.longitude,
-                   street: "2 Oak St", city: "Madison", in: .food)
-        s.recordUse(id: s.ranked(in: .food)[0].id, in: .food,
-                    contextID: EverydayStore.contextID(hourBucket: 2, weekend: false,
-                                                       startLat: 43.0, startLon: -89.4),
-                    t: 11)
+        s.remember(
+            name: "Diner", lat: p.latitude, lon: p.longitude,
+            street: "2 Oak St", city: "Madison", in: .food)
+        s.recordUse(
+            id: s.ranked(in: .food)[0].id, in: .food,
+            contextID: EverydayStore.contextID(
+                hourBucket: 2, weekend: false,
+                startLat: 43.0, startLon: -89.4),
+            t: 11)
         let decoded = try JSONDecoder().decode(
             EverydayStore.self, from: JSONEncoder().encode(s))
         XCTAssertEqual(decoded, s)
@@ -350,11 +390,14 @@ final class EverydayRadiusTests: XCTestCase {
 
     // A position that is not a number, or is far too large, must not trap.
     func testAContextFromABrokenPositionDoesNotTrap() {
-        let id = EverydayStore.contextID(hourBucket: 2, weekend: true,
-                                         startLat: .nan, startLon: .infinity)
+        let id = EverydayStore.contextID(
+            hourBucket: 2, weekend: true,
+            startLat: .nan, startLon: .infinity)
         XCTAssertEqual(id, "h2|we|c0,0")
-        XCTAssertEqual(EverydayStore.contextID(hourBucket: 1, weekend: false,
-                                               startLat: 1e300, startLon: -89.4),
-                       "h1|wd|c0,-894")
+        XCTAssertEqual(
+            EverydayStore.contextID(
+                hourBucket: 1, weekend: false,
+                startLat: 1e300, startLon: -89.4),
+            "h1|wd|c0,-894")
     }
 }

@@ -32,8 +32,8 @@ enum ClimateProfiles {
     /// bridge's code order.
     enum ClimateType: String, CaseIterable {
         case marineWestCoast, mediterranean, hotDesert, coldSteppe,
-             humidSubtropical, humidContinentalWarm, humidContinentalCool,
-             subarctic, tropical, tundra, highland, temperateOceanic
+            humidSubtropical, humidContinentalWarm, humidContinentalCool,
+            subarctic, tropical, tundra, highland, temperateOceanic
 
         /// The bridge's code: position in `allCases`.
         var rustCode: UInt8 { UInt8(ClimateType.allCases.firstIndex(of: self) ?? 0) }
@@ -52,25 +52,27 @@ enum ClimateProfiles {
 
         var label: String {
             switch self {
-            case .marineWestCoast:      return "Marine west coast"
-            case .mediterranean:        return "Mediterranean"
-            case .hotDesert:            return "Hot desert"
-            case .coldSteppe:           return "Cold steppe"
-            case .humidSubtropical:     return "Humid subtropical"
+            case .marineWestCoast: return "Marine west coast"
+            case .mediterranean: return "Mediterranean"
+            case .hotDesert: return "Hot desert"
+            case .coldSteppe: return "Cold steppe"
+            case .humidSubtropical: return "Humid subtropical"
             case .humidContinentalWarm: return "Humid continental (warm)"
             case .humidContinentalCool: return "Humid continental (cool)"
-            case .subarctic:            return "Subarctic"
-            case .tropical:             return "Tropical"
-            case .tundra:               return "Tundra"
-            case .highland:             return "Highland"
-            case .temperateOceanic:     return "Temperate oceanic"
+            case .subarctic: return "Subarctic"
+            case .tropical: return "Tropical"
+            case .tundra: return "Tundra"
+            case .highland: return "Highland"
+            case .temperateOceanic: return "Temperate oceanic"
             }
         }
     }
 
     /// Classify a coordinate into its North-American climate type from geography.
-    static func classify(latitude lat: Double, longitude lon: Double,
-                         elevationMeters elev: Double?) -> ClimateType {
+    static func classify(
+        latitude lat: Double, longitude lon: Double,
+        elevationMeters elev: Double?
+    ) -> ClimateType {
         ClimateType(rustCode: flows_climate_classify(lat, lon, elev ?? 0, elev != nil))
     }
 
@@ -92,12 +94,16 @@ enum ClimateProfiles {
 
     /// Seasonal norms for a location at a week-of-year (0…51): sinusoidal
     /// blend between the climate type's winter and summer anchors.
-    static func seasonalNorms(week: Int, latitude: Double, longitude: Double,
-                              elevationMeters: Double? = nil) -> SeasonalNorms {
-        let n = flows_climate_seasonal_norms(Int64(week), latitude, longitude,
-                                             elevationMeters ?? 0, elevationMeters != nil)
-        return SeasonalNorms(weekLowF: n.week_low_f, weekHighF: n.week_high_f,
-                             windMeanMph: n.wind_mean_mph, windSigmaMph: n.wind_sigma_mph)
+    static func seasonalNorms(
+        week: Int, latitude: Double, longitude: Double,
+        elevationMeters: Double? = nil
+    ) -> SeasonalNorms {
+        let n = flows_climate_seasonal_norms(
+            Int64(week), latitude, longitude,
+            elevationMeters ?? 0, elevationMeters != nil)
+        return SeasonalNorms(
+            weekLowF: n.week_low_f, weekHighF: n.week_high_f,
+            windMeanMph: n.wind_mean_mph, windSigmaMph: n.wind_sigma_mph)
     }
 
     /// Presentation gates: a condition draws on the map ONLY when it exceeds
@@ -131,8 +137,10 @@ enum ClimateProfiles {
     /// The temperature/comfort profile for a location: the precise per-ZIP
     /// normal if it has been loaded for this cell, else the computed climate
     /// type. This is the seam every risk equation reads (via NWSForecastService).
-    static func profile(latitude lat: Double, longitude lon: Double,
-                        elevationMeters elev: Double? = nil) -> LatitudeBands.Profile {
+    static func profile(
+        latitude lat: Double, longitude lon: Double,
+        elevationMeters elev: Double? = nil
+    ) -> LatitudeBands.Profile {
         if let key = cell(lat, lon), let p = precise.withLock({ $0[key] }) { return p }
         let p = flows_climate_profile(lat, lon, elev ?? 0, elev != nil)
         return p.has == 1 ? LatitudeBands.Profile(bridge: p) : LatitudeBands.anchorProfile
@@ -141,8 +149,10 @@ enum ClimateProfiles {
     /// Merge freshly-loaded precise normals (on-demand corridor / home-radius
     /// tiles) into the snapshot. `keepingHomeRadius` retains home-area cells when
     /// trimming, since local driving reuses them constantly.
-    static func loadPrecise(_ entries: [(lat: Double, lon: Double, profile: LatitudeBands.Profile)],
-                            home: CLLocationCoordinate2D?, maxCells: Int = 20_000) {
+    static func loadPrecise(
+        _ entries: [(lat: Double, lon: Double, profile: LatitudeBands.Profile)],
+        home: CLLocationCoordinate2D?, maxCells: Int = 20_000
+    ) {
         var next = precise.withLock { $0 }
         for e in entries { if let key = cell(e.lat, e.lon) { next[key] = e.profile } }
         if next.count > maxCells, let home {
@@ -151,7 +161,8 @@ enum ClimateProfiles {
             next = next.filter { key, _ in
                 flows_climate_precise_cell_near_home(Int64(key), home.latitude, home.longitude)
             }
-            for e in entries { if let key = cell(e.lat, e.lon) { next[key] = e.profile } }  // never evict the just-loaded corridor
+            // never evict the just-loaded corridor
+            for e in entries { if let key = cell(e.lat, e.lon) { next[key] = e.profile } }
         }
         let merged = next
         precise.withLock { $0 = merged }

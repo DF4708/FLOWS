@@ -68,8 +68,10 @@ enum BufferLearning {
 
     /// How long to wait: the learned mean once the context is trusted,
     /// the documented prior until then.
-    static func waitSeconds(prior: Double, learnedMean: Double?,
-                            samples: Int) -> Double {
+    static func waitSeconds(
+        prior: Double, learnedMean: Double?,
+        samples: Int
+    ) -> Double {
         flows_learning_buffer_wait_seconds(prior, learnedMean ?? 0, learnedMean != nil, Int64(samples))
     }
 }
@@ -91,7 +93,8 @@ final class BufferMemory {
 
     init() {
         if let data = UserDefaults.standard.data(forKey: Self.key),
-           let decoded = try? JSONDecoder().decode([String: Stat].self, from: data) {
+            let decoded = try? JSONDecoder().decode([String: Stat].self, from: data)
+        {
             stats = decoded
         } else {
             stats = [:]
@@ -99,24 +102,32 @@ final class BufferMemory {
     }
 
     /// The wait to use for this context, given its documented prior.
-    func waitSeconds(prior: Double, service: String,
-                     radioTechnology: String?) -> Double {
-        let key = BufferLearning.contextKey(service: service,
-                                            radioTechnology: radioTechnology)
+    func waitSeconds(
+        prior: Double, service: String,
+        radioTechnology: String?
+    ) -> Double {
+        let key = BufferLearning.contextKey(
+            service: service,
+            radioTechnology: radioTechnology)
         let stat = stats[key]
-        return BufferLearning.waitSeconds(prior: prior,
-                                          learnedMean: stat?.mean,
-                                          samples: stat?.samples ?? 0)
+        return BufferLearning.waitSeconds(
+            prior: prior,
+            learnedMean: stat?.mean,
+            samples: stat?.samples ?? 0)
     }
 
     /// Record how long the audio really lasted after the link dropped.
     func record(seconds: Double, service: String, radioTechnology: String?) {
         guard BufferLearning.isUsable(sample: seconds) else { return }
-        let key = BufferLearning.contextKey(service: service,
-                                            radioTechnology: radioTechnology)
+        let key = BufferLearning.contextKey(
+            service: service,
+            radioTechnology: radioTechnology)
         let existing = stats[key]
-        guard let mean = BufferLearning.updated(mean: existing?.mean,
-                                                sample: seconds) else { return }
+        guard
+            let mean = BufferLearning.updated(
+                mean: existing?.mean,
+                sample: seconds)
+        else { return }
         stats[key] = Stat(mean: mean, samples: (existing?.samples ?? 0) + 1)
         if let data = try? JSONEncoder().encode(stats) {
             UserDefaults.standard.set(data, forKey: Self.key)
@@ -133,7 +144,9 @@ final class BufferMemory {
     /// Samples held for a context — surfaced so the UI can say whether
     /// FLOWS is still using the documented guess or its own measurement.
     func sampleCount(service: String, radioTechnology: String?) -> Int {
-        stats[BufferLearning.contextKey(service: service,
-                                        radioTechnology: radioTechnology)]?.samples ?? 0
+        stats[
+            BufferLearning.contextKey(
+                service: service,
+                radioTechnology: radioTechnology)]?.samples ?? 0
     }
 }

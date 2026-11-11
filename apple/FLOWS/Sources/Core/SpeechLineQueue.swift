@@ -79,7 +79,8 @@ struct SpeechLineQueue<Line> {
         // Once per line: a second warning before the cut's report would
         // queue it twice.
         guard let playing = current, !SpeechTopic.isUrgent(playing.topic),
-              playing.topic != SpeechTopic.turn, requeued != playing.serial else { return }
+            playing.topic != SpeechTopic.turn, requeued != playing.serial
+        else { return }
         requeued = playing.serial
         lastSerial += 1
         let again = Entry(serial: lastSerial, line: playing.line, topic: playing.topic)
@@ -160,7 +161,8 @@ struct HeldWarnings {
     @discardableResult
     mutating func hold(_ text: String, topic: String?) -> Bool {
         guard let topic, SpeechTopic.isUrgent(topic), !text.isEmpty,
-              !lines.contains(where: { $0.topic == topic && $0.text == text }) else { return false }
+            !lines.contains(where: { $0.topic == topic && $0.text == text })
+        else { return false }
         // The same warning said again (nearer now) takes its older line's
         // place, so the cap drops a different warning only when four
         // different ones wait.

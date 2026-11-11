@@ -116,7 +116,8 @@ final class OpenDispatchService: ObservableObject {
         // This feed's calls are replaced wholesale; the others stay.
         let mine = { (incident: ScannerIncidents.Incident) in incident.id.hasPrefix(feed.id + "|") }
         incidents = incidents.filter { !mine($0) } + fresh
-        unspoken = unspoken.filter { !mine($0) }
+        unspoken =
+            unspoken.filter { !mine($0) }
             + fresh.filter { !announced.contains($0.id) && OpenDispatch.isThreat($0) }
         setStatus("\(feed.what) from \(feed.city)'s public 911 list, \(feed.delay).")
         FlowsDiag.log(.info, "dispatch", "\(feed.id): \(fresh.count) live call(s)")
@@ -152,12 +153,16 @@ final class OpenDispatchService: ObservableObject {
 
     /// The pins worth drawing: near the driver or the route — or, for the
     /// feed picked in the card, anywhere in its city.
-    func visible(near position: CLLocationCoordinate2D?,
-                 corridor: [CLLocationCoordinate2D]) -> [ScannerIncidents.Incident] {
+    func visible(
+        near position: CLLocationCoordinate2D?,
+        corridor: [CLLocationCoordinate2D]
+    ) -> [ScannerIncidents.Incident] {
         let now = Date()
         return incidents.filter { incident in
-            guard now.timeIntervalSince(incident.heardAt)
-                    < (incident.lifetime ?? OpenDispatch.lifetime(for: incident.kind)) else { return false }
+            guard
+                now.timeIntervalSince(incident.heardAt)
+                    < (incident.lifetime ?? OpenDispatch.lifetime(for: incident.kind))
+            else { return false }
             if let id = watchedFeedID, incident.id.hasPrefix(id + "|") { return true }
             let near = { (c: CLLocationCoordinate2D) in
                 POIRanking.meters(c, incident.coordinate) <= ScannerIncidents.relevantMeters

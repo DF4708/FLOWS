@@ -17,7 +17,7 @@ import MapKit
 enum TrafficCadence {
     /// Peak windows (local): morning commute+school 7–9, lunch 11:30–13,
     /// school release 14:30–16, evening commute+dinner 16:30–18:30.
-    static let peakSeconds: TimeInterval = flows_modes_traffic_constants()[0]     // 4 min in the windows
+    static let peakSeconds: TimeInterval = flows_modes_traffic_constants()[0]  // 4 min in the windows
     static let offPeakSeconds: TimeInterval = flows_modes_traffic_constants()[1]  // 12 min otherwise
 
     static func isPeak(localMinutes m: Int) -> Bool {
@@ -59,10 +59,12 @@ enum RiskBlob {
         _ points: [CLLocationCoordinate2D], adjacencyMeters: Double
     ) -> [[CLLocationCoordinate2D]] {
         guard !points.isEmpty else { return [] }
-        let lats = points.map(\.latitude), lons = points.map(\.longitude)
-        let flat = Array(lats.lent { la in
-            lons.lent { lo in flows_modes_risk_clusters(la, lo, adjacencyMeters) }
-        })
+        let lats = points.map(\.latitude)
+        let lons = points.map(\.longitude)
+        let flat = Array(
+            lats.lent { la in
+                lons.lent { lo in flows_modes_risk_clusters(la, lo, adjacencyMeters) }
+            })
         // [count, lengths…, indices…]
         guard let count = flat.first else { return [] }
         var at = 1 + Int(count)

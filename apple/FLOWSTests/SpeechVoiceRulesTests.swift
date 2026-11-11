@@ -11,42 +11,56 @@ import XCTest
 /// Which voice FLOWS speaks with: the owner asked for speech that does not
 /// sound mechanical, with the choice in Settings.
 final class SpeechVoiceRulesTests: XCTestCase {
-    private func voice(_ id: String, _ name: String, _ language: String,
-                       _ quality: VoiceChoice.Quality,
-                       _ gender: VoiceChoice.Gender = .unspecified) -> VoiceChoice {
+    private func voice(
+        _ id: String, _ name: String, _ language: String,
+        _ quality: VoiceChoice.Quality,
+        _ gender: VoiceChoice.Gender = .unspecified
+    ) -> VoiceChoice {
         VoiceChoice(id: id, name: name, language: language, quality: quality, gender: gender)
     }
 
     /// The owner asked for a woman's voice by default.
     func testAutomaticTakesAWomansVoiceFirst() {
-        let voices = [voice("evan", "Evan (Premium)", "en-US", .premium, .masculine),
-                      voice("nora", "Voice 4", "en-US", .enhanced, .feminine),
-                      voice("zoe", "Zoe (Premium)", "en-GB", .premium, .feminine),
-                      voice("sam", "Samantha", "en-US", .basic, .feminine)]
+        let voices = [
+            voice("evan", "Evan (Premium)", "en-US", .premium, .masculine),
+            voice("nora", "Voice 4", "en-US", .enhanced, .feminine),
+            voice("zoe", "Zoe (Premium)", "en-GB", .premium, .feminine),
+            voice("sam", "Samantha", "en-US", .basic, .feminine),
+        ]
         // The most natural woman's voice, ahead of a man's in the home accent.
-        XCTAssertEqual(SpeechVoiceRules.voice(picked: SpeechVoiceRules.automaticID,
-                                              among: voices, language: "en-US")?.id, "zoe")
+        XCTAssertEqual(
+            SpeechVoiceRules.voice(
+                picked: SpeechVoiceRules.automaticID,
+                among: voices, language: "en-US")?.id, "zoe")
         // A woman's Enhanced voice ahead of a man's Premium one.
-        XCTAssertEqual(SpeechVoiceRules.voice(picked: SpeechVoiceRules.automaticID,
-                                              among: Array(voices.prefix(2)),
-                                              language: "en-US")?.id, "nora")
+        XCTAssertEqual(
+            SpeechVoiceRules.voice(
+                picked: SpeechVoiceRules.automaticID,
+                among: Array(voices.prefix(2)),
+                language: "en-US")?.id, "nora")
         // Only a man's natural voice: it still beats the machine-like ones.
-        XCTAssertEqual(SpeechVoiceRules.voice(picked: SpeechVoiceRules.automaticID,
-                                              among: [voices[0], voices[3]],
-                                              language: "en-US")?.id, "evan")
+        XCTAssertEqual(
+            SpeechVoiceRules.voice(
+                picked: SpeechVoiceRules.automaticID,
+                among: [voices[0], voices[3]],
+                language: "en-US")?.id, "evan")
         // The driver's own pick is never second-guessed.
-        XCTAssertEqual(SpeechVoiceRules.voice(picked: "evan", among: voices,
-                                              language: "en-US")?.id, "evan")
+        XCTAssertEqual(
+            SpeechVoiceRules.voice(
+                picked: "evan", among: voices,
+                language: "en-US")?.id, "evan")
     }
 
     private var installed: [VoiceChoice] {
-        [voice("sam", "Samantha", "en-US", .basic),
-         voice("daniel", "Daniel", "en-GB", .basic),
-         voice("zoe", "Zoe (Premium)", "en-US", .premium),
-         voice("kate", "Kate (Enhanced)", "en-GB", .enhanced),
-         voice("ava", "Ava (Premium)", "en-US", .premium),
-         voice("serena", "Serena (Premium)", "en-GB", .premium),
-         voice("amelie", "Amélie", "fr-CA", .premium)]
+        [
+            voice("sam", "Samantha", "en-US", .basic),
+            voice("daniel", "Daniel", "en-GB", .basic),
+            voice("zoe", "Zoe (Premium)", "en-US", .premium),
+            voice("kate", "Kate (Enhanced)", "en-GB", .enhanced),
+            voice("ava", "Ava (Premium)", "en-US", .premium),
+            voice("serena", "Serena (Premium)", "en-GB", .premium),
+            voice("amelie", "Amélie", "fr-CA", .premium),
+        ]
     }
 
     func testSpokenLanguageIsTheDevicesEnglishElseAmerican() {
@@ -64,8 +78,9 @@ final class SpeechVoiceRulesTests: XCTestCase {
     }
 
     func testAutomaticTakesTheMostNaturalVoice() {
-        let pick = SpeechVoiceRules.voice(picked: SpeechVoiceRules.automaticID,
-                                          among: installed, language: "en-US")
+        let pick = SpeechVoiceRules.voice(
+            picked: SpeechVoiceRules.automaticID,
+            among: installed, language: "en-US")
         XCTAssertEqual(pick?.id, "ava")
     }
 
@@ -73,10 +88,14 @@ final class SpeechVoiceRulesTests: XCTestCase {
     /// to the system, exactly as before the setting existed.
     func testAutomaticLeavesTheSystemDefaultWhenOnlyBasicVoicesAreInstalled() {
         let basic = installed.filter { $0.quality == .basic }
-        XCTAssertNil(SpeechVoiceRules.voice(picked: SpeechVoiceRules.automaticID,
-                                            among: basic, language: "en-US"))
-        XCTAssertNil(SpeechVoiceRules.voice(picked: SpeechVoiceRules.automaticID,
-                                            among: [], language: "en-US"))
+        XCTAssertNil(
+            SpeechVoiceRules.voice(
+                picked: SpeechVoiceRules.automaticID,
+                among: basic, language: "en-US"))
+        XCTAssertNil(
+            SpeechVoiceRules.voice(
+                picked: SpeechVoiceRules.automaticID,
+                among: [], language: "en-US"))
     }
 
     func testThePickWinsEvenOverAMoreNaturalVoice() {
@@ -102,8 +121,9 @@ final class SpeechVoiceRulesTests: XCTestCase {
             SpeechVoiceRules.label(voice("ava", "Ava (Premium)", "en-US", .premium), region: "US"),
             "Ava · US · Premium")
         XCTAssertEqual(
-            SpeechVoiceRules.label(voice("kate", "Kate (Enhanced)", "en-GB", .enhanced),
-                                   region: "UK"),
+            SpeechVoiceRules.label(
+                voice("kate", "Kate (Enhanced)", "en-GB", .enhanced),
+                region: "UK"),
             "Kate · UK · Enhanced")
         XCTAssertEqual(
             SpeechVoiceRules.label(voice("sam", "Samantha", "en-US", .basic), region: "US"),

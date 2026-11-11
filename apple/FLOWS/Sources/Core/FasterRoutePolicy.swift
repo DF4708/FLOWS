@@ -51,8 +51,10 @@ enum FasterRoutePolicy {
     /// Whether `candidate` keeps the driver's own choices: the No tolls and
     /// No highways filters, the leg's toll-free or local-roads plan, and — on
     /// a leg with no tolls — no toll road.
-    static func keepsRoadChoice(_ candidate: PlannedRoute, leg: PlannedRoute,
-                                filters: Set<RouteFilter>) -> Bool {
+    static func keepsRoadChoice(
+        _ candidate: PlannedRoute, leg: PlannedRoute,
+        filters: Set<RouteFilter>
+    ) -> Bool {
         flows_modes_keeps_road_choice(
             code(leg.planKind), leg.hasTolls, code(candidate.planKind), candidate.hasTolls,
             candidate.hasHighways, filters.contains(.noTolls), filters.contains(.noHighways))
@@ -72,11 +74,14 @@ enum FasterRoutePolicy {
     /// moment (nil when a score is missing or incomplete). `limitsUnchecked`:
     /// something the driver filters on (a rig's bridges, weights and grades,
     /// flood zones) can't be checked on the new road before it starts.
-    static func riskVerdict(candidateRisk: Double?, aheadRisk: Double?,
-                            limitsUnchecked: Bool) -> Verdict {
+    static func riskVerdict(
+        candidateRisk: Double?, aheadRisk: Double?,
+        limitsUnchecked: Bool
+    ) -> Verdict {
         switch flows_modes_faster_risk_verdict(
             candidateRisk != nil, candidateRisk ?? .nan,
-            aheadRisk != nil, aheadRisk ?? .nan, limitsUnchecked) {
+            aheadRisk != nil, aheadRisk ?? .nan, limitsUnchecked)
+        {
         case 0: return .switchNow
         case 1: return .riskier
         default: return .unknown
@@ -101,8 +106,10 @@ enum FasterRoutePolicy {
     /// within 10 m point to segment, so an exit ramp beside the mainline
     /// counts as off it). Empty when it never leaves — it is the road itself
     /// — or when either line has too little to compare.
-    static func offLineSpans(candidate: [CLLocationCoordinate2D],
-                             road: [CLLocationCoordinate2D]) -> [Span] {
+    static func offLineSpans(
+        candidate: [CLLocationCoordinate2D],
+        road: [CLLocationCoordinate2D]
+    ) -> [Span] {
         guard candidate.count > 1, !road.isEmpty else { return [] }
         let flat = candidate.map(\.latitude).lent { cla in
             candidate.map(\.longitude).lent { clo in
@@ -118,8 +125,10 @@ enum FasterRoutePolicy {
 
     /// Where `candidate` leaves `road`: meters along the candidate to its
     /// last vertex on the road's line. nil when it never leaves.
-    static func divergeAlong(candidate: [CLLocationCoordinate2D],
-                             road: [CLLocationCoordinate2D]) -> CLLocationDistance? {
+    static func divergeAlong(
+        candidate: [CLLocationCoordinate2D],
+        road: [CLLocationCoordinate2D]
+    ) -> CLLocationDistance? {
         offLineSpans(candidate: candidate, road: road).first?.from
     }
 
@@ -165,8 +174,10 @@ enum FasterRoutePolicy {
     /// candidate was planned from where the car was before it was scored; if
     /// the car has since passed the turn-off, switching would be followed at
     /// once by a replan back.
-    static func canStillTake(candidate: [CLLocationCoordinate2D], divergeAlong: CLLocationDistance?,
-                             position: CLLocationCoordinate2D, speedMps: Double) -> Bool {
+    static func canStillTake(
+        candidate: [CLLocationCoordinate2D], divergeAlong: CLLocationDistance?,
+        position: CLLocationCoordinate2D, speedMps: Double
+    ) -> Bool {
         guard !candidate.isEmpty else { return false }
         let hit = candidate.map(\.latitude).lent { la in
             candidate.map(\.longitude).lent { lo in
@@ -219,9 +230,11 @@ enum FasterRoutePolicy {
     /// road choices, and the lowest risk, ties to the sooner arrival. A toll,
     /// a crosswind or a grade filter must never hold the driver on a riskier
     /// road than one that is there to take.
-    static func swapPick(_ candidates: [PlannedRoute], leg: PlannedRoute,
-                         filters: Set<RouteFilter>, limits: FilterLimits,
-                         calmest: Bool) -> PlannedRoute? {
+    static func swapPick(
+        _ candidates: [PlannedRoute], leg: PlannedRoute,
+        filters: Set<RouteFilter>, limits: FilterLimits,
+        calmest: Bool
+    ) -> PlannedRoute? {
         let safety = filters.intersection(safetyFilters)
         let rig = safety.intersection(rigFilters)
         func broken(_ set: Set<RouteFilter>, _ c: PlannedRoute) -> Int {
@@ -236,8 +249,10 @@ enum FasterRoutePolicy {
             let closed = c.throughClosedRoad ? 1 : 0
             let choice = keepsRoadChoice(c, leg: leg, filters: filters) ? 0 : 1
             guard calmest else { return [closed, broken(safety, c), choice] }
-            return [closed, broken(rig, c), rerouteLevel(c.weatherRisk),
-                    broken(safety.subtracting(rig), c), choice]
+            return [
+                closed, broken(rig, c), rerouteLevel(c.weatherRisk),
+                broken(safety.subtracting(rig), c), choice,
+            ]
         }
         guard let best = ranks.min(by: { $0.lexicographicallyPrecedes($1) }) else { return nil }
         let pool = candidates.indices.filter { ranks[$0] == best }.map { candidates[$0] }

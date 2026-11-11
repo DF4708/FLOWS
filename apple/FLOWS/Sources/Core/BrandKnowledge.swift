@@ -120,7 +120,10 @@ enum BrandMark {
         ("speedway", Mark(name: "Speedway", initials: "S", background: RGB(0xE21E26), ink: RGB(0xFFFFFF), fuelTier: 3)),
         ("citgo", Mark(name: "CITGO", initials: "C", background: RGB(0xD71920), ink: RGB(0xFFFFFF), fuelTier: 3)),
         ("sunoco", Mark(name: "Sunoco", initials: "S", background: RGB(0x003DA5), ink: RGB(0xFFD100), fuelTier: 3)),
-        ("phillips 66", Mark(name: "Phillips 66", initials: "66", background: RGB(0xED1C24), ink: RGB(0xFFFFFF), fuelTier: 3)),
+        (
+            "phillips 66",
+            Mark(name: "Phillips 66", initials: "66", background: RGB(0xED1C24), ink: RGB(0xFFFFFF), fuelTier: 3)
+        ),
         ("76", Mark(name: "76", initials: "76", background: RGB(0xF58220), ink: RGB(0x003DA5), fuelTier: 4)),
         ("conoco", Mark(name: "Conoco", initials: "C", background: RGB(0xE31B23), ink: RGB(0xFFFFFF), fuelTier: 3)),
         ("valero", Mark(name: "Valero", initials: "V", background: RGB(0x0072BC), ink: RGB(0xFFD200), fuelTier: 3)),
@@ -128,37 +131,82 @@ enum BrandMark {
         ("sinclair", Mark(name: "Sinclair", initials: "S", background: RGB(0x00843D), ink: RGB(0xFFFFFF), fuelTier: 3)),
         ("casey's", Mark(name: "Casey's", initials: "C", background: RGB(0xD71921), ink: RGB(0xFFFFFF), fuelTier: 2)),
         ("caseys", Mark(name: "Casey's", initials: "C", background: RGB(0xD71921), ink: RGB(0xFFFFFF), fuelTier: 2)),
-        ("kwik trip", Mark(name: "Kwik Trip", initials: "KT", background: RGB(0xD2202F), ink: RGB(0xFFFFFF), fuelTier: 2)),
-        ("kwik star", Mark(name: "Kwik Star", initials: "KS", background: RGB(0xD2202F), ink: RGB(0xFFFFFF), fuelTier: 2)),
+        (
+            "kwik trip",
+            Mark(name: "Kwik Trip", initials: "KT", background: RGB(0xD2202F), ink: RGB(0xFFFFFF), fuelTier: 2)
+        ),
+        (
+            "kwik star",
+            Mark(name: "Kwik Star", initials: "KS", background: RGB(0xD2202F), ink: RGB(0xFFFFFF), fuelTier: 2)
+        ),
         ("holiday", Mark(name: "Holiday", initials: "H", background: RGB(0x00529B), ink: RGB(0xFFFFFF), fuelTier: 3)),
-        ("quiktrip", Mark(name: "QuikTrip", initials: "QT", background: RGB(0xDA291C), ink: RGB(0xFFFFFF), fuelTier: 2)),
+        (
+            "quiktrip",
+            Mark(name: "QuikTrip", initials: "QT", background: RGB(0xDA291C), ink: RGB(0xFFFFFF), fuelTier: 2)
+        ),
         ("wawa", Mark(name: "Wawa", initials: "W", background: RGB(0xDA291C), ink: RGB(0xFFD100), fuelTier: 2)),
         ("sheetz", Mark(name: "Sheetz", initials: "S", background: RGB(0xDA291C), ink: RGB(0xFFFFFF), fuelTier: 2)),
         ("circle k", Mark(name: "Circle K", initials: "K", background: RGB(0xEE2E24), ink: RGB(0xFFFFFF), fuelTier: 3)),
-        ("kum & go", Mark(name: "Kum & Go", initials: "KG", background: RGB(0x00843D), ink: RGB(0xFFFFFF), fuelTier: 3)),
+        (
+            "kum & go",
+            Mark(name: "Kum & Go", initials: "KG", background: RGB(0x00843D), ink: RGB(0xFFFFFF), fuelTier: 3)
+        ),
         ("love's", Mark(name: "Love's", initials: "L", background: RGB(0xE31837), ink: RGB(0xFFD200), fuelTier: 3)),
         ("loves", Mark(name: "Love's", initials: "L", background: RGB(0xE31837), ink: RGB(0xFFD200), fuelTier: 3)),
         ("pilot", Mark(name: "Pilot", initials: "P", background: RGB(0xE21836), ink: RGB(0xFFFFFF), fuelTier: 3)),
-        ("flying j", Mark(name: "Flying J", initials: "FJ", background: RGB(0xE21836), ink: RGB(0xFFFFFF), fuelTier: 3)),
-        ("travelcenters of america", Mark(name: "TA", initials: "TA", background: RGB(0x003B71), ink: RGB(0xFFFFFF), fuelTier: 3)),
+        (
+            "flying j",
+            Mark(name: "Flying J", initials: "FJ", background: RGB(0xE21836), ink: RGB(0xFFFFFF), fuelTier: 3)
+        ),
+        (
+            "travelcenters of america",
+            Mark(name: "TA", initials: "TA", background: RGB(0x003B71), ink: RGB(0xFFFFFF), fuelTier: 3)
+        ),
         ("ta ", Mark(name: "TA", initials: "TA", background: RGB(0x003B71), ink: RGB(0xFFFFFF), fuelTier: 3)),
         ("petro", Mark(name: "Petro", initials: "P", background: RGB(0x00467F), ink: RGB(0xFFFFFF), fuelTier: 3)),
-        ("murphy usa", Mark(name: "Murphy USA", initials: "M", background: RGB(0x003DA5), ink: RGB(0xFFFFFF), fuelTier: 1)),
+        (
+            "murphy usa",
+            Mark(name: "Murphy USA", initials: "M", background: RGB(0x003DA5), ink: RGB(0xFFFFFF), fuelTier: 1)
+        ),
         ("costco", Mark(name: "Costco", initials: "C", background: RGB(0xE31837), ink: RGB(0xFFFFFF), fuelTier: 1)),
-        ("sam's club", Mark(name: "Sam's Club", initials: "S", background: RGB(0x0067A0), ink: RGB(0xFFFFFF), fuelTier: 1)),
+        (
+            "sam's club",
+            Mark(name: "Sam's Club", initials: "S", background: RGB(0x0067A0), ink: RGB(0xFFFFFF), fuelTier: 1)
+        ),
         ("bj's", Mark(name: "BJ's", initials: "BJ", background: RGB(0xD71920), ink: RGB(0xFFFFFF), fuelTier: 1)),
         ("kroger", Mark(name: "Kroger", initials: "K", background: RGB(0x0F4C98), ink: RGB(0xFFFFFF), fuelTier: 2)),
         ("meijer", Mark(name: "Meijer", initials: "M", background: RGB(0xE31837), ink: RGB(0xFFFFFF), fuelTier: 2)),
-        ("starbucks", Mark(name: "Starbucks", initials: "S", background: RGB(0x00704A), ink: RGB(0xFFFFFF), fuelTier: nil)),
-        ("mcdonald's", Mark(name: "McDonald's", initials: "M", background: RGB(0xDA291C), ink: RGB(0xFFC72C), fuelTier: nil)),
-        ("mcdonalds", Mark(name: "McDonald's", initials: "M", background: RGB(0xDA291C), ink: RGB(0xFFC72C), fuelTier: nil)),
+        (
+            "starbucks",
+            Mark(name: "Starbucks", initials: "S", background: RGB(0x00704A), ink: RGB(0xFFFFFF), fuelTier: nil)
+        ),
+        (
+            "mcdonald's",
+            Mark(name: "McDonald's", initials: "M", background: RGB(0xDA291C), ink: RGB(0xFFC72C), fuelTier: nil)
+        ),
+        (
+            "mcdonalds",
+            Mark(name: "McDonald's", initials: "M", background: RGB(0xDA291C), ink: RGB(0xFFC72C), fuelTier: nil)
+        ),
         ("dunkin", Mark(name: "Dunkin'", initials: "D", background: RGB(0xFF671F), ink: RGB(0xFFFFFF), fuelTier: nil)),
         ("subway", Mark(name: "Subway", initials: "S", background: RGB(0x008C15), ink: RGB(0xFFC20E), fuelTier: nil)),
-        ("taco bell", Mark(name: "Taco Bell", initials: "TB", background: RGB(0x702082), ink: RGB(0xFFFFFF), fuelTier: nil)),
+        (
+            "taco bell",
+            Mark(name: "Taco Bell", initials: "TB", background: RGB(0x702082), ink: RGB(0xFFFFFF), fuelTier: nil)
+        ),
         ("wendy's", Mark(name: "Wendy's", initials: "W", background: RGB(0xE2203D), ink: RGB(0xFFFFFF), fuelTier: nil)),
-        ("burger king", Mark(name: "Burger King", initials: "BK", background: RGB(0xD62300), ink: RGB(0xF5EBDC), fuelTier: nil)),
-        ("culver's", Mark(name: "Culver's", initials: "C", background: RGB(0x005696), ink: RGB(0xFFFFFF), fuelTier: nil)),
-        ("chick-fil-a", Mark(name: "Chick-fil-A", initials: "C", background: RGB(0xE51636), ink: RGB(0xFFFFFF), fuelTier: nil)),
+        (
+            "burger king",
+            Mark(name: "Burger King", initials: "BK", background: RGB(0xD62300), ink: RGB(0xF5EBDC), fuelTier: nil)
+        ),
+        (
+            "culver's",
+            Mark(name: "Culver's", initials: "C", background: RGB(0x005696), ink: RGB(0xFFFFFF), fuelTier: nil)
+        ),
+        (
+            "chick-fil-a",
+            Mark(name: "Chick-fil-A", initials: "C", background: RGB(0xE51636), ink: RGB(0xFFFFFF), fuelTier: nil)
+        ),
     ]
     private static let marks = byLongestKey(markTable)
 
@@ -182,8 +230,10 @@ enum BrandMark {
 
     /// The first entry (tables are sorted longest key first) whose key
     /// starts the name as a whole word.
-    private static func prefixMatch<T>(_ name: String,
-                                       in table: [(key: String, mark: T)]) -> (key: String, value: T)? {
+    private static func prefixMatch<T>(
+        _ name: String,
+        in table: [(key: String, mark: T)]
+    ) -> (key: String, value: T)? {
         let lower = name.lowercased().trimmingCharacters(in: .whitespaces)
         // Keys are trimmed where the tables are built: trimming ~150 of
         // them here ran for every stop row on every redraw.
@@ -292,33 +342,38 @@ enum BrandMark {
     /// initials. Read once: every stop row's tile asks on every render.
     static let logoClientID: String =
         (Bundle.main.object(forInfoDictionaryKey: "FLOWSBrandfetchClientID") as? String)?
-            .trimmingCharacters(in: .whitespaces) ?? ""
+        .trimmingCharacters(in: .whitespaces) ?? ""
 
     /// The site address sent as the Referer with each logo request
     /// (Info.plist FLOWSBrandfetchReferer): Brandfetch serves only requests
     /// that name the site embedding the logo. Empty = none sent.
     static let logoReferer: String =
         (Bundle.main.object(forInfoDictionaryKey: "FLOWSBrandfetchReferer") as? String)?
-            .trimmingCharacters(in: .whitespaces) ?? ""
+        .trimmingCharacters(in: .whitespaces) ?? ""
 
     /// A chain's official logo, square, from Brandfetch's free Logo API.
     /// Kept only in the HTTP cache, as the host's own headers allow
     /// (LogoCache); no copy is saved anywhere else (its terms). "fallback/404"
     /// makes an unknown brand fail, so the initials stay rather than a
     /// stand-in letter of theirs.
-    static func logoURL(for name: String, clientID: String = logoClientID,
-                        pixels: Int = 96) -> URL? {
+    static func logoURL(
+        for name: String, clientID: String = logoClientID,
+        pixels: Int = 96
+    ) -> URL? {
         guard let domain = logoDomain(for: name) else { return nil }
         return logoURL(domain: domain, clientID: clientID, pixels: pixels)
     }
 
-    static func logoURL(domain: String, clientID: String = logoClientID,
-                        pixels: Int = 96) -> URL? {
+    static func logoURL(
+        domain: String, clientID: String = logoClientID,
+        pixels: Int = 96
+    ) -> URL? {
         guard !clientID.isEmpty,
-              let id = clientID.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed)
+            let id = clientID.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed)
         else { return nil }
-        return URL(string: "https://cdn.brandfetch.io/domain/\(domain)/w/\(pixels)/h/\(pixels)"
-                   + "/fallback/404/type/icon?c=\(id)")
+        return URL(
+            string: "https://cdn.brandfetch.io/domain/\(domain)/w/\(pixels)/h/\(pixels)"
+                + "/fallback/404/type/icon?c=\(id)")
     }
 
     /// Price tiers 1–5 by where each live price sits between the cheapest
@@ -348,29 +403,32 @@ enum LocalMarks {
     /// Twelve backgrounds far enough apart to tell at a glance, each with the
     /// ink that reads on it.
     static let palette: [(background: BrandMark.RGB, ink: BrandMark.RGB)] = [
-        (BrandMark.RGB(0xC62828), BrandMark.RGB(0xFFFFFF)),   // red
-        (BrandMark.RGB(0x1565C0), BrandMark.RGB(0xFFFFFF)),   // blue
-        (BrandMark.RGB(0x2E7D32), BrandMark.RGB(0xFFFFFF)),   // green
-        (BrandMark.RGB(0x6A1B9A), BrandMark.RGB(0xFFFFFF)),   // purple
-        (BrandMark.RGB(0xE65100), BrandMark.RGB(0xFFFFFF)),   // orange
-        (BrandMark.RGB(0x00838F), BrandMark.RGB(0xFFFFFF)),   // teal
-        (BrandMark.RGB(0x4E342E), BrandMark.RGB(0xFFFFFF)),   // brown
-        (BrandMark.RGB(0xAD1457), BrandMark.RGB(0xFFFFFF)),   // pink
-        (BrandMark.RGB(0x283593), BrandMark.RGB(0xFFFFFF)),   // indigo
-        (BrandMark.RGB(0xF9A825), BrandMark.RGB(0x1A1A1A)),   // amber
-        (BrandMark.RGB(0x558B2F), BrandMark.RGB(0xFFFFFF)),   // olive
-        (BrandMark.RGB(0x37474F), BrandMark.RGB(0xFFFFFF)),   // slate
+        (BrandMark.RGB(0xC62828), BrandMark.RGB(0xFFFFFF)),  // red
+        (BrandMark.RGB(0x1565C0), BrandMark.RGB(0xFFFFFF)),  // blue
+        (BrandMark.RGB(0x2E7D32), BrandMark.RGB(0xFFFFFF)),  // green
+        (BrandMark.RGB(0x6A1B9A), BrandMark.RGB(0xFFFFFF)),  // purple
+        (BrandMark.RGB(0xE65100), BrandMark.RGB(0xFFFFFF)),  // orange
+        (BrandMark.RGB(0x00838F), BrandMark.RGB(0xFFFFFF)),  // teal
+        (BrandMark.RGB(0x4E342E), BrandMark.RGB(0xFFFFFF)),  // brown
+        (BrandMark.RGB(0xAD1457), BrandMark.RGB(0xFFFFFF)),  // pink
+        (BrandMark.RGB(0x283593), BrandMark.RGB(0xFFFFFF)),  // indigo
+        (BrandMark.RGB(0xF9A825), BrandMark.RGB(0x1A1A1A)),  // amber
+        (BrandMark.RGB(0x558B2F), BrandMark.RGB(0xFFFFFF)),  // olive
+        (BrandMark.RGB(0x37474F), BrandMark.RGB(0xFFFFFF)),  // slate
     ]
 
     /// Words that don't name a place: "The Corner Cafe" is "CC".
-    private static let skipped: Set<String> = ["the", "a", "an", "and", "&", "of",
-                                               "at", "on", "in", "de", "la", "el", "le"]
+    private static let skipped: Set<String> = [
+        "the", "a", "an", "and", "&", "of",
+        "at", "on", "in", "de", "la", "el", "le",
+    ]
 
     /// Initials to try, best first: the first letters of the first two words,
     /// then of the first and last words, then the first two letters of the
     /// first word.
     static func initialCandidates(_ name: String) -> [String] {
-        let words = name
+        let words =
+            name
             .split { !$0.isLetter && !$0.isNumber && $0 != "'" }
             .map { $0.replacingOccurrences(of: "'", with: "") }
             .filter { !$0.isEmpty }
@@ -413,8 +471,9 @@ enum LocalMarks {
             }
             let pick = chosen ?? (candidates[0], start)
             used.insert("\(pick.initials)|\(pick.color)")
-            return Mark(initials: pick.initials, background: palette[pick.color].background,
-                        ink: palette[pick.color].ink)
+            return Mark(
+                initials: pick.initials, background: palette[pick.color].background,
+                ink: palette[pick.color].ink)
         }
     }
 }

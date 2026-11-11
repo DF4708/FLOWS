@@ -117,7 +117,8 @@ final class DrivingProfileStore: ObservableObject {
     private var persistQueue: DispatchQueue { SecureBehaviorStore.persistQueue }
 
     init(directory: URL? = nil) {
-        let dir = directory
+        let dir =
+            directory
             ?? (try? FileManager.default.url(
                 for: .applicationSupportDirectory, in: .userDomainMask,
                 appropriateFor: nil, create: true))
@@ -139,17 +140,22 @@ final class DrivingProfileStore: ObservableObject {
         if Date().timeIntervalSince(lastPersist) > 60 { persist() }
     }
 
-    func recordArrival(predicted: TimeInterval, actual: TimeInterval,
-                       stoppedSeconds: TimeInterval = 0) {
+    func recordArrival(
+        predicted: TimeInterval, actual: TimeInterval,
+        stoppedSeconds: TimeInterval = 0
+    ) {
         let before = profile.etaMultiplier
-        profile.recordArrival(predicted: predicted, actual: actual,
-                              stoppedSeconds: stoppedSeconds)
+        profile.recordArrival(
+            predicted: predicted, actual: actual,
+            stoppedSeconds: stoppedSeconds)
         persist()
         let after = profile.etaMultiplier
         if abs(after - before) > 0.001 {
-            FlowsDiag.log(.info, "learning", String(
-                format: "personal ETA correction now %.3f after %d trips",
-                after, profile.etaSamples))
+            FlowsDiag.log(
+                .info, "learning",
+                String(
+                    format: "personal ETA correction now %.3f after %d trips",
+                    after, profile.etaSamples))
         }
     }
 

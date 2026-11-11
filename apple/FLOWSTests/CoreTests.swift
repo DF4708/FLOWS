@@ -18,7 +18,7 @@ final class CoreTests: XCTestCase {
     func testRiskBandCutsMatchTheRConstants() {
         XCTAssertEqual(FlowsCore.riskBand(score: 0.0), .clear)
         XCTAssertEqual(FlowsCore.riskBand(score: 0.3979), .clear)
-        XCTAssertEqual(FlowsCore.riskBand(score: 0.3980), .green)   // GREEN_MIN inclusive
+        XCTAssertEqual(FlowsCore.riskBand(score: 0.3980), .green)  // GREEN_MIN inclusive
         XCTAssertEqual(FlowsCore.riskBand(score: 0.6989), .green)
         XCTAssertEqual(FlowsCore.riskBand(score: 0.6990), .yellow)  // YELLOW_MIN inclusive
         XCTAssertEqual(FlowsCore.riskBand(score: 0.8751), .yellow)  // RED_MIN inclusive (risk.rs ..=)
@@ -52,7 +52,7 @@ final class CoreTests: XCTestCase {
     func testTruncatedTrailingVarintIsDropped() {
         let full = "_p~iF~ps|U"
         let out = FlowsCore.decodePolyline(bytes: Array(full.dropLast().utf8))
-        XCTAssertTrue(out.isEmpty)   // dangling lat without lon
+        XCTAssertTrue(out.isEmpty)  // dangling lat without lon
     }
 }
 

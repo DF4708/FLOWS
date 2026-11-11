@@ -30,10 +30,10 @@ struct NavigationHUD: View {
     /// Short window (phone held sideways): the floating cards get the room
     /// the inline fuel cluster would take.
     #if os(iOS)
-    @Environment(\.verticalSizeClass) private var verticalSizeClass
-    private var isShort: Bool { verticalSizeClass == .compact }
+        @Environment(\.verticalSizeClass) private var verticalSizeClass
+        private var isShort: Bool { verticalSizeClass == .compact }
     #else
-    private let isShort = false
+        private let isShort = false
     #endif
     @State private var escalationPulse = false
     /// The last-chance fuel banner's own pulse: sharing escalationPulse, which
@@ -102,7 +102,6 @@ struct NavigationHUD: View {
     /// Slow phase for the low-reachable-fuel tank.
     @State private var tankPulse = false
 
-
     var body: some View {
         VStack {
             // Typing a station search in a short window leaves only the
@@ -160,13 +159,13 @@ struct NavigationHUD: View {
                     // and scroll HERE — never push the maneuver banner or the bottom
                     // bar off the screen.
                     #if os(macOS)
-                    // Settings opens from the gear in the drive bar, so it opens here,
-                    // above the cards and the bar, scrolling on its own: nested in the
-                    // cards' scroll it was a small window inside a small window.
-                    if model.showSettings {
-                        SettingsPanelCard()
-                            .chromeRegion("bottom.settings")
-                    }
+                        // Settings opens from the gear in the drive bar, so it opens here,
+                        // above the cards and the bar, scrolling on its own: nested in the
+                        // cards' scroll it was a small window inside a small window.
+                        if model.showSettings {
+                            SettingsPanelCard()
+                                .chromeRegion("bottom.settings")
+                        }
                     #endif
                     ScrollWhenTight {
                         VStack(spacing: 8) {
@@ -234,9 +233,11 @@ struct NavigationHUD: View {
         // A short window (a phone held sideways) cannot fit the directions
         // window, the instruments and the drive bar at the largest text
         // sizes, so the HUD's type stops growing a step earlier there.
-        .dynamicTypeSize(isShort
-                         ? DynamicTypeSize.xSmall...DynamicTypeSize.accessibility1
-                         : DynamicTypeSize.xSmall...DynamicTypeSize.accessibility5)
+        .dynamicTypeSize(
+            isShort
+                ? DynamicTypeSize.xSmall...DynamicTypeSize.accessibility1
+                : DynamicTypeSize.xSmall...DynamicTypeSize.accessibility5
+        )
         .onReceive(shelterTimer) { now in
             // Fixes that stop coming altogether (a long tunnel) left the
             // last speed on the bar for good: the check above only runs when
@@ -289,7 +290,8 @@ struct NavigationHUD: View {
             if let last = lastFixTime {
                 let dt = fix.timestamp.timeIntervalSince(last)
                 if dt > 0.2 {
-                    accelMphPerSec = accelMphPerSec * 0.7
+                    accelMphPerSec =
+                        accelMphPerSec * 0.7
                         + ((mph - lastFixMph) / dt) * 0.3
                 }
             }
@@ -408,7 +410,8 @@ struct NavigationHUD: View {
                     // The one-line weather strip holds no state: it lies flat
                     // with the chips, so the map beside it still pans.
                     if model.escalation == nil, model.imminentWarning == nil,
-                       !model.alerts.activeHeadlines.isEmpty {
+                        !model.alerts.activeHeadlines.isEmpty
+                    {
                         alertStrip
                     }
                     if model.stopDelayAheadSeconds > 0 {
@@ -430,24 +433,29 @@ struct NavigationHUD: View {
                         hosChip
                     }
                     if model.notifyTraffic, model.workZonesAhead > 0 {
-                        Label(model.workZonesAhead == 1
-                              ? "Work zone ahead"
-                                + (model.workZoneRoad.map { " · \($0)" } ?? "")
-                              : "\(model.workZonesAhead) work zones ahead",
-                              systemImage: "cone.fill")
-                            .scaledFont(.footnote, weight: .bold)
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 8)
-                            .background(Color.orange.opacity(0.92))
-                            .foregroundStyle(.white)
-                            .clipShape(Capsule())
-                            .shadow(color: Theme.cardShadow, radius: 8, y: 3)
+                        Label(
+                            model.workZonesAhead == 1
+                                ? "Work zone ahead"
+                                    + (model.workZoneRoad.map { " · \($0)" } ?? "")
+                                : "\(model.workZonesAhead) work zones ahead",
+                            systemImage: "cone.fill"
+                        )
+                        .scaledFont(.footnote, weight: .bold)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        .background(Color.orange.opacity(0.92))
+                        .foregroundStyle(.white)
+                        .clipShape(Capsule())
+                        .shadow(color: Theme.cardShadow, radius: 8, y: 3)
                     }
                     // While the one-shot warning below is up it carries the
                     // same words — one red chip, not two.
                     if model.towingActive, model.towingWarning == nil,
-                       let worst = model.towingViolations.first {
-                        Button { model.showTowingCard = true } label: {
+                        let worst = model.towingViolations.first
+                    {
+                        Button {
+                            model.showTowingCard = true
+                        } label: {
                             Label(worst.title, systemImage: "exclamationmark.octagon.fill")
                                 .scaledFont(.footnote, weight: .heavy)
                                 .padding(.horizontal, 12)
@@ -473,7 +481,9 @@ struct NavigationHUD: View {
                     // exceed a manufacturer rating; tap to dismiss (the TowingCard's
                     // sliders/badges stay live in the submenu).
                     if let towWarn = model.towingWarning {
-                        Button { model.towingWarning = nil } label: {
+                        Button {
+                            model.towingWarning = nil
+                        } label: {
                             Label(towWarn, systemImage: "exclamationmark.triangle.fill")
                                 .scaledFont(.footnote, weight: .bold)
                                 .padding(.horizontal, 12)
@@ -518,8 +528,11 @@ struct NavigationHUD: View {
                                 .scaledFont(.footnote, weight: .bold)
                             // Nothing to take: red, no faster road, or past the turn.
                             if !model.trafficOfferBlocked {
-                                Button(model.trafficOfferUnchecked ? "Not checked. Take it?"
-                                       : model.trafficOfferRiskier ? "Faster, more risk" : "Faster route") {
+                                Button(
+                                    model.trafficOfferUnchecked
+                                        ? "Not checked. Take it?"
+                                        : model.trafficOfferRiskier ? "Faster, more risk" : "Faster route"
+                                ) {
                                     Task { await model.rerouteForTraffic() }
                                 }
                                 .scaledFont(.footnote, weight: .heavy)
@@ -596,11 +609,13 @@ struct NavigationHUD: View {
         let fraction = min(max(vehicle.displayedFuelFraction ?? 0.5, 0), 1)
         let electric = vehicle.profile?.fuelType == .electric
         return VStack(spacing: 8) {
-            GaugeDial(fraction: .constant(fraction),
-                      alarming: model.fuelGaugeAlarming,
-                      showsQuartileLabels: false)
-                .frame(width: instrumentWidth - 20, height: (instrumentWidth - 20) * 0.6)
-                .allowsHitTesting(false)
+            GaugeDial(
+                fraction: .constant(fraction),
+                alarming: model.fuelGaugeAlarming,
+                showsQuartileLabels: false
+            )
+            .frame(width: instrumentWidth - 20, height: (instrumentWidth - 20) * 0.6)
+            .allowsHitTesting(false)
             if model.fuelReachabilityTight {
                 Image(systemName: "fuelpump.fill")
                     .scaledFont(size: 16, weight: .bold)
@@ -609,8 +624,10 @@ struct NavigationHUD: View {
             }
             if let economy = averageEconomy {
                 readout("Average") {
-                    Text(electric ? String(format: "%.1f mi/kWh", economy)
-                                  : String(format: "%.0f MPG", economy))
+                    Text(
+                        electric
+                            ? String(format: "%.1f mi/kWh", economy)
+                            : String(format: "%.0f MPG", economy))
                 }
             }
             if let range = vehicle.expectedRangeMiles {
@@ -635,10 +652,12 @@ struct NavigationHUD: View {
                 .padding(3)
         }
         // Reduce Motion holds the tank at full strength instead.
-        .animation(model.fuelReachabilityTight && !reduceMotion
-                   ? .easeInOut(duration: 1.1).repeatForever(autoreverses: true)
-                   : .default,
-                   value: tankPulse)
+        .animation(
+            model.fuelReachabilityTight && !reduceMotion
+                ? .easeInOut(duration: 1.1).repeatForever(autoreverses: true)
+                : .default,
+            value: tankPulse
+        )
         .onChange(of: model.fuelReachabilityTight, initial: true) { _, tight in
             tankPulse = tight
         }
@@ -665,8 +684,10 @@ struct NavigationHUD: View {
 
     /// One instrument reading under its own underlined title, so each
     /// number says what it is without a driver having to infer it.
-    private func readout<Content: View>(_ title: String,
-                                        @ViewBuilder content: () -> Content) -> some View {
+    private func readout<Content: View>(
+        _ title: String,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
         VStack(spacing: 2) {
             Text(title)
                 .scaledFont(size: 9, weight: .bold)
@@ -711,25 +732,26 @@ struct NavigationHUD: View {
     private var efficiencyVerdict: DriveEfficiency.Verdict {
         let profile = model.vehicle.profile
         let ratings = model.towingRatings
-        return DriveEfficiency.verdict(DriveEfficiency.Inputs(
-            speedMph: liveMph,
-            accelMphPerSec: accelMphPerSec,
-            gradePercent: currentGradePercent,
-            // Wind along the direction of travel: a headwind is air the
-            // vehicle has to push, a tailwind is help.
-            windMph: model.corridorWindMph,
-            windFromDegrees: model.corridorWindFromDegrees,
-            headingDegrees: model.location.course >= 0 ? model.location.course : nil,
-            efficientCruiseMph: DriveEfficiency.efficientCruiseMph(
-                city: profile?.cityMilesPerUnit, highway: profile?.highwayMilesPerUnit),
-            cityMPU: profile?.cityMilesPerUnit,
-            highwayMPU: profile?.highwayMilesPerUnit,
-            loadedWeightLbs: model.towVehicleWeightLbs + model.towTrailerWeightLbs > 0
-                ? model.towVehicleWeightLbs + model.towTrailerWeightLbs : nil,
-            vehicleWeightLbs: model.towVehicleWeightLbs > 0
-                ? model.towVehicleWeightLbs : ratings.gvwrLbs,
-            towing: model.towingActive,
-            fuelFraction: model.vehicle.displayedFuelFraction))
+        return DriveEfficiency.verdict(
+            DriveEfficiency.Inputs(
+                speedMph: liveMph,
+                accelMphPerSec: accelMphPerSec,
+                gradePercent: currentGradePercent,
+                // Wind along the direction of travel: a headwind is air the
+                // vehicle has to push, a tailwind is help.
+                windMph: model.corridorWindMph,
+                windFromDegrees: model.corridorWindFromDegrees,
+                headingDegrees: model.location.course >= 0 ? model.location.course : nil,
+                efficientCruiseMph: DriveEfficiency.efficientCruiseMph(
+                    city: profile?.cityMilesPerUnit, highway: profile?.highwayMilesPerUnit),
+                cityMPU: profile?.cityMilesPerUnit,
+                highwayMPU: profile?.highwayMilesPerUnit,
+                loadedWeightLbs: model.towVehicleWeightLbs + model.towTrailerWeightLbs > 0
+                    ? model.towVehicleWeightLbs + model.towTrailerWeightLbs : nil,
+                vehicleWeightLbs: model.towVehicleWeightLbs > 0
+                    ? model.towVehicleWeightLbs : ratings.gvwrLbs,
+                towing: model.towingActive,
+                fuelFraction: model.vehicle.displayedFuelFraction))
     }
 
     /// The limit the yellow and red lines are drawn from. The posted one
@@ -738,17 +760,19 @@ struct NavigationHUD: View {
     /// with no lines teaches a driver nothing, and unmapped stretches are
     /// common enough that the lines were blinking out mid-drive.
     private var lawLimitMph: Double {
-        SpeedLaw.effectiveLimitMph(postedLimitMph: model.postedSpeedLimitMph,
-                                   speedMph: liveMph)
+        SpeedLaw.effectiveLimitMph(
+            postedLimitMph: model.postedSpeedLimitMph,
+            speedMph: liveMph)
     }
 
     /// The top of the bar, which FOLLOWS the driving: it grows to keep the
     /// current speed and both legal lines in view and shrinks back when they
     /// fall away, so a 30 mph street doesn't leave most of the bar empty.
     private var barTopMph: Double {
-        SpeedLaw.dynamicTopMph(speedMph: liveMph,
-                               postedLimitMph: lawLimitMph,
-                               vehicleTopSpeedMph: model.vehicle.profile?.topSpeedMph)
+        SpeedLaw.dynamicTopMph(
+            speedMph: liveMph,
+            postedLimitMph: lawLimitMph,
+            vehicleTopSpeedMph: model.vehicle.profile?.topSpeedMph)
     }
 
     private var speedStanding: SpeedLaw.Standing {
@@ -801,11 +825,13 @@ struct NavigationHUD: View {
                                 .position(x: w / 2, y: 6)
                         }
                         if let stateMph, let stateFrac {
-                            OutlinedText(text: String(format: "%.0f", stateMph),
-                                         color: Theme.riskYellow,
-                                         font: .system(size: 10, weight: .bold))
-                                .fixedSize()
-                                .position(x: w / 2, y: clampY(h * (1 - stateFrac), h))
+                            OutlinedText(
+                                text: String(format: "%.0f", stateMph),
+                                color: Theme.riskYellow,
+                                font: .system(size: 10, weight: .bold)
+                            )
+                            .fixedSize()
+                            .position(x: w / 2, y: clampY(h * (1 - stateFrac), h))
                         }
                         if let fedMph, let fedFrac {
                             Text(String(format: "%.0f", fedMph))
@@ -832,8 +858,9 @@ struct NavigationHUD: View {
                         // read once the bar has run past it.
                         verticalTicks(height: h, topMph: top)
                         if let stateFrac {
-                            legalMarker(at: h * stateFrac, color: Theme.riskYellow,
-                                        passed: liveMph >= (stateMph ?? .infinity))
+                            legalMarker(
+                                at: h * stateFrac, color: Theme.riskYellow,
+                                passed: liveMph >= (stateMph ?? .infinity))
                         }
                         if let fedFrac {
                             legalMarker(at: h * fedFrac, color: Theme.riskRed, passed: over)
@@ -848,9 +875,10 @@ struct NavigationHUD: View {
             // Outlined only while yellow — the other two read on their own.
             Group {
                 if speedStanding == .stateViolation {
-                    OutlinedText(text: String(format: "%.0f", max(liveMph, 0)),
-                                 color: Theme.riskYellow,
-                                 font: .system(size: 18, weight: .heavy, design: .rounded))
+                    OutlinedText(
+                        text: String(format: "%.0f", max(liveMph, 0)),
+                        color: Theme.riskYellow,
+                        font: .system(size: 18, weight: .heavy, design: .rounded))
                 } else {
                     Text(String(format: "%.0f", max(liveMph, 0)))
                         .font(.system(size: 18, weight: .heavy, design: .rounded))
@@ -862,21 +890,25 @@ struct NavigationHUD: View {
                 .scaledFont(size: 10, weight: .bold)
                 .foregroundStyle(.secondary)
         }
-        .shadow(color: over ? Theme.riskRed.opacity(overGlow ? 0.9 : 0.15) : .clear,
-                radius: over ? (overGlow ? 12 : 3) : 0)
+        .shadow(
+            color: over ? Theme.riskRed.opacity(overGlow ? 0.9 : 0.15) : .clear,
+            radius: over ? (overGlow ? 12 : 3) : 0
+        )
         // The pulse is animated ON THIS VIEW ONLY. Driving a repeatForever
         // through withAnimation put every view updated in that transaction
         // into the same repeating animation — which is why unrelated menus
         // (the music picker's green rows) were seen blinking. Reduce Motion
         // holds the glow at full strength instead.
-        .animation(over && !reduceMotion
-                        ? .easeInOut(duration: 0.9).repeatForever(autoreverses: true)
-                        : .default,
-                   value: overGlow)
+        .animation(
+            over && !reduceMotion
+                ? .easeInOut(duration: 0.9).repeatForever(autoreverses: true)
+                : .default,
+            value: overGlow
+        )
         .onChange(of: over, initial: true) { _, isOver in
             overGlow = isOver
         }
-        .onDisappear { overGlow = false }   // as tankPulse: comes back pulsing
+        .onDisappear { overGlow = false }  // as tankPulse: comes back pulsing
         .help(SpeedLaw.federalNote)
     }
 
@@ -923,8 +955,10 @@ struct NavigationHUD: View {
             Rectangle()
                 .fill(color)
                 .frame(width: 18, height: core)
-                .overlay(passed ? nil
-                         : Rectangle().stroke(Color.white.opacity(0.6), lineWidth: 0.5))
+                .overlay(
+                    passed
+                        ? nil
+                        : Rectangle().stroke(Color.white.opacity(0.6), lineWidth: 0.5))
         }
         .frame(height: outer)
         .offset(y: -max(y - outer / 2, 0))
@@ -978,7 +1012,9 @@ struct NavigationHUD: View {
                 Text("What kind of food?")
                     .scaledFont(size: 15, weight: .bold)
                 Spacer()
-                Button { model.poi.clearResults() } label: {
+                Button {
+                    model.poi.clearResults()
+                } label: {
                     Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
                 }
                 .buttonStyle(.plain)
@@ -1022,7 +1058,9 @@ struct NavigationHUD: View {
                 Text("What kind of store?")
                     .scaledFont(size: 15, weight: .bold)
                 Spacer()
-                Button { model.poi.clearResults() } label: {
+                Button {
+                    model.poi.clearResults()
+                } label: {
                     Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
                 }
                 .buttonStyle(.plain)
@@ -1057,7 +1095,9 @@ struct NavigationHUD: View {
                 Text("What does this vehicle take?")
                     .scaledFont(size: 15, weight: .bold)
                 Spacer()
-                Button { model.poi.clearResults() } label: {
+                Button {
+                    model.poi.clearResults()
+                } label: {
                     Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
                 }
                 .buttonStyle(.plain)
@@ -1123,7 +1163,8 @@ struct NavigationHUD: View {
             // hint is for a driver with neither. Yelp is no longer free,
             // and its old developer page moved; Settings says where to go.
             if model.yelpAPIKey.isEmpty, model.googlePlacesAPIKey.isEmpty,
-               model.poi.activeKind == .food || model.poi.activeKind == .hotel {
+                model.poi.activeKind == .food || model.poi.activeKind == .hotel
+            {
                 HStack(spacing: 6) {
                     Text("Stars and hours need a Google Places or Yelp key:")
                         .scaledFont(.caption)
@@ -1211,8 +1252,10 @@ struct NavigationHUD: View {
                     case .onRoute:
                         // One text, so a narrow card wraps it between words
                         // instead of stacking "in 2" over "mi".
-                        Text(String(format: "in %.0f mi · +%.0f min detour", miles,
-                                    2 * ranked.detourMeters / POIRanking.detourSpeedMps / 60))
+                        Text(
+                            String(
+                                format: "in %.0f mi · +%.0f min detour", miles,
+                                2 * ranked.detourMeters / POIRanking.detourSpeedMps / 60))
                     case .straightLine:
                         Text(String(format: "%.0f mi away", miles))
                     case .offRoute:
@@ -1259,10 +1302,11 @@ struct NavigationHUD: View {
                 .scaledFont(.caption)
                 .foregroundStyle(.secondary)
                 if ranked.rating != nil || ranked.costTier != nil {
-                    StarsAndBucks(stars: ranked.rating, costTier: ranked.costTier,
-                                  currency: model.costCountry.currencySymbol,
-                                  url: ranked.businessURL,
-                                  credit: ranked.ratingCredit)
+                    StarsAndBucks(
+                        stars: ranked.rating, costTier: ranked.costTier,
+                        currency: model.costCountry.currencySymbol,
+                        url: ranked.businessURL,
+                        credit: ranked.ratingCredit)
                 }
                 // A phone's card is too narrow for a price column: the price
                 // rides under the name as one line.
@@ -1279,9 +1323,11 @@ struct NavigationHUD: View {
             if !isCompact, let price = priceWords(ranked) {
                 VStack(alignment: .trailing, spacing: 0) {
                     Text(price.figure)
-                        .scaledFont(size: price.big ? 19 : 10,
-                                    weight: price.big ? .heavy : .semibold,
-                                    design: price.big ? .rounded : .default)
+                        .scaledFont(
+                            size: price.big ? 19 : 10,
+                            weight: price.big ? .heavy : .semibold,
+                            design: price.big ? .rounded : .default
+                        )
                         .monospacedDigit()
                         .foregroundStyle(price.posted ? Theme.cta : Color.secondary)
                     if let unit = price.unit {
@@ -1295,7 +1341,8 @@ struct NavigationHUD: View {
             Button("Add stop") {
                 // A picked chain's logo stays cached (LogoCache's weekly check).
                 if !BrandMark.logoClientID.isEmpty,
-                   let domain = BrandMark.logoDomain(for: ranked.item.name ?? "") {
+                    let domain = BrandMark.logoDomain(for: ranked.item.name ?? "")
+                {
                     LogoCache.shared.notePicked(domain)
                 }
                 Task { await model.addStop(ranked.item) }
@@ -1322,11 +1369,13 @@ struct NavigationHUD: View {
     /// isn't a price, so it rides small and grey instead of masquerading as
     /// one. Gas and hotels only.
     private func priceWords(_ ranked: POIService.RankedPOI)
-        -> (figure: String, unit: String?, big: Bool, posted: Bool)? {
+        -> (figure: String, unit: String?, big: Bool, posted: Bool)?
+    {
         let kind = model.poi.activeKind
         guard kind == .gas || kind == .hotel else { return nil }
         if model.costCountry == .mexico, kind == .gas,
-           ranked.isLivePrice, let mx = ranked.pricePerUnit {
+            ranked.isLivePrice, let mx = ranked.pricePerUnit
+        {
             // The price is kept in US dollars a gallon so stations rank
             // like with like (livePriceProvider); shown as that under a
             // pesos-a-litre label, 23.80 a litre read "MX$5.02 /L". Back to
@@ -1336,21 +1385,29 @@ struct NavigationHUD: View {
             return (String(format: "MX$%.2f", pesosPerLitre), "/L · posted", true, true)
         }
         if kind == .gas, !ranked.isLivePrice {
-            return (ranked.pricePerUnit.map { String(format: "~$%.2f est.", $0) } ?? "$ —",
-                    nil, false, false)
+            return (
+                ranked.pricePerUnit.map { String(format: "~$%.2f est.", $0) } ?? "$ —",
+                nil, false, false
+            )
         }
         if kind == .hotel, ranked.pricePerUnit == nil {
             // No live nightly: a tier-anchored typical rate, clearly an
             // estimate — never a blank "$ —".
-            return (String(format: "~$%.0f est.",
-                           RatingsAndCost.estimatedNightly(costTier: ranked.costTier)),
-                    "per night", false, false)
+            return (
+                String(
+                    format: "~$%.0f est.",
+                    RatingsAndCost.estimatedNightly(costTier: ranked.costTier)),
+                "per night", false, false
+            )
         }
-        let unit = kind == .gas
+        let unit =
+            kind == .gas
             ? (model.poi.fuelType == .electric ? "/kWh" : "/gal")
             : "per night"
-        return (ranked.pricePerUnit.map { String(format: "$%.2f", $0) } ?? "$ —",
-                unit, true, ranked.pricePerUnit != nil)
+        return (
+            ranked.pricePerUnit.map { String(format: "$%.2f", $0) } ?? "$ —",
+            unit, true, ranked.pricePerUnit != nil
+        )
     }
 
     /// A stop's tile (owner, 2026-10-01): a major chain's official logo
@@ -1368,8 +1425,11 @@ struct NavigationHUD: View {
             RoundedRectangle(cornerRadius: 7, style: .continuous)
                 .fill(Color(red: background.r, green: background.g, blue: background.b))
             Text(initials)
-                .font(.system(size: initials.count > 2 ? 10 : 13, weight: .heavy,
-                              design: .rounded))
+                .font(
+                    .system(
+                        size: initials.count > 2 ? 10 : 13, weight: .heavy,
+                        design: .rounded)
+                )
                 .foregroundStyle(Color(red: ink.r, green: ink.g, blue: ink.b))
                 .minimumScaleFactor(0.6)
             if !BrandMark.logoClientID.isEmpty, let domain = BrandMark.logoDomain(for: name) {
@@ -1407,9 +1467,13 @@ struct NavigationHUD: View {
             }
             .task(id: domain) {
                 LogoCache.shared.noteShown(domain)
-                if let ready = Self.decoded[domain] { image = ready; return }
+                if let ready = Self.decoded[domain] {
+                    image = ready
+                    return
+                }
                 guard let data = await LogoCache.shared.data(domain: domain),
-                      let made = Self.picture(data) else { return }
+                    let made = Self.picture(data)
+                else { return }
                 if Self.decoded.count >= 64 { CacheEviction.dropHalf(&Self.decoded) }
                 Self.decoded[domain] = made
                 image = made
@@ -1418,9 +1482,9 @@ struct NavigationHUD: View {
 
         private static func picture(_ data: Data) -> Image? {
             #if canImport(UIKit)
-            return UIImage(data: data).map { Image(uiImage: $0) }
+                return UIImage(data: data).map { Image(uiImage: $0) }
             #else
-            return NSImage(data: data).map { Image(nsImage: $0) }
+                return NSImage(data: data).map { Image(nsImage: $0) }
             #endif
         }
     }
@@ -1501,15 +1565,15 @@ struct NavigationHUD: View {
             // up) — mounted on the fuel cluster it never appeared for walking
             // routes or drivers with no saved vehicle.
             #if os(iOS)
-            .sheet(isPresented: $showShareContactPicker) {
-                ContactPicker { name, phone in
-                    sendShare(name: name, phone: phone)
+                .sheet(isPresented: $showShareContactPicker) {
+                    ContactPicker { name, phone in
+                        sendShare(name: name, phone: phone)
+                    }
                 }
-            }
-            // A sheet is presented into its own environment root and does
-            // NOT inherit the presenter's appearance — say it again here or
-            // settings opens bright white in a dark cab.
-            .presentationColorScheme(model.resolvedColorScheme)
+                // A sheet is presented into its own environment root and does
+                // NOT inherit the presenter's appearance — say it again here or
+                // settings opens bright white in a dark cab.
+                .presentationColorScheme(model.resolvedColorScheme)
             #endif
     }
 
@@ -1517,9 +1581,11 @@ struct NavigationHUD: View {
 
     private var shareBannerBody: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Label("Long trip — share your route with someone?",
-                  systemImage: "paperplane.fill")
-                .scaledFont(size: 15, weight: .bold)
+            Label(
+                "Long trip — share your route with someone?",
+                systemImage: "paperplane.fill"
+            )
+            .scaledFont(size: 15, weight: .bold)
             if let shareErrorText {
                 Text(shareErrorText)
                     .scaledFont(.footnote, weight: .semibold)
@@ -1532,13 +1598,16 @@ struct NavigationHUD: View {
             } else {
                 HStack(spacing: 8) {
                     Spacer()
-                    Button("Not now") { model.tripSharePrompt = false; shareErrorText = nil }
-                        .scaledFont(size: 15, weight: .bold)
-                        .buttonStyle(.plain)
-                        .padding(.horizontal, 16)
-                        .frame(minHeight: Theme.tapMinimum)   // HIG driving target
-                        .background(Color.white.opacity(0.25))
-                        .clipShape(Capsule())
+                    Button("Not now") {
+                        model.tripSharePrompt = false
+                        shareErrorText = nil
+                    }
+                    .scaledFont(size: 15, weight: .bold)
+                    .buttonStyle(.plain)
+                    .padding(.horizontal, 16)
+                    .frame(minHeight: Theme.tapMinimum)  // HIG driving target
+                    .background(Color.white.opacity(0.25))
+                    .clipShape(Capsule())
                     Button("Share") { startShare() }
                         .scaledFont(size: 15, weight: .heavy)
                         .buttonStyle(.plain)
@@ -1569,9 +1638,9 @@ struct NavigationHUD: View {
             sendShare(name: candidates[0].name, phone: candidates[0].phone)
         } else if candidates.isEmpty {
             #if os(iOS)
-            showShareContactPicker = true
+                showShareContactPicker = true
             #else
-            model.showSettings = true
+                model.showSettings = true
             #endif
         } else {
             showShareChooser = true
@@ -1582,9 +1651,13 @@ struct NavigationHUD: View {
     /// actually texted before (frequency + recency, from on-device history).
     private var shareChooserRows: some View {
         VStack(spacing: 6) {
-            ForEach(Array(model.tripShareCandidates().prefix(4).enumerated()),
-                    id: \.offset) { index, person in
-                Button { sendShare(name: person.name, phone: person.phone) } label: {
+            ForEach(
+                Array(model.tripShareCandidates().prefix(4).enumerated()),
+                id: \.offset
+            ) { index, person in
+                Button {
+                    sendShare(name: person.name, phone: person.phone)
+                } label: {
                     HStack(spacing: 8) {
                         Image(systemName: index == 0 ? "star.fill" : "person.fill")
                             .scaledFont(size: 13)
@@ -1608,12 +1681,12 @@ struct NavigationHUD: View {
                 .buttonStyle(.plain)
             }
             #if os(iOS)
-            Button("Someone else") { showShareContactPicker = true }
-                .scaledFont(size: 14, weight: .bold)
-                .buttonStyle(.plain)
-                .frame(maxWidth: .infinity, minHeight: 34)
-                .background(Color.white.opacity(0.25))
-                .clipShape(Capsule())
+                Button("Someone else") { showShareContactPicker = true }
+                    .scaledFont(size: 14, weight: .bold)
+                    .buttonStyle(.plain)
+                    .frame(maxWidth: .infinity, minHeight: 34)
+                    .background(Color.white.opacity(0.25))
+                    .clipShape(Capsule())
             #endif
         }
     }
@@ -1658,7 +1731,7 @@ struct NavigationHUD: View {
                     .scaledFont(size: 15, weight: .bold)
                     .buttonStyle(.plain)
                     .padding(.horizontal, 16)
-                    .frame(minHeight: Theme.tapMinimum)   // HIG driving target
+                    .frame(minHeight: Theme.tapMinimum)  // HIG driving target
                     .background(Color.white.opacity(0.25))
                     .clipShape(Capsule())
                 Button("Reroute") {
@@ -1677,8 +1750,9 @@ struct NavigationHUD: View {
         .frame(maxWidth: isCompact ? .infinity : golden.cardMax)
         .background(
             (FlowsCore.riskBand(score: escalation.newRisk) == .red
-             ? Theme.riskRed : Theme.riskYellow)
-                .opacity(escalationPulse ? 0.95 : 0.65))
+                ? Theme.riskRed : Theme.riskYellow)
+                .opacity(escalationPulse ? 0.95 : 0.65)
+        )
         .foregroundStyle(FlowsCore.riskBand(score: escalation.newRisk) == .red ? .white : .black)
         .clipShape(RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous))
         .shadow(color: Theme.cardShadow, radius: 14, y: 5)
@@ -1687,9 +1761,12 @@ struct NavigationHUD: View {
         // animation — which is how a hazard pulse ended up blinking the
         // music menu's rows. Reduce Motion (and photosensitivity) holds the
         // banner at its strong opacity instead of breathing it.
-        .animation(reduceMotion ? nil
-                   : .easeInOut(duration: 0.55).repeatForever(autoreverses: true),
-                   value: escalationPulse)
+        .animation(
+            reduceMotion
+                ? nil
+                : .easeInOut(duration: 0.55).repeatForever(autoreverses: true),
+            value: escalationPulse
+        )
         .onAppear { escalationPulse = true }
         .onDisappear { escalationPulse = false }
     }
@@ -1702,23 +1779,30 @@ struct NavigationHUD: View {
             // Its X tucks it into the tray with the other icons; the warning
             // is still in force and a tap brings it back.
             onDismiss: { model.tuckImminentWarning() },
-            onShelterDelay: warning.action == .shelter ? {
-                model.beginShelter(for: warning)
-                // Only look for a place when a place is the answer — for a
-                // visibility or hydroplaning hazard the vehicle IS shelter.
-                if ShelterPolicy.kind(forEvent: warning.event,
-                                      severityScore: warning.severityScore)
-                    != .inVehicle {
-                    // A fresh search brings a tucked stop list back out.
+            onShelterDelay: warning.action == .shelter
+                ? {
+                    model.beginShelter(for: warning)
+                    // Only look for a place when a place is the answer — for a
+                    // visibility or hydroplaning hazard the vehicle IS shelter.
+                    if ShelterPolicy.kind(
+                        forEvent: warning.event,
+                        severityScore: warning.severityScore)
+                        != .inVehicle
+                    {
+                        // A fresh search brings a tucked stop list back out.
+                        model.collapsedPanels.remove("stops")
+                        Task {
+                            await model.poi.request(
+                                .shelter,
+                                aheadOf: model.effectivePosition)
+                        }
+                    }
+                } : nil,
+            onFindRest: warning.action == .restArea
+                ? {
                     model.collapsedPanels.remove("stops")
-                    Task { await model.poi.request(.shelter,
-                                                   aheadOf: model.effectivePosition) }
-                }
-            } : nil,
-            onFindRest: warning.action == .restArea ? {
-                model.collapsedPanels.remove("stops")
-                Task { await model.poi.request(.rest, aheadOf: model.effectivePosition) }
-            } : nil)
+                    Task { await model.poi.request(.rest, aheadOf: model.effectivePosition) }
+                } : nil)
     }
 
     /// Sheltering time already added to the ETA — visible so the driver
@@ -1726,15 +1810,18 @@ struct NavigationHUD: View {
     /// counts down with the shelter timer, as the ETA does (a part-minute
     /// reads as a whole one, never "+0 min").
     private var shelterDelayChip: some View {
-        Label(String(format: "+%.0f min stopped time in ETA",
-                     (model.stopDelayAheadSeconds / 60).rounded(.up)),
-              systemImage: "clock.badge.exclamationmark")
-            .scaledFont(.footnote, weight: .semibold)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
-            .background(Theme.cardBackground)
-            .clipShape(Capsule())
-            .shadow(color: Theme.cardShadow, radius: 8, y: 3)
+        Label(
+            String(
+                format: "+%.0f min stopped time in ETA",
+                (model.stopDelayAheadSeconds / 60).rounded(.up)),
+            systemImage: "clock.badge.exclamationmark"
+        )
+        .scaledFont(.footnote, weight: .semibold)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(Theme.cardBackground)
+        .clipShape(Capsule())
+        .shadow(color: Theme.cardShadow, radius: 8, y: 3)
     }
 
     /// Next scheduled trip need (fuel/food/rest cadence) with its countdown;
@@ -1772,23 +1859,26 @@ struct NavigationHUD: View {
             // between tries) with nothing to say it was stale. The voice
             // already goes quiet here (speakTurn); the banner says why.
             if g.isOffRoute || model.navigation.isRerouting {
-                banner(distance: "Off the route",
-                       instruction: "Finding a new way",
-                       rerouting: model.navigation.isRerouting,
-                       live: false, lost: true)
+                banner(
+                    distance: "Off the route",
+                    instruction: "Finding a new way",
+                    rerouting: model.navigation.isRerouting,
+                    live: false, lost: true)
             } else {
-                banner(distance: distanceText(g.distanceToManeuver),
-                       instruction: g.instruction,
-                       rerouting: model.navigation.isRerouting,
-                       live: true)
+                banner(
+                    distance: distanceText(g.distanceToManeuver),
+                    instruction: g.instruction,
+                    rerouting: model.navigation.isRerouting,
+                    live: true)
             }
         } else if let route = model.navigation.route {
             // No GPS fix yet: route preview instead of an empty HUD — first
             // real instruction plus a "waiting" chip so the state is obvious.
-            banner(distance: "Waiting for GPS — previewing route",
-                   instruction: firstInstruction(of: route),
-                   rerouting: false,
-                   live: false)
+            banner(
+                distance: "Waiting for GPS — previewing route",
+                instruction: firstInstruction(of: route),
+                rerouting: false,
+                live: false)
         }
     }
 
@@ -1797,15 +1887,21 @@ struct NavigationHUD: View {
     @ViewBuilder
     private var shelterCountdown: some View {
         if let session = model.shelterSession {
-            Button { showShelterSheet = true } label: {
+            Button {
+                showShelterSheet = true
+            } label: {
                 VStack(spacing: 0) {
-                    Image(systemName: session.kind == .inVehicle
-                          ? "car.fill" : "house.fill")
-                        .scaledFont(size: 13, weight: .bold)
-                    Text(ShelterPolicy.countdownText(
-                        session.until.timeIntervalSince(shelterTick)))
-                        .font(.system(size: 15, weight: .heavy, design: .rounded))
-                        .monospacedDigit()
+                    Image(
+                        systemName: session.kind == .inVehicle
+                            ? "car.fill" : "house.fill"
+                    )
+                    .scaledFont(size: 13, weight: .bold)
+                    Text(
+                        ShelterPolicy.countdownText(
+                            session.until.timeIntervalSince(shelterTick))
+                    )
+                    .font(.system(size: 15, weight: .heavy, design: .rounded))
+                    .monospacedDigit()
                     Text("shelter")
                         .scaledFont(size: 9, weight: .semibold)
                         .opacity(0.75)
@@ -1832,7 +1928,9 @@ struct NavigationHUD: View {
                         .scaledFont(size: 15, weight: .bold)
                         .lineLimit(2)
                     Spacer()
-                    Button { showShelterSheet = false } label: {
+                    Button {
+                        showShelterSheet = false
+                    } label: {
                         Image(systemName: "xmark.circle.fill")
                             .foregroundStyle(.secondary)
                     }
@@ -1875,8 +1973,10 @@ struct NavigationHUD: View {
         }
     }
 
-    private func banner(distance: String, instruction: String,
-                        rerouting: Bool, live: Bool, lost: Bool = false) -> some View {
+    private func banner(
+        distance: String, instruction: String,
+        rerouting: Bool, live: Bool, lost: Bool = false
+    ) -> some View {
         HStack(spacing: 14) {
             // The lane box IS the arrow beside the directions (owner,
             // 2026-10-01): one arrow per lane, each the movement its lane
@@ -1890,17 +1990,21 @@ struct NavigationHUD: View {
                     .font(.system(size: 22, weight: .bold))
                     .frame(minWidth: 40, minHeight: 40)
                     .background(Color.white.opacity(0.1), in: RoundedRectangle(cornerRadius: 8))
-                    .overlay(RoundedRectangle(cornerRadius: 8)
-                        .stroke(Color.white.opacity(0.25), lineWidth: 1))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 8)
+                            .stroke(Color.white.opacity(0.25), lineWidth: 1)
+                    )
                     .accessibilityHidden(true)
             } else {
                 laneBox(instruction: instruction, live: live)
             }
             VStack(alignment: .leading, spacing: 1) {
                 Text(distance)
-                    .font(live
-                          ? .system(size: 30, weight: .heavy, design: .rounded)
-                          : .system(size: 15, weight: .semibold))
+                    .font(
+                        live
+                            ? .system(size: 30, weight: .heavy, design: .rounded)
+                            : .system(size: 15, weight: .semibold)
+                    )
                     .monospacedDigit()
                     .minimumScaleFactor(0.6)
                     .opacity(live ? 1 : 0.75)
@@ -1949,8 +2053,9 @@ struct NavigationHUD: View {
         let lanes = model.upcomingLanes
         let arrows = LaneBox.arrows(
             lanes: lanes,
-            recommended: LaneData.recommended(lanes: lanes,
-                                              maneuver: ManeuverSymbol.side(of: instruction)),
+            recommended: LaneData.recommended(
+                lanes: lanes,
+                maneuver: ManeuverSymbol.side(of: instruction)),
             instruction: instruction)
         let arriving = ManeuverSymbol.symbol(for: instruction) == "mappin.circle.fill"
         let single: CGFloat = live ? 32 : 26
@@ -1979,8 +2084,9 @@ struct NavigationHUD: View {
     private func laneWords(instruction: String) -> String? {
         let lanes = model.upcomingLanes
         if !lanes.isEmpty {
-            let lit = LaneData.recommended(lanes: lanes,
-                                           maneuver: ManeuverSymbol.side(of: instruction))
+            let lit = LaneData.recommended(
+                lanes: lanes,
+                maneuver: ManeuverSymbol.side(of: instruction))
             return LaneData.summary(lanes: lanes, recommended: lit)
         }
         return LaneGuidance.advice(for: instruction)?.text
@@ -2000,10 +2106,14 @@ struct NavigationHUD: View {
         .padding(.horizontal, 8)
         .padding(.vertical, 4)
         .foregroundStyle(.white)
-        .background(Color(red: 0, green: 0.42, blue: 0.25),
-                    in: RoundedRectangle(cornerRadius: 6, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 6, style: .continuous)
-            .stroke(Color.white, lineWidth: 1.5))
+        .background(
+            Color(red: 0, green: 0.42, blue: 0.25),
+            in: RoundedRectangle(cornerRadius: 6, style: .continuous)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                .stroke(Color.white, lineWidth: 1.5)
+        )
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Exit \(number)")
     }
@@ -2119,9 +2229,12 @@ struct NavigationHUD: View {
     /// The controls over the stop buttons. On a wide window the pair takes
     /// the wider row's own width and the other row stretches to it; on a
     /// phone both fill the bar.
-    private func barLayout<Controls: View>(iconOnlyStops: Bool,
-                                           @ViewBuilder controls: () -> Controls)
-        -> some View {
+    private func barLayout<Controls: View>(
+        iconOnlyStops: Bool,
+        @ViewBuilder controls: () -> Controls
+    )
+        -> some View
+    {
         VStack(spacing: 8) {
             controls()
             poiButtonRow(iconOnly: iconOnlyStops)
@@ -2280,8 +2393,11 @@ struct NavigationHUD: View {
     /// longer wider than "Rest") and as tall as the controls above.
     private func poiButtonRow(iconOnly: Bool) -> some View {
         EqualWidthHStack(spacing: 6) {
-            ForEach(model.truckerUI ? POIService.Kind.truckerKinds
-                                    : POIService.Kind.standardKinds) { kind in
+            ForEach(
+                model.truckerUI
+                    ? POIService.Kind.truckerKinds
+                    : POIService.Kind.standardKinds
+            ) { kind in
                 let selected = model.poi.activeKind == kind
                 Button {
                     // The lit button is its stop list's own icon: pressed
@@ -2357,7 +2473,9 @@ struct NavigationHUD: View {
                 .foregroundStyle(Theme.riskRed)
                 .clipShape(Capsule())
             }
-            Button { model.dismissFuelWarning() } label: {
+            Button {
+                model.dismissFuelWarning()
+            } label: {
                 Image(systemName: "xmark.circle.fill").opacity(0.8)
             }
             .buttonStyle(.plain)
@@ -2370,9 +2488,12 @@ struct NavigationHUD: View {
         .clipShape(RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous))
         .shadow(color: Theme.cardShadow, radius: 10, y: 4)
         // Reduce Motion holds it at its strong red, like the escalation card.
-        .animation(reduceMotion ? nil
-                   : .easeInOut(duration: 0.55).repeatForever(autoreverses: true),
-                   value: fuelPulse)
+        .animation(
+            reduceMotion
+                ? nil
+                : .easeInOut(duration: 0.55).repeatForever(autoreverses: true),
+            value: fuelPulse
+        )
         .onAppear { fuelPulse = true }
         .onDisappear { fuelPulse = false }
     }
@@ -2416,7 +2537,9 @@ struct NavigationHUD: View {
             .background(Color.white)
             .foregroundStyle(.orange)
             .clipShape(Capsule())
-            Button { model.dismissFuelRecommendation() } label: {
+            Button {
+                model.dismissFuelRecommendation()
+            } label: {
                 Image(systemName: "xmark.circle.fill").opacity(0.8)
             }
             .buttonStyle(.plain)
@@ -2433,8 +2556,9 @@ struct NavigationHUD: View {
     /// showing — nil when neither is placeable.
     private var nearestStationMiles: Double? {
         guard let pos = model.effectivePosition,
-              let channel = model.radio.channels.first(where: { $0.id == radioChannelID }),
-              let p = TruckerRadio.position(of: channel) else { return nil }
+            let channel = model.radio.channels.first(where: { $0.id == radioChannelID }),
+            let p = TruckerRadio.position(of: channel)
+        else { return nil }
         return POIRanking.meters(p.coordinate, pos) / 1609.344
     }
 
@@ -2450,12 +2574,14 @@ struct NavigationHUD: View {
     /// opened.
     private func preselectNearestStation() {
         if let playing = model.radio.playingChannelID,
-           model.radio.channels.contains(where: { $0.id == playing }) {
+            model.radio.channels.contains(where: { $0.id == playing })
+        {
             radioChannelID = playing
             return
         }
         if let pos = model.effectivePosition,
-           let nearest = model.radio.nearestChannel(to: pos) {
+            let nearest = model.radio.nearestChannel(to: pos)
+        {
             radioChannelID = nearest.channel.id
         } else if let nearest = model.radio.nearestChannel(stateCode: model.currentStateCode) {
             radioChannelID = nearest.id
@@ -2468,8 +2594,8 @@ struct NavigationHUD: View {
     private func pickStation(_ id: String) {
         radioChannelID = id
         guard let playing = model.radio.playingChannelID, playing != id,
-              model.radio.channels.contains(where: { $0.id == playing }),
-              let channel = model.radio.channels.first(where: { $0.id == id })
+            model.radio.channels.contains(where: { $0.id == playing }),
+            let channel = model.radio.channels.first(where: { $0.id == id })
         else { return }
         playStation(channel)
     }
@@ -2487,8 +2613,10 @@ struct NavigationHUD: View {
     /// is pinned, or auto-tune would move it back on the next fix.
     private func playStation(_ channel: TruckerRadio.Channel) {
         radioChannelID = channel.id
-        model.radio.play(channel, pinned: RadioTuning.isHandPick(
-            channel.id, nearestID: model.nearestStationID))
+        model.radio.play(
+            channel,
+            pinned: RadioTuning.isHandPick(
+                channel.id, nearestID: model.nearestStationID))
     }
 
     /// Radio: everything FLOWS can play or point to, in the owner's order
@@ -2501,9 +2629,11 @@ struct NavigationHUD: View {
     private var radioCard: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
-                Label(model.truckerUI ? "Trucker radio" : "Emergency radio",
-                      systemImage: "radio.fill")
-                    .scaledFont(size: 15, weight: .bold)
+                Label(
+                    model.truckerUI ? "Trucker radio" : "Emergency radio",
+                    systemImage: "radio.fill"
+                )
+                .scaledFont(size: 15, weight: .bold)
                 Spacer()
                 // X = minimize back into the bar's radio button — playback
                 // keeps going; the stop buttons in the card end it.
@@ -2538,12 +2668,14 @@ struct NavigationHUD: View {
     /// One row in the card's station format: a name, a line under it, and the
     /// row's controls at the end — shared by every section so they read as
     /// one list.
-    private func stationRow(_ name: String, detail: String?, playing: Bool = false,
-                            symbol: String = "play.fill",
-                            play: @escaping () -> Void,
-                            pause: @escaping () -> Void = {},
-                            back: (() -> Void)? = nil,
-                            forward: (() -> Void)? = nil) -> some View {
+    private func stationRow(
+        _ name: String, detail: String?, playing: Bool = false,
+        symbol: String = "play.fill",
+        play: @escaping () -> Void,
+        pause: @escaping () -> Void = {},
+        back: (() -> Void)? = nil,
+        forward: (() -> Void)? = nil
+    ) -> some View {
         HStack(alignment: .center, spacing: 6) {
             VStack(alignment: .leading, spacing: 0) {
                 Text(name)
@@ -2557,8 +2689,9 @@ struct NavigationHUD: View {
                 }
             }
             Spacer(minLength: 6)
-            rowTransport(playing: playing, name: name, symbol: symbol,
-                         play: play, pause: pause, back: back, forward: forward)
+            rowTransport(
+                playing: playing, name: name, symbol: symbol,
+                play: play, pause: pause, back: back, forward: forward)
         }
         // Clear of a list's scroll bar, which runs down the right edge
         // (owner, 2026-10-01: the play buttons sat under it).
@@ -2569,9 +2702,11 @@ struct NavigationHUD: View {
     /// the row isn't playing; back, pause and forward while it is — back and
     /// forward walk the section's list (owner, 2026-10-01: wider, easier to
     /// press, with back and forward either side).
-    private func rowTransport(playing: Bool, name: String, symbol: String,
-                              play: @escaping () -> Void, pause: @escaping () -> Void,
-                              back: (() -> Void)?, forward: (() -> Void)?) -> some View {
+    private func rowTransport(
+        playing: Bool, name: String, symbol: String,
+        play: @escaping () -> Void, pause: @escaping () -> Void,
+        back: (() -> Void)?, forward: (() -> Void)?
+    ) -> some View {
         HStack(spacing: 6) {
             if playing, let back {
                 transportButton("backward.fill", label: "Previous", action: back)
@@ -2593,8 +2728,10 @@ struct NavigationHUD: View {
         }
     }
 
-    private func transportButton(_ symbol: String, label: String,
-                                 action: @escaping () -> Void) -> some View {
+    private func transportButton(
+        _ symbol: String, label: String,
+        action: @escaping () -> Void
+    ) -> some View {
         Button(action: action) {
             Image(systemName: symbol)
                 .scaledFont(size: 12, weight: .bold)
@@ -2608,8 +2745,10 @@ struct NavigationHUD: View {
     }
 
     /// One chip in a section's row of kinds, the same in every section.
-    private func radioChip(_ title: String, symbol: String, on: Bool, label: String,
-                           action: @escaping () -> Void) -> some View {
+    private func radioChip(
+        _ title: String, symbol: String, on: Bool, label: String,
+        action: @escaping () -> Void
+    ) -> some View {
         Button(action: action) {
             Label(title, systemImage: symbol)
                 .scaledFont(size: 11, weight: .semibold)
@@ -2626,10 +2765,12 @@ struct NavigationHUD: View {
 
     /// A section's search line, the same in every section: the field, a
     /// "Near me" when the section has one, and a mic.
-    private func radioSearchLine(_ prompt: String, text: Binding<String>, focus: RadioSearch,
-                                 nearMe: (() -> Void)?, listening: Bool,
-                                 micLabel: String, onSubmit: @escaping () -> Void,
-                                 onMic: @escaping () -> Void) -> some View {
+    private func radioSearchLine(
+        _ prompt: String, text: Binding<String>, focus: RadioSearch,
+        nearMe: (() -> Void)?, listening: Bool,
+        micLabel: String, onSubmit: @escaping () -> Void,
+        onMic: @escaping () -> Void
+    ) -> some View {
         HStack(spacing: 6) {
             TextField(prompt, text: text)
                 .textFieldStyle(.roundedBorder)
@@ -2675,39 +2816,42 @@ struct NavigationHUD: View {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 6) {
                     ForEach(BroadcastRadio.Kind.allCases) { kind in
-                        radioChip(kind.title, symbol: kind.symbol, on: radioGenre == kind,
-                                  label: "Play \(kind.title) radio") { playGenre(kind) }
+                        radioChip(
+                            kind.title, symbol: kind.symbol, on: radioGenre == kind,
+                            label: "Play \(kind.title) radio"
+                        ) { playGenre(kind) }
                     }
                 }
             }
             // Spoken station pick: "weather radio", "KMFA", "bluegrass".
-            radioSearchLine("Search by name or genre", text: $stationSearch, focus: .station,
-                            nearMe: {
-                                stationSearch = ""
-                                radioGenre = nil
-                                let code = model.currentStateCode
-                                Task {
-                                    await model.radioBrowser.searchNearby(
-                                        near: model.effectivePosition, stateCode: code)
-                                }
-                            },
-                            listening: radioMicListening,
-                            micLabel: "Say a station or genre",
-                            onSubmit: {
-                                let query = stationSearch
-                                radioGenre = nil
-                                Task { await model.radioBrowser.search(text: query) }
-                            },
-                            onMic: {
-                                guard !radioMicListening else { return }
-                                radioMicListening = true
-                                VoiceReply.shared.listenForDictation { transcript in
-                                    radioMicListening = false
-                                    guard let transcript else { return }
-                                    stationSearch = transcript
-                                    model.playRadioAsk(transcript)
-                                }
-                            })
+            radioSearchLine(
+                "Search by name or genre", text: $stationSearch, focus: .station,
+                nearMe: {
+                    stationSearch = ""
+                    radioGenre = nil
+                    let code = model.currentStateCode
+                    Task {
+                        await model.radioBrowser.searchNearby(
+                            near: model.effectivePosition, stateCode: code)
+                    }
+                },
+                listening: radioMicListening,
+                micLabel: "Say a station or genre",
+                onSubmit: {
+                    let query = stationSearch
+                    radioGenre = nil
+                    Task { await model.radioBrowser.search(text: query) }
+                },
+                onMic: {
+                    guard !radioMicListening else { return }
+                    radioMicListening = true
+                    VoiceReply.shared.listenForDictation { transcript in
+                        radioMicListening = false
+                        guard let transcript else { return }
+                        stationSearch = transcript
+                        model.playRadioAsk(transcript)
+                    }
+                })
             if let note = model.radioBrowser.status {
                 Text(note).scaledFont(.caption2).foregroundStyle(.secondary)
             }
@@ -2722,10 +2866,12 @@ struct NavigationHUD: View {
                     }
                 }
                 .frame(maxHeight: isCompact ? 150 : 190)
-                Text("Station list: radio-browser.info, a community "
-                     + "directory. Stations play as internet streams.")
-                    .scaledFont(.caption2)
-                    .foregroundStyle(.secondary)
+                Text(
+                    "Station list: radio-browser.info, a community "
+                        + "directory. Stations play as internet streams."
+                )
+                .scaledFont(.caption2)
+                .foregroundStyle(.secondary)
             }
         }
     }
@@ -2762,53 +2908,59 @@ struct NavigationHUD: View {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 6) {
                     ForEach(MusicController.genreKinds) { kind in
-                        radioChip(kind.title, symbol: kind.symbol, on: streamGenre == kind,
-                                  label: "Play \(kind.title) on \(streamingTarget.displayName)") {
+                        radioChip(
+                            kind.title, symbol: kind.symbol, on: streamGenre == kind,
+                            label: "Play \(kind.title) on \(streamingTarget.displayName)"
+                        ) {
                             streamGenre = kind
                             playStreaming(kind.title)
                         }
                     }
                 }
             }
-            radioSearchLine("Search a song, artist or album", text: $streamSearch,
-                            focus: .streaming, nearMe: nil,
-                            listening: musicMicListening,
-                            micLabel: "Say a song, artist or album",
-                            onSubmit: {
-                                streamGenre = nil
-                                playStreaming(streamSearch)
-                            },
-                            onMic: {
-                                guard !musicMicListening else { return }
-                                musicMicListening = true
-                                VoiceReply.shared.listenForDictation { transcript in
-                                    musicMicListening = false
-                                    guard let transcript else { return }
-                                    streamSearch = transcript
-                                    streamGenre = nil
-                                    playStreaming(transcript)
-                                }
-                            })
+            radioSearchLine(
+                "Search a song, artist or album", text: $streamSearch,
+                focus: .streaming, nearMe: nil,
+                listening: musicMicListening,
+                micLabel: "Say a song, artist or album",
+                onSubmit: {
+                    streamGenre = nil
+                    playStreaming(streamSearch)
+                },
+                onMic: {
+                    guard !musicMicListening else { return }
+                    musicMicListening = true
+                    VoiceReply.shared.listenForDictation { transcript in
+                        musicMicListening = false
+                        guard let transcript else { return }
+                        streamSearch = transcript
+                        streamGenre = nil
+                        playStreaming(transcript)
+                    }
+                })
             ForEach(MusicProvider.streamingInFLOWS, id: \.self) { provider in
-                let works = provider.controllable(onMac: Self.onMac,
-                                                  spotifyLinked: spotify.linked)
+                let works = provider.controllable(
+                    onMac: Self.onMac,
+                    spotifyLinked: spotify.linked)
                 let playing = model.musicProvider == provider && music.isPlaying && works
-                stationRow(provider.displayName,
-                           detail: works ? "Plays right here in FLOWS"
-                                         : "Add a Spotify token (⚙ Settings → Keys for "
-                                           + "extra info) to play it here",
-                           playing: playing,
-                           symbol: works ? "play.fill" : "arrow.up.forward.app",
-                           play: {
-                               if model.musicProvider == provider, works {
-                                   MusicController.shared.playPause()
-                               } else {
-                                   model.chooseMusicProvider(provider)
-                               }
-                           },
-                           pause: { MusicController.shared.playPause() },
-                           back: { MusicController.shared.back() },
-                           forward: { MusicController.shared.skip() })
+                stationRow(
+                    provider.displayName,
+                    detail: works
+                        ? "Plays right here in FLOWS"
+                        : "Add a Spotify token (⚙ Settings → Keys for "
+                            + "extra info) to play it here",
+                    playing: playing,
+                    symbol: works ? "play.fill" : "arrow.up.forward.app",
+                    play: {
+                        if model.musicProvider == provider, works {
+                            MusicController.shared.playPause()
+                        } else {
+                            model.chooseMusicProvider(provider)
+                        }
+                    },
+                    pause: { MusicController.shared.playPause() },
+                    back: { MusicController.shared.back() },
+                    forward: { MusicController.shared.skip() })
             }
         }
     }
@@ -2816,9 +2968,9 @@ struct NavigationHUD: View {
     /// Whether this is the Mac (Spotify answers to the Mac app directly).
     private static var onMac: Bool {
         #if os(macOS)
-        true
+            true
         #else
-        false
+            false
         #endif
     }
 
@@ -2856,69 +3008,80 @@ struct NavigationHUD: View {
             HStack(spacing: 6) {
                 ForEach(AppModel.ScannerGroup.allCases) { group in
                     let on = model.scannerGroups.contains(group)
-                    radioChip(group.rawValue, symbol: group.symbol, on: on,
-                              label: on ? "Hide \(group.rawValue) calls"
-                                        : "Show \(group.rawValue) calls") {
+                    radioChip(
+                        group.rawValue, symbol: group.symbol, on: on,
+                        label: on
+                            ? "Hide \(group.rawValue) calls"
+                            : "Show \(group.rawValue) calls"
+                    ) {
                         if on { model.scannerGroups.remove(group) } else { model.scannerGroups.insert(group) }
                         if !model.scanner.enabled { model.scanner.enabled = true }
                     }
                 }
             }
-            radioSearchLine("Search a city", text: $scannerSearch, focus: .scanner,
-                            nearMe: {
-                                scannerSearch = ""
-                                model.openDispatch.watchedFeedID = nil
-                                if !model.scanner.enabled { model.scanner.enabled = true }
-                            },
-                            listening: scannerMicListening, micLabel: "Say a city",
-                            onSubmit: {},
-                            onMic: {
-                                guard !scannerMicListening else { return }
-                                scannerMicListening = true
-                                VoiceReply.shared.listenForDictation { transcript in
-                                    scannerMicListening = false
-                                    guard let transcript else { return }
-                                    scannerSearch = transcript
-                                    if let feed = scannerFeeds.first { watchScannerFeed(feed) }
-                                }
-                            })
+            radioSearchLine(
+                "Search a city", text: $scannerSearch, focus: .scanner,
+                nearMe: {
+                    scannerSearch = ""
+                    model.openDispatch.watchedFeedID = nil
+                    if !model.scanner.enabled { model.scanner.enabled = true }
+                },
+                listening: scannerMicListening, micLabel: "Say a city",
+                onSubmit: {},
+                onMic: {
+                    guard !scannerMicListening else { return }
+                    scannerMicListening = true
+                    VoiceReply.shared.listenForDictation { transcript in
+                        scannerMicListening = false
+                        guard let transcript else { return }
+                        scannerSearch = transcript
+                        if let feed = scannerFeeds.first { watchScannerFeed(feed) }
+                    }
+                })
             let feeds = scannerFeeds
             ForEach(feeds) { feed in
                 let playing = scannerPlayingID == feed.id
                 let index = feeds.firstIndex { $0.id == feed.id } ?? 0
-                stationRow("\(feed.city) — \(feed.what)",
-                           detail: "City 911 list, \(feed.delay)",
-                           playing: playing,
-                           play: { watchScannerFeed(feed) },
-                           pause: {
-                               model.openDispatch.watchedFeedID = nil
-                               model.scanner.enabled = false
-                           },
-                           back: { watchScannerFeed(feeds[(index - 1 + feeds.count) % feeds.count]) },
-                           forward: { watchScannerFeed(feeds[(index + 1) % feeds.count]) })
+                stationRow(
+                    "\(feed.city) — \(feed.what)",
+                    detail: "City 911 list, \(feed.delay)",
+                    playing: playing,
+                    play: { watchScannerFeed(feed) },
+                    pause: {
+                        model.openDispatch.watchedFeedID = nil
+                        model.scanner.enabled = false
+                    },
+                    back: { watchScannerFeed(feeds[(index - 1 + feeds.count) % feeds.count]) },
+                    forward: { watchScannerFeed(feeds[(index + 1) % feeds.count]) })
             }
             if let status = model.openDispatch.status, model.scanner.enabled {
                 Text(status).scaledFont(.caption2).foregroundStyle(.secondary)
             }
-            stationRow("Live scanner audio near you",
-                       detail: "Broadcastify's own player, at the feeds closest to you",
-                       symbol: "arrow.up.forward.app",
-                       play: { openURL(ScannerLinks.broadcastifyNearMe) })
+            stationRow(
+                "Live scanner audio near you",
+                detail: "Broadcastify's own player, at the feeds closest to you",
+                symbol: "arrow.up.forward.app",
+                play: { openURL(ScannerLinks.broadcastifyNearMe) })
             if let code = model.currentStateCode,
-               let stateURL = ScannerLinks.stateFeedsURL(stateCode: code) {
-                stationRow("Every \(code) scanner feed",
-                           detail: "Pick your county on Broadcastify",
-                           symbol: "list.bullet",
-                           play: { openURL(stateURL) })
+                let stateURL = ScannerLinks.stateFeedsURL(stateCode: code)
+            {
+                stationRow(
+                    "Every \(code) scanner feed",
+                    detail: "Pick your county on Broadcastify",
+                    symbol: "list.bullet",
+                    play: { openURL(stateURL) })
             }
-            stationRow("Recordings (a few minutes behind)",
-                       detail: "OpenMHz, a volunteer archive of dispatch radio",
-                       symbol: "clock.arrow.circlepath",
-                       play: { openURL(ScannerLinks.openMHz) })
-            Text("Scanner listening rules differ by state — where it isn't "
-                 + "allowed while driving, listen only when parked.")
-                .scaledFont(.caption2)
-                .foregroundStyle(.secondary)
+            stationRow(
+                "Recordings (a few minutes behind)",
+                detail: "OpenMHz, a volunteer archive of dispatch radio",
+                symbol: "clock.arrow.circlepath",
+                play: { openURL(ScannerLinks.openMHz) })
+            Text(
+                "Scanner listening rules differ by state — where it isn't "
+                    + "allowed while driving, listen only when parked."
+            )
+            .scaledFont(.caption2)
+            .foregroundStyle(.secondary)
         }
     }
 
@@ -2928,7 +3091,8 @@ struct NavigationHUD: View {
         // Paused is not on the air: the row kept its pause button, and the
         // first press stopped a silent radio instead of starting it.
         guard !model.radio.isPaused,
-              let playing = model.radio.playingChannelID else { return false }
+            let playing = model.radio.playingChannelID
+        else { return false }
         return model.radio.channels.contains { $0.id == playing }
     }
 
@@ -2939,9 +3103,12 @@ struct NavigationHUD: View {
         VStack(alignment: .leading, spacing: 6) {
             radioSectionTitle("Emergency weather radio")
             HStack(spacing: 8) {
-                Picker("Station", selection: Binding(
-                    get: { radioChannelID },
-                    set: { pickStation($0) })) {
+                Picker(
+                    "Station",
+                    selection: Binding(
+                        get: { radioChannelID },
+                        set: { pickStation($0) })
+                ) {
                     ForEach(model.radio.channels) { channel in
                         Text(channel.name).tag(channel.id)
                     }
@@ -2955,18 +3122,20 @@ struct NavigationHUD: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 // The same controls as every row: back and forward step
                 // through the relays while one is on the air.
-                rowTransport(playing: weatherRadioPlaying, name: "the weather radio",
-                             symbol: "play.fill",
-                             play: {
-                                 if let channel = model.radio.channels.first(where: { $0.id == radioChannelID })
-                                     ?? model.effectivePosition.flatMap({ model.radio.nearestChannel(to: $0)?.channel })
-                                     ?? model.radio.nearestChannel(stateCode: model.currentStateCode) {
-                                     playStation(channel)
-                                 }
-                             },
-                             pause: { model.radio.stop() },
-                             back: { stepWeatherRadio(by: -1) },
-                             forward: { stepWeatherRadio(by: 1) })
+                rowTransport(
+                    playing: weatherRadioPlaying, name: "the weather radio",
+                    symbol: "play.fill",
+                    play: {
+                        if let channel = model.radio.channels.first(where: { $0.id == radioChannelID })
+                            ?? model.effectivePosition.flatMap({ model.radio.nearestChannel(to: $0)?.channel })
+                            ?? model.radio.nearestChannel(stateCode: model.currentStateCode)
+                        {
+                            playStation(channel)
+                        }
+                    },
+                    pause: { model.radio.stop() },
+                    back: { stepWeatherRadio(by: -1) },
+                    forward: { stepWeatherRadio(by: 1) })
             }
             .padding(.trailing, 12)
             .onAppear { preselectNearestStation() }
@@ -2985,25 +3154,31 @@ struct NavigationHUD: View {
             if let miles = nearestStationMiles {
                 // A relay picked by hand is not "closest", and the reason a
                 // far one is the best on offer does not apply to it.
-                let closest = model.nearestStationID == nil
+                let closest =
+                    model.nearestStationID == nil
                     || radioChannelID == model.nearestStationID
-                Text(!closest
-                     ? String(format: "This relay — %.0f mi away. It covers "
-                              + "its own area, not yours.", miles)
-                     : miles < 60
-                     ? String(format: "Closest relay — %.0f mi away", miles)
-                     : String(format: "Closest relay — %.0f mi away. It covers "
-                              + "its own area, not yours; your local "
-                              + "transmitter isn't relayed online.", miles))
-                    .scaledFont(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+                Text(
+                    !closest
+                        ? String(
+                            format: "This relay — %.0f mi away. It covers "
+                                + "its own area, not yours.", miles)
+                        : miles < 60
+                            ? String(format: "Closest relay — %.0f mi away", miles)
+                            : String(
+                                format: "Closest relay — %.0f mi away. It covers "
+                                    + "its own area, not yours; your local "
+                                    + "transmitter isn't relayed online.", miles)
+                )
+                .scaledFont(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
             }
             // Only worth a line when it says something the title doesn't —
             // "Playing <station>" under a heading already naming the station
             // is noise.
             if let status = model.radio.status,
-               !status.hasPrefix("Playing ") {
+                !status.hasPrefix("Playing ")
+            {
                 Text(status).scaledFont(.caption).foregroundStyle(.secondary)
             }
         }
@@ -3021,15 +3196,18 @@ struct NavigationHUD: View {
             // gains a stream URL (trucker_radio.json) lights up.
             // Playable stations lead; channels with no internet relay
             // collapse into one line below instead of a wall of grayed rows.
-            ForEach(TruckerRadio.frequencyGuide.filter {
-                model.radio.cabStream(for: $0.0) != nil
-            }, id: \.0) { channel, what in
+            ForEach(
+                TruckerRadio.frequencyGuide.filter {
+                    model.radio.cabStream(for: $0.0) != nil
+                }, id: \.0
+            ) { channel, what in
                 if let stream = model.radio.cabStream(for: channel) {
-                    stationRow(channel, detail: what,
-                               playing: model.radio.playingChannelID == stream.id
-                                   && !model.radio.isPaused,
-                               play: { model.radio.play(stream) },
-                               pause: { model.radio.stop() })
+                    stationRow(
+                        channel, detail: what,
+                        playing: model.radio.playingChannelID == stream.id
+                            && !model.radio.isPaused,
+                        play: { model.radio.play(stream) },
+                        pause: { model.radio.stop() })
                 }
             }
             // No law-enforcement row. There is no lawful, keyless feed to
@@ -3043,7 +3221,8 @@ struct NavigationHUD: View {
             // Trucker mode lists every cab channel (CB needs a CB set);
             // everyone else sees only what a normal car radio can tune —
             // the band, the dial position, and what that station reports.
-            let tunable: [String] = model.truckerUI
+            let tunable: [String] =
+                model.truckerUI
                 ? overAir.map { "\($0.0) — \(TruckerRadio.shortPurpose($0.0))" }
                 : overAir.compactMap { entry in
                     TruckerRadio.carBandLabel(entry.0).map {
@@ -3051,10 +3230,12 @@ struct NavigationHUD: View {
                     }
                 }
             if !tunable.isEmpty {
-                Text((model.truckerUI ? "Car radio only: " : "Car radio: ")
-                     + tunable.joined(separator: " · "))
-                    .scaledFont(.caption2)
-                    .foregroundStyle(.secondary)
+                Text(
+                    (model.truckerUI ? "Car radio only: " : "Car radio: ")
+                        + tunable.joined(separator: " · ")
+                )
+                .scaledFont(.caption2)
+                .foregroundStyle(.secondary)
             }
         }
     }
@@ -3082,26 +3263,27 @@ struct NavigationHUD: View {
         let detail = [station.dialLabel, station.genre.isEmpty ? nil : station.genre]
             .compactMap { $0 }.joined(separator: " · ")
         let current = model.radio.playingChannelID == station.channel.id
-        return stationRow(station.name, detail: detail,
-                          playing: current && !model.radio.isPaused,
-                          play: {
-                              if current {
-                                  model.radio.pauseOrResume()   // back on the air
-                              } else {
-                                  // The visible list IS the queue — back and
-                                  // forward (and the mini player's skip) walk
-                                  // these stations.
-                                  let channels = model.radioBrowser.stations.map(\.channel)
-                                  let start = channels.firstIndex { $0.id == station.channel.id } ?? 0
-                                  model.radio.playQueue(
-                                      channels,
-                                      label: stationSearch.isEmpty ? "these stations" : stationSearch,
-                                      startAt: start)
-                              }
-                          },
-                          pause: { model.radio.pauseOrResume() },
-                          back: { _ = model.radio.previousStation() },
-                          forward: { _ = model.radio.nextStation() })
+        return stationRow(
+            station.name, detail: detail,
+            playing: current && !model.radio.isPaused,
+            play: {
+                if current {
+                    model.radio.pauseOrResume()  // back on the air
+                } else {
+                    // The visible list IS the queue — back and
+                    // forward (and the mini player's skip) walk
+                    // these stations.
+                    let channels = model.radioBrowser.stations.map(\.channel)
+                    let start = channels.firstIndex { $0.id == station.channel.id } ?? 0
+                    model.radio.playQueue(
+                        channels,
+                        label: stationSearch.isEmpty ? "these stations" : stationSearch,
+                        startAt: start)
+                }
+            },
+            pause: { model.radio.pauseOrResume() },
+            back: { _ = model.radio.previousStation() },
+            forward: { _ = model.radio.nextStation() })
     }
 
     @ViewBuilder
@@ -3113,7 +3295,7 @@ struct NavigationHUD: View {
             // of the two.
             ProgressView().controlSize(.small).tint(Theme.onCTA)
         } else if kind == .rest {
-            BenchIcon(size: 16)   // the actual park bench
+            BenchIcon(size: 16)  // the actual park bench
         } else {
             Image(systemName: kind.symbol)
                 .scaledFont(size: 15, weight: .semibold)
@@ -3133,16 +3315,18 @@ struct NavigationHUD: View {
         let currentMile = (model.navigation.guidance?.alongMeters ?? 0) / 1609.344
         let inMiles = max(seg.startMile - currentMile, 0)
         return Label(
-            String(format: "%.1f%% (%.1f°) grade in %.1f mi",
-                   abs(seg.gradePercent), abs(seg.gradeDegrees), inMiles),
-            systemImage: seg.gradePercent >= 0 ? "arrow.up.right" : "arrow.down.right")
-            .scaledFont(.footnote, weight: .bold)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
-            .background(Theme.riskYellow.opacity(0.92))
-            .foregroundStyle(.black)
-            .clipShape(Capsule())
-            .shadow(color: Theme.cardShadow, radius: 8, y: 3)
+            String(
+                format: "%.1f%% (%.1f°) grade in %.1f mi",
+                abs(seg.gradePercent), abs(seg.gradeDegrees), inMiles),
+            systemImage: seg.gradePercent >= 0 ? "arrow.up.right" : "arrow.down.right"
+        )
+        .scaledFont(.footnote, weight: .bold)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(Theme.riskYellow.opacity(0.92))
+        .foregroundStyle(.black)
+        .clipShape(Capsule())
+        .shadow(color: Theme.cardShadow, radius: 8, y: 3)
     }
 
     /// FMCSA §395.3 hours-of-service checkpoints (trucker mode), in plain
@@ -3151,7 +3335,8 @@ struct NavigationHUD: View {
         let text: String
         switch model.hosStatus {
         case .breakSoon(let until):
-            text = until < 90
+            text =
+                until < 90
                 ? "Driving hours: 30-min break due in 1 min"
                 : String(format: "Driving hours: 30-min break due in %.0f min", until / 60)
         case .breakDue:
@@ -3165,13 +3350,14 @@ struct NavigationHUD: View {
             .scaledFont(.footnote, weight: .bold)
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
-            .background(model.hosStatus == .limitReached
-                        ? Theme.riskRed.opacity(0.92) : Theme.riskYellow.opacity(0.92))
+            .background(
+                model.hosStatus == .limitReached
+                    ? Theme.riskRed.opacity(0.92) : Theme.riskYellow.opacity(0.92)
+            )
             .foregroundStyle(model.hosStatus == .limitReached ? .white : .black)
             .clipShape(Capsule())
             .shadow(color: Theme.cardShadow, radius: 8, y: 3)
     }
-
 
     /// Hands-free music: play/pause, skip, shuffle — mirrored as Siri App
     /// Intents ("skip track in FLOWS") so nothing needs a tap while driving.
@@ -3185,114 +3371,129 @@ struct NavigationHUD: View {
             // and its "FM" tile beside the arrows was a second door to it
             // (owner, 2026-10-01).
             if model.musicProvider != .radio {
-            Button {
-                showMusicMenu.toggle()
-            } label: {
-                Group {
-                    if model.musicControllable, let art = music.artwork {
-                        Image(decorative: art, scale: 1)
-                            .resizable()
-                            .scaledToFill()
-                    } else {
-                        // The active SERVICE, visibly: a brand-colored
-                        // monogram (logos need each service's asset license).
-                        Text(model.musicProvider.monogram)
-                            .scaledFont(size: 14, weight: .heavy)
-                            .foregroundStyle(.white)
+                Button {
+                    showMusicMenu.toggle()
+                } label: {
+                    Group {
+                        if model.musicControllable, let art = music.artwork {
+                            Image(decorative: art, scale: 1)
+                                .resizable()
+                                .scaledToFill()
+                        } else {
+                            // The active SERVICE, visibly: a brand-colored
+                            // monogram (logos need each service's asset license).
+                            Text(model.musicProvider.monogram)
+                                .scaledFont(size: 14, weight: .heavy)
+                                .foregroundStyle(.white)
+                        }
                     }
-                }
-                .frame(width: 30, height: 30)
-                .background(model.musicControllable && music.artwork != nil
+                    .frame(width: 30, height: 30)
+                    .background(
+                        model.musicControllable && music.artwork != nil
                             ? Color.black.opacity(0.08)
-                            : model.musicProvider.badgeColor)
-                .clipShape(RoundedRectangle(cornerRadius: 6))
-            }
-            .buttonStyle(.plain)
-            .help(music.trackName.isEmpty
-                  ? model.musicProvider.displayName : music.trackName)
+                            : model.musicProvider.badgeColor
+                    )
+                    .clipShape(RoundedRectangle(cornerRadius: 6))
+                }
+                .buttonStyle(.plain)
+                .help(
+                    music.trackName.isEmpty
+                        ? model.musicProvider.displayName : music.trackName)
             }
             // The token-aware gate, like the skip button below: a linked
             // Spotify on iPhone gets back and play/pause, not "Open Spotify".
             if model.musicControllable {
-            Button {
-                // Radio walks its own station queue, and starts one when
-                // there isn't one yet — the arrows are never dead.
-                if model.musicProvider == .radio {
-                    model.radioStep(forward: false)
-                } else {
-                    music.back()
+                Button {
+                    // Radio walks its own station queue, and starts one when
+                    // there isn't one yet — the arrows are never dead.
+                    if model.musicProvider == .radio {
+                        model.radioStep(forward: false)
+                    } else {
+                        music.back()
+                    }
+                } label: {
+                    Image(systemName: "backward.fill")
+                        .frame(width: 30, height: Theme.tapMinimum)
                 }
-            } label: {
-                Image(systemName: "backward.fill")
-                    .frame(width: 30, height: Theme.tapMinimum)
-            }
-            .buttonStyle(.plain)
-            .help(model.musicProvider == .radio ? "Previous station" : "Previous track")
-            .accessibilityLabel(model.musicProvider == .radio
-                                ? "Previous station" : "Previous track")
-            // Shows PAUSE while playing (press to stop), PLAY while paused.
-            Button {
-                // Refused Apple Music: open the music card, which says so
-                // and has the button to Settings.
-                if music.appleMusicRefused { showMusicMenu = true }
-                model.playMusic()
-            } label: {
-                Image(systemName: music.isPlaying ? "pause.fill" : "play.fill")
-                    .frame(width: 30, height: Theme.tapMinimum)
-            }
-            .buttonStyle(.plain)
-            .help(music.isPlaying ? "Pause" : "Play")
-            .accessibilityLabel(music.isPlaying ? "Pause" : "Play")
+                .buttonStyle(.plain)
+                .help(model.musicProvider == .radio ? "Previous station" : "Previous track")
+                .accessibilityLabel(
+                    model.musicProvider == .radio
+                        ? "Previous station" : "Previous track")
+                // Shows PAUSE while playing (press to stop), PLAY while paused.
+                Button {
+                    // Refused Apple Music: open the music card, which says so
+                    // and has the button to Settings.
+                    if music.appleMusicRefused { showMusicMenu = true }
+                    model.playMusic()
+                } label: {
+                    Image(systemName: music.isPlaying ? "pause.fill" : "play.fill")
+                        .frame(width: 30, height: Theme.tapMinimum)
+                }
+                .buttonStyle(.plain)
+                .help(music.isPlaying ? "Pause" : "Play")
+                .accessibilityLabel(music.isPlaying ? "Pause" : "Play")
             } else {
-            // HONEST CONTROLS: this service can't be driven from inside
-            // FLOWS on this platform (it needs the service's own kit and
-            // key) — one clear "open the app" beats skip buttons that
-            // secretly just launch it. AM/FM is the exception: FLOWS plays
-            // that itself, so it says what it is rather than "open" it, and
-            // it names the station once one is on.
-            let onAir = model.radio.lastPlayed?.name
-            let isDial = model.musicProvider == .radio
-            Button { model.playMusic() } label: {
-                Label(isDial ? (onAir ?? "AM/FM radio")
-                             : "Open \(model.musicProvider.displayName)",
-                      systemImage: isDial ? "dot.radiowaves.left.and.right"
-                                          : "arrow.up.forward.app")
+                // HONEST CONTROLS: this service can't be driven from inside
+                // FLOWS on this platform (it needs the service's own kit and
+                // key) — one clear "open the app" beats skip buttons that
+                // secretly just launch it. AM/FM is the exception: FLOWS plays
+                // that itself, so it says what it is rather than "open" it, and
+                // it names the station once one is on.
+                let onAir = model.radio.lastPlayed?.name
+                let isDial = model.musicProvider == .radio
+                Button {
+                    model.playMusic()
+                } label: {
+                    Label(
+                        isDial
+                            ? (onAir ?? "AM/FM radio")
+                            : "Open \(model.musicProvider.displayName)",
+                        systemImage: isDial
+                            ? "dot.radiowaves.left.and.right"
+                            : "arrow.up.forward.app"
+                    )
                     .scaledFont(.caption, weight: .semibold)
                     .lineLimit(1)
                     .padding(.horizontal, 8)
                     .frame(height: Theme.tapMinimum)
-            }
-            .buttonStyle(.plain)
-            .help(isDial ? "Open the dial"
-                         : "Playback controls live in \(model.musicProvider.displayName)")
+                }
+                .buttonStyle(.plain)
+                .help(
+                    isDial
+                        ? "Open the dial"
+                        : "Playback controls live in \(model.musicProvider.displayName)")
             }
             if model.musicControllable {
-            Button {
-                if model.musicProvider == .radio {
-                    model.radioStep(forward: true)
-                } else {
-                    music.skip()
+                Button {
+                    if model.musicProvider == .radio {
+                        model.radioStep(forward: true)
+                    } else {
+                        music.skip()
+                    }
+                } label: {
+                    Image(systemName: "forward.fill")
+                        .frame(width: 30, height: Theme.tapMinimum)
                 }
-            } label: {
-                Image(systemName: "forward.fill")
-                    .frame(width: 30, height: Theme.tapMinimum)
-            }
-            .buttonStyle(.plain)
-            .help(model.musicProvider == .radio ? "Next station" : "Next track")
-            .accessibilityLabel(model.musicProvider == .radio
-                                ? "Next station" : "Next track")
-            // Cycles shuffle → in order → loop. Live radio has no play
-            // order, so the button doesn't appear for it.
-            if model.musicProvider != .radio {
-            Button { music.cyclePlayOrder() } label: {
-                Image(systemName: music.playOrder.symbol)
-                    .frame(width: 30, height: Theme.tapMinimum)
-                    .foregroundStyle(music.playOrder == .ordered ? Color.primary : Color.blue)
-            }
-            .buttonStyle(.plain)
-            .help("Play order: \(music.playOrder.rawValue)")
-            .accessibilityLabel("Play order: \(music.playOrder.rawValue)")
-            }
+                .buttonStyle(.plain)
+                .help(model.musicProvider == .radio ? "Next station" : "Next track")
+                .accessibilityLabel(
+                    model.musicProvider == .radio
+                        ? "Next station" : "Next track")
+                // Cycles shuffle → in order → loop. Live radio has no play
+                // order, so the button doesn't appear for it.
+                if model.musicProvider != .radio {
+                    Button {
+                        music.cyclePlayOrder()
+                    } label: {
+                        Image(systemName: music.playOrder.symbol)
+                            .frame(width: 30, height: Theme.tapMinimum)
+                            .foregroundStyle(music.playOrder == .ordered ? Color.primary : Color.blue)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Play order: \(music.playOrder.rawValue)")
+                    .accessibilityLabel("Play order: \(music.playOrder.rawValue)")
+                }
             }
         }
         .scaledFont(size: 14, weight: .semibold)
@@ -3311,31 +3512,34 @@ struct NavigationHUD: View {
                 Label("Music", systemImage: "music.note")
                     .scaledFont(size: 15, weight: .bold)
                 Spacer()
-                Button { showMusicMenu = false } label: {
+                Button {
+                    showMusicMenu = false
+                } label: {
                     Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
                 }
                 .buttonStyle(.plain)
             }
             #if os(iOS)
-            // Apple Music was refused for FLOWS: play does nothing until it
-            // is turned on, so say that and give the one tap that fixes it.
-            if music.appleMusicRefused,
-               let settings = URL(string: UIApplication.openSettingsURLString) {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Apple Music is turned off for FLOWS, so play can't start it.")
-                        .scaledFont(size: 13, weight: .semibold)
-                        .fixedSize(horizontal: false, vertical: true)
-                    Link(destination: settings) {
-                        Text("Open Settings")
-                            .scaledFont(size: 14, weight: .heavy)
-                            .frame(maxWidth: .infinity)
-                            .frame(minHeight: Theme.tapMinimum)
-                            .background(Theme.cta)
-                            .foregroundStyle(Theme.onCTA)
-                            .clipShape(Capsule())
+                // Apple Music was refused for FLOWS: play does nothing until it
+                // is turned on, so say that and give the one tap that fixes it.
+                if music.appleMusicRefused,
+                    let settings = URL(string: UIApplication.openSettingsURLString)
+                {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Apple Music is turned off for FLOWS, so play can't start it.")
+                            .scaledFont(size: 13, weight: .semibold)
+                            .fixedSize(horizontal: false, vertical: true)
+                        Link(destination: settings) {
+                            Text("Open Settings")
+                                .scaledFont(size: 14, weight: .heavy)
+                                .frame(maxWidth: .infinity)
+                                .frame(minHeight: Theme.tapMinimum)
+                                .background(Theme.cta)
+                                .foregroundStyle(Theme.onCTA)
+                                .clipShape(Capsule())
+                        }
                     }
                 }
-            }
             #endif
             // FLOWS's own mic — no "Hey Siri" needed: say a genre, artist,
             // or mood and it routes through the picked service (catalog
@@ -3373,24 +3577,30 @@ struct NavigationHUD: View {
             .accessibilityLabel(musicMicListening ? "Listening" : "Say what to play")
             // Per-service rows — what THIS provider can actually do.
             if model.musicProvider == .radio {
-                musicMenuRow("Stations near you",
-                             symbol: "antenna.radiowaves.left.and.right",
-                             detail: "What's on the air around here") {
+                musicMenuRow(
+                    "Stations near you",
+                    symbol: "antenna.radiowaves.left.and.right",
+                    detail: "What's on the air around here"
+                ) {
                     model.playMusic()
                 }
                 if !model.radio.queueLabel.isEmpty, model.radio.queue.count > 1 {
-                    Text("\(model.radio.queueLabel.capitalized) — station "
-                         + "\(model.radio.queueIndex + 1) of \(model.radio.queue.count). "
-                         + "The ⏭ button, or \u{201C}Hey Siri, skip in FLOWS\u{201D}, plays another one.")
-                        .scaledFont(.caption2)
-                        .foregroundStyle(.secondary)
+                    Text(
+                        "\(model.radio.queueLabel.capitalized) — station "
+                            + "\(model.radio.queueIndex + 1) of \(model.radio.queue.count). "
+                            + "The ⏭ button, or \u{201C}Hey Siri, skip in FLOWS\u{201D}, plays another one."
+                    )
+                    .scaledFont(.caption2)
+                    .foregroundStyle(.secondary)
                 }
             } else if !model.musicControllable {
                 // No control API exists for this service — one honest row
                 // into its own app (the genre chips below deep-link there).
-                musicMenuRow("Open \(model.musicProvider.displayName)",
-                             symbol: "arrow.up.forward.app",
-                             detail: "Playback controls live there") {
+                musicMenuRow(
+                    "Open \(model.musicProvider.displayName)",
+                    symbol: "arrow.up.forward.app",
+                    detail: "Playback controls live there"
+                ) {
                     model.musicProvider.openApp()
                 }
             } else if model.musicProvider == .spotify {
@@ -3399,17 +3609,23 @@ struct NavigationHUD: View {
                 if let note = spotify.status {
                     Text(note).scaledFont(.caption).foregroundStyle(.secondary)
                 }
-                musicMenuRow("Keep playing", symbol: "clock.arrow.circlepath",
-                             detail: "Pick up where Spotify left off") {
+                musicMenuRow(
+                    "Keep playing", symbol: "clock.arrow.circlepath",
+                    detail: "Pick up where Spotify left off"
+                ) {
                     music.resumeRecent()
                 }
             } else {
-                musicMenuRow("Recently played", symbol: "clock.arrow.circlepath",
-                             detail: "Keep playing your last songs") {
+                musicMenuRow(
+                    "Recently played", symbol: "clock.arrow.circlepath",
+                    detail: "Keep playing your last songs"
+                ) {
                     music.resumeRecent()
                 }
-                musicMenuRow("My station", symbol: "dot.radiowaves.left.and.right",
-                             detail: "Your own song mix") {
+                musicMenuRow(
+                    "My station", symbol: "dot.radiowaves.left.and.right",
+                    detail: "Your own song mix"
+                ) {
                     music.playMyStation()
                 }
             }
@@ -3493,7 +3709,9 @@ struct NavigationHUD: View {
                 Text("What do you play music with?")
                     .scaledFont(size: 15, weight: .bold)
                 Spacer()
-                Button { model.showMusicProviderPrompt = false } label: {
+                Button {
+                    model.showMusicProviderPrompt = false
+                } label: {
                     Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
                 }
                 .buttonStyle(.plain)
@@ -3511,28 +3729,34 @@ struct NavigationHUD: View {
                             // hard-wired to Apple Music, so the card told a
                             // driver on AM/FM that Apple Music was their
                             // service.
-                            .background(provider == model.musicProvider
-                                        ? Theme.riskGreen.opacity(0.18)
-                                        : Theme.fill(0.05))
+                            .background(
+                                provider == model.musicProvider
+                                    ? Theme.riskGreen.opacity(0.18)
+                                    : Theme.fill(0.05)
+                            )
                             .clipShape(Capsule())
                     }
                     .buttonStyle(.plain)
                 }
             }
-            Text("Apple Music plays right here in FLOWS. Spotify can too — "
-                 + "on iPhone add a Spotify token (⚙ Settings → Keys "
-                 + "for extra info). No other music service lets outside apps "
-                 + "control it, so the rest open in their own app. Change "
-                 + "your pick anytime under ⚙ Settings.")
-                .scaledFont(.caption)
-                .foregroundStyle(.secondary)
+            Text(
+                "Apple Music plays right here in FLOWS. Spotify can too — "
+                    + "on iPhone add a Spotify token (⚙ Settings → Keys "
+                    + "for extra info). No other music service lets outside apps "
+                    + "control it, so the rest open in their own app. Change "
+                    + "your pick anytime under ⚙ Settings."
+            )
+            .scaledFont(.caption)
+            .foregroundStyle(.secondary)
         }
         .floatingCard()
         .frame(maxWidth: isCompact ? .infinity : golden.cardMax)
     }
 
-    private func musicMenuRow(_ title: String, symbol: String, detail: String,
-                              action: @escaping () -> Void) -> some View {
+    private func musicMenuRow(
+        _ title: String, symbol: String, detail: String,
+        action: @escaping () -> Void
+    ) -> some View {
         Button {
             action()
             showMusicMenu = false

@@ -22,7 +22,7 @@ actor ZCTAFetcher {
         let ring: [CLLocationCoordinate2D]
     }
 
-    private var cache: [String: ZCTA] = [:]       // cell key → ZCTA
+    private var cache: [String: ZCTA] = [:]  // cell key → ZCTA
     private var byCode: [String: ZCTA] = [:]
     private var inFlight = Set<String>()
 
@@ -43,30 +43,34 @@ actor ZCTAFetcher {
         if let hit = cache[cell], HazardFeedScores.pointInPolygon(point, hit.ring) { return hit }
         if let known = byCode.values.first(where: {
             HazardFeedScores.pointInPolygon(point, $0.ring)
-        }) { return known }
+        }) {
+            return known
+        }
         guard !inFlight.contains(key) else { return nil }
         // US envelope only — TIGERweb has no Canada/Mexico coverage. The
         // map's blob gate reads the same box, so the two never disagree.
         guard RiskAreaFallback.inZIPBox(point) else { return nil }
         inFlight.insert(key)
         defer { inFlight.remove(key) }
-        let url = "https://tigerweb.geo.census.gov/arcgis/rest/services/TIGERweb/"
+        let url =
+            "https://tigerweb.geo.census.gov/arcgis/rest/services/TIGERweb/"
             + "PUMA_TAD_TAZ_UGA_ZCTA/MapServer/1/query"
             + String(format: "?geometry=%.4f,%.4f", point.longitude, point.latitude)
             + "&geometryType=esriGeometryPoint&inSR=4326"
             + "&spatialRel=esriSpatialRelIntersects&outFields=ZCTA5"
             + "&returnGeometry=true&outSR=4326&geometryPrecision=4&f=json"
         guard let u = URL(string: url),
-              let (data, resp) = try? await ThrottledNet.fetch(u),
-              (resp as? HTTPURLResponse)?.statusCode == 200,
-              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let features = json["features"] as? [[String: Any]],
-              let first = features.first,
-              let attrs = first["attributes"] as? [String: Any],
-              let code = attrs["ZCTA5"] as? String,
-              let geometry = first["geometry"] as? [String: Any],
-              let rings = geometry["rings"] as? [[[Double]]],
-              let outer = rings.max(by: { $0.count < $1.count }) else { return nil }
+            let (data, resp) = try? await ThrottledNet.fetch(u),
+            (resp as? HTTPURLResponse)?.statusCode == 200,
+            let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+            let features = json["features"] as? [[String: Any]],
+            let first = features.first,
+            let attrs = first["attributes"] as? [String: Any],
+            let code = attrs["ZCTA5"] as? String,
+            let geometry = first["geometry"] as? [String: Any],
+            let rings = geometry["rings"] as? [[[Double]]],
+            let outer = rings.max(by: { $0.count < $1.count })
+        else { return nil }
         // Decimate long rings for map drawing.
         let step = max(outer.count / 200, 1)
         let ring = stride(from: 0, to: outer.count, by: step).compactMap { i -> CLLocationCoordinate2D? in
@@ -113,7 +117,8 @@ actor TomTomFuel {
         if let hit = cache[key], Date().timeIntervalSince(hit.fetched) < ttl {
             return hit.price
         }
-        let url = "https://api.tomtom.com/search/2/poiSearch/gas%20station.json"
+        let url =
+            "https://api.tomtom.com/search/2/poiSearch/gas%20station.json"
             + "?key=\(apiKey)&lat=\(point.latitude)&lon=\(point.longitude)"
             + "&radius=500&limit=1&fuelSet=\(fuel == .diesel ? "Diesel" : "Petrol")"
         // Only a completed, parsed response is cacheable — "no priceInfo" from
@@ -121,15 +126,17 @@ actor TomTomFuel {
         // cache nil). A transport failure is UNKNOWN: caching it would pin
         // "no live price" for the 6 h TTL after one radio dropout.
         guard let u = URL(string: url),
-              let (data, resp) = try? await ThrottledNet.fetch(u),
-              (resp as? HTTPURLResponse)?.statusCode == 200,
-              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let results = json["results"] as? [[String: Any]] else { return nil }
+            let (data, resp) = try? await ThrottledNet.fetch(u),
+            (resp as? HTTPURLResponse)?.statusCode == 200,
+            let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+            let results = json["results"] as? [[String: Any]]
+        else { return nil }
         var out: Double?
         if let first = results.first,
-           let priceInfo = first["priceInfo"] as? [String: Any],
-           let prices = priceInfo["fuelPrices"] as? [[String: Any]],
-           let p = prices.first?["price"] as? Double {
+            let priceInfo = first["priceInfo"] as? [String: Any],
+            let prices = priceInfo["fuelPrices"] as? [[String: Any]],
+            let p = prices.first?["price"] as? Double
+        {
             out = p
         }
         cache[key] = (Date(), out)

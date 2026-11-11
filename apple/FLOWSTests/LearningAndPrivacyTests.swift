@@ -37,8 +37,9 @@ final class LearningAndPrivacyTests: XCTestCase {
         XCTAssertNil(onDisk.range(of: Data(secret.utf8)))
 
         // …and the app reads it back byte-for-byte.
-        XCTAssertEqual(SecureBehaviorStore.read(url).map { String(decoding: $0, as: UTF8.self) },
-                       secret)
+        XCTAssertEqual(
+            SecureBehaviorStore.read(url).map { String(decoding: $0, as: UTF8.self) },
+            secret)
     }
 
     /// A tampered or truncated file authenticates as garbage and reads as NO
@@ -47,7 +48,7 @@ final class LearningAndPrivacyTests: XCTestCase {
         let url = tempDir().appendingPathComponent("tampered.json")
         SecureBehaviorStore.write(Data("{\"a\":1}".utf8), to: url)
         var bytes = try Data(contentsOf: url)
-        bytes[bytes.count - 1] ^= 0xFF          // flip a byte in the tag
+        bytes[bytes.count - 1] ^= 0xFF  // flip a byte in the tag
         try bytes.write(to: url)
         XCTAssertNil(SecureBehaviorStore.read(url))
     }
@@ -65,8 +66,9 @@ final class LearningAndPrivacyTests: XCTestCase {
         let after = try Data(contentsOf: url)
         XCTAssertNil(after.range(of: Data(legacy.utf8)))
         // And a second read comes back through the sealed path.
-        XCTAssertEqual(SecureBehaviorStore.read(url).map { String(decoding: $0, as: UTF8.self) },
-                       legacy)
+        XCTAssertEqual(
+            SecureBehaviorStore.read(url).map { String(decoding: $0, as: UTF8.self) },
+            legacy)
     }
 
     /// The upgrade is expected, so it is not reported as tampering: every
@@ -91,22 +93,22 @@ final class LearningAndPrivacyTests: XCTestCase {
     }
 
     #if os(macOS)
-    /// A Mac's login keychain ignores the device-only class and rides Time
-    /// Machine, so the sealed files stay out of backups: a backup must never
-    /// hold both the key and the data.
-    func testSealedFilesStayOutOfMacBackups() throws {
-        let url = tempDir().appendingPathComponent("sealed.json")
-        XCTAssertTrue(SecureBehaviorStore.write(Data("{}".utf8), to: url))
-        let values = try url.resourceValues(forKeys: [.isExcludedFromBackupKey])
-        XCTAssertEqual(values.isExcludedFromBackup, true)
-    }
+        /// A Mac's login keychain ignores the device-only class and rides Time
+        /// Machine, so the sealed files stay out of backups: a backup must never
+        /// hold both the key and the data.
+        func testSealedFilesStayOutOfMacBackups() throws {
+            let url = tempDir().appendingPathComponent("sealed.json")
+            XCTAssertTrue(SecureBehaviorStore.write(Data("{}".utf8), to: url))
+            let values = try url.resourceValues(forKeys: [.isExcludedFromBackupKey])
+            XCTAssertEqual(values.isExcludedFromBackup, true)
+        }
     #endif
 
     // MARK: personal ETA correction
 
     func testETACorrectionLearnsAndClamps() {
         var p = DrivingProfile()
-        XCTAssertEqual(p.etaMultiplier, 1)   // unearned → no effect
+        XCTAssertEqual(p.etaMultiplier, 1)  // unearned → no effect
 
         // A driver who consistently takes 20% longer than the estimate.
         for _ in 0..<8 { p.recordArrival(predicted: 3600, actual: 4320) }
@@ -133,7 +135,7 @@ final class LearningAndPrivacyTests: XCTestCase {
 
         var outliers = DrivingProfile()
         for _ in 0..<10 { outliers.recordArrival(predicted: 3600, actual: 36_000) }
-        XCTAssertEqual(outliers.etaSamples, 0)   // 10× is not driving style
+        XCTAssertEqual(outliers.etaSamples, 0)  // 10× is not driving style
         XCTAssertEqual(outliers.etaMultiplier, 1)
     }
 
@@ -163,24 +165,26 @@ final class LearningAndPrivacyTests: XCTestCase {
     /// beat the restaurant the driver visits more often overall.
     func testContextBeatsRawFrequency() {
         let now = Date().timeIntervalSince1970
-        let ranked = DestinationPrediction.rank([
-            evidence("Office", context: 9, time: 12, total: 30),
-            evidence("Favorite diner", context: 0, time: 1, total: 44),
-        ], now: now)
+        let ranked = DestinationPrediction.rank(
+            [
+                evidence("Office", context: 9, time: 12, total: 30),
+                evidence("Favorite diner", context: 0, time: 1, total: 44),
+            ], now: now)
         XCTAssertEqual(ranked.first?.name, "Office")
         XCTAssertEqual(ranked.first?.reason, "You usually go here about now")
-        XCTAssertEqual(ranked.first?.score ?? 0, 1.0, accuracy: 1e-9)   // normalized
+        XCTAssertEqual(ranked.first?.score ?? 0, 1.0, accuracy: 1e-9)  // normalized
     }
 
     func testPredictionDecaysWithRecencyAndSkipsUnvisited() {
         let now = Date().timeIntervalSince1970
-        let ranked = DestinationPrediction.rank([
-            evidence("Stale", context: 4, total: 20, daysAgo: 200),
-            evidence("Fresh", context: 3, total: 12, daysAgo: 1),
-            evidence("Never", context: 0, time: 0, total: 0),
-        ], now: now)
+        let ranked = DestinationPrediction.rank(
+            [
+                evidence("Stale", context: 4, total: 20, daysAgo: 200),
+                evidence("Fresh", context: 3, total: 12, daysAgo: 1),
+                evidence("Never", context: 0, time: 0, total: 0),
+            ], now: now)
         XCTAssertEqual(ranked.first?.name, "Fresh")
-        XCTAssertFalse(ranked.contains { $0.name == "Never" })   // no evidence, no guess
+        XCTAssertFalse(ranked.contains { $0.name == "Never" })  // no evidence, no guess
     }
 
     /// A weak guess about where someone is going is worse than silence.
@@ -214,16 +218,18 @@ final class LearningAndPrivacyTests: XCTestCase {
         for i in 0..<14 {
             visiting.recordOrigin(lat: 419, lon: -874, t: now - (14 - Double(i)) * day)
         }
-        XCTAssertEqual(visiting.learnedHome(now: now, currentHome: old).map { Int($0.lat * 10) },
-                       430, "a two-week trip is not a move")
+        XCTAssertEqual(
+            visiting.learnedHome(now: now, currentHome: old).map { Int($0.lat * 10) },
+            430, "a two-week trip is not a move")
 
         // Six weeks of daily departures from the new city IS a move.
         var moved = store
         for i in 0..<45 {
             moved.recordOrigin(lat: 419, lon: -874, t: now - (45 - Double(i)) * day)
         }
-        XCTAssertEqual(moved.learnedHome(now: now, currentHome: old).map { Int($0.lat * 10) },
-                       419, "six weeks of daily departures is a relocation")
+        XCTAssertEqual(
+            moved.learnedHome(now: now, currentHome: old).map { Int($0.lat * 10) },
+            419, "six weeks of daily departures is a relocation")
     }
 
     // MARK: choice log
@@ -231,11 +237,14 @@ final class LearningAndPrivacyTests: XCTestCase {
     func testChoiceLogKeepsTheRejectedAlternatives() {
         var log = ChoiceLog()
         let options = (0..<4).map { i in
-            ChoiceLog.Option(aheadMiles: Double(i), detourMiles: Double(i) * 0.5,
-                             shownRank: i, chosen: i == 2)
+            ChoiceLog.Option(
+                aheadMiles: Double(i), detourMiles: Double(i) * 0.5,
+                shownRank: i, chosen: i == 2)
         }
-        log.record(ChoiceLog.Event(kind: "gas", t: 0, hourBucket: 2,
-                                   weekend: false, options: options))
+        log.record(
+            ChoiceLog.Event(
+                kind: "gas", t: 0, hourBucket: 2,
+                weekend: false, options: options))
         XCTAssertEqual(log.events.count, 1)
         // The losers are what make a weight identifiable — they must survive.
         XCTAssertEqual(log.events[0].options.count, 4)
@@ -243,20 +252,23 @@ final class LearningAndPrivacyTests: XCTestCase {
         XCTAssertEqual(log.events[0].options.first(where: \.chosen)?.shownRank, 2)
 
         // An event with no chosen row carries no label and is dropped.
-        log.record(ChoiceLog.Event(kind: "gas", t: 0, hourBucket: 2, weekend: false,
-                                   options: [ChoiceLog.Option(chosen: false)]))
+        log.record(
+            ChoiceLog.Event(
+                kind: "gas", t: 0, hourBucket: 2, weekend: false,
+                options: [ChoiceLog.Option(chosen: false)]))
         XCTAssertEqual(log.events.count, 1)
     }
 
     func testChoiceLogIsBounded() {
         var log = ChoiceLog()
         for i in 0..<(ChoiceLog.cap + 50) {
-            log.record(ChoiceLog.Event(
-                kind: "food", t: Double(i), hourBucket: 0, weekend: false,
-                options: [ChoiceLog.Option(shownRank: 0, chosen: true)]))
+            log.record(
+                ChoiceLog.Event(
+                    kind: "food", t: Double(i), hourBucket: 0, weekend: false,
+                    options: [ChoiceLog.Option(shownRank: 0, chosen: true)]))
         }
         XCTAssertEqual(log.events.count, ChoiceLog.cap)
-        XCTAssertEqual(log.events.last?.t, Double(ChoiceLog.cap + 49))   // newest kept
+        XCTAssertEqual(log.events.last?.t, Double(ChoiceLog.cap + 49))  // newest kept
     }
 
     // MARK: habit-cache coverage + stable feature encoding
@@ -298,7 +310,8 @@ final class LearningAndPrivacyTests: XCTestCase {
     /// it, and the brand city-table short-circuited ahead of the report even
     /// when one existed.
     func testDriverShowerReportOutranksTheBrandTable() {
-        let lat = 41.1234, lon = -95.4321
+        let lat = 41.1234
+        let lon = -95.4321
         // The report lands in the test runner's own preferences, which
         // persist between runs: left behind, the next run of this class
         // alone found the stop already disproved.
@@ -317,15 +330,17 @@ final class LearningAndPrivacyTests: XCTestCase {
             .disproven)
         // A different stop is unaffected — the report is location-scoped.
         XCTAssertNotEqual(
-            ShowerAvailability.forStop(named: "Love's Travel Stop",
-                                       lat: lat + 1, lon: lon + 1),
+            ShowerAvailability.forStop(
+                named: "Love's Travel Stop",
+                lat: lat + 1, lon: lon + 1),
             .disproven)
     }
 
     /// Each report is a truck stop the driver stood in; erasing what FLOWS
     /// learned left the list behind.
     func testErasingDropsTheShowerReports() {
-        let lat = 41.2345, lon = -95.5432
+        let lat = 41.2345
+        let lon = -95.5432
         let reportsKey = "flows.showersDisproved"
         UserDefaults.standard.removeObject(forKey: reportsKey)
         defer { UserDefaults.standard.removeObject(forKey: reportsKey) }
@@ -374,15 +389,18 @@ final class LearningAndPrivacyTests: XCTestCase {
         }
         defaults.set("abc123", forKey: "flows.someKey")
 
-        let moved = SecureStore.migrateFromDefaults(key: account, defaultsKey: "flows.someKey",
-                                                    defaults: defaults)
+        let moved = SecureStore.migrateFromDefaults(
+            key: account, defaultsKey: "flows.someKey",
+            defaults: defaults)
         XCTAssertEqual(moved, "abc123")
         XCTAssertEqual(SecureStore.get(account), "abc123")
         XCTAssertNil(defaults.object(forKey: "flows.someKey"))
 
         // The next launch reads the Keychain copy; nothing is left to move.
-        XCTAssertEqual(SecureStore.migrateFromDefaults(key: account, defaultsKey: "flows.someKey",
-                                                       defaults: defaults), "abc123")
+        XCTAssertEqual(
+            SecureStore.migrateFromDefaults(
+                key: account, defaultsKey: "flows.someKey",
+                defaults: defaults), "abc123")
     }
 
     // MARK: on-device fine-tune
@@ -397,8 +415,10 @@ final class LearningAndPrivacyTests: XCTestCase {
 
     private func rows(target: Double, count: Int) -> [[String: Double]] {
         (0..<count).map { i in
-            ["oLat": 43, "oLon": -89, "dLat": 44, "dLon": -88,
-             "week": Double(i % 52), "target": target, "weight": 1, "crossCountry": 0]
+            [
+                "oLat": 43, "oLon": -89, "dLat": 44, "dLon": -88,
+                "week": Double(i % 52), "target": target, "weight": 1, "crossCountry": 0,
+            ]
         }
     }
 
@@ -434,22 +454,33 @@ final class LearningAndPrivacyTests: XCTestCase {
     /// A fresh install clears the Keychain an earlier install left; an
     /// update never does. Every sign of an earlier launch keeps it.
     func testOnlyAFreshInstallClearsTheKeychain() {
-        XCTAssertTrue(FreshInstall.isFresh(markerPresent: false, preferenceKeys: [],
-                                           supportFileCount: 0))
+        XCTAssertTrue(
+            FreshInstall.isFresh(
+                markerPresent: false, preferenceKeys: [],
+                supportFileCount: 0))
         // Keys the system writes into the app's domain are not FLOWS's.
-        XCTAssertTrue(FreshInstall.isFresh(markerPresent: false,
-                                           preferenceKeys: ["AKLastLocale", "NSLanguages"],
-                                           supportFileCount: 0))
+        XCTAssertTrue(
+            FreshInstall.isFresh(
+                markerPresent: false,
+                preferenceKeys: ["AKLastLocale", "NSLanguages"],
+                supportFileCount: 0))
         // Launched before (this build or one from before the marker).
-        XCTAssertFalse(FreshInstall.isFresh(markerPresent: true, preferenceKeys: [],
-                                            supportFileCount: 0))
-        XCTAssertFalse(FreshInstall.isFresh(markerPresent: false,
-                                            preferenceKeys: ["flows.lastUsed"],
-                                            supportFileCount: 0))
-        XCTAssertFalse(FreshInstall.isFresh(markerPresent: false, preferenceKeys: [],
-                                            supportFileCount: 1))
-        XCTAssertEqual(Set(FreshInstall.keychainServices),
-                       ["com.flows.app.secure", "com.flows.app.behavior"])
+        XCTAssertFalse(
+            FreshInstall.isFresh(
+                markerPresent: true, preferenceKeys: [],
+                supportFileCount: 0))
+        XCTAssertFalse(
+            FreshInstall.isFresh(
+                markerPresent: false,
+                preferenceKeys: ["flows.lastUsed"],
+                supportFileCount: 0))
+        XCTAssertFalse(
+            FreshInstall.isFresh(
+                markerPresent: false, preferenceKeys: [],
+                supportFileCount: 1))
+        XCTAssertEqual(
+            Set(FreshInstall.keychainServices),
+            ["com.flows.app.secure", "com.flows.app.behavior"])
     }
 }
 
@@ -461,22 +492,28 @@ final class SmartcarExchangeTests: XCTestCase {
     func testOnlyTheTokenServerSayingNoEndsTheSignIn() {
         XCTAssertEqual(SmartcarLink.exchangeOutcome(statusCode: 200, hasAccessToken: true), .ok)
         // invalid_grant (revoked or expired) and a refused client.
-        XCTAssertEqual(SmartcarLink.exchangeOutcome(statusCode: 400, hasAccessToken: false),
-                       .rejected)
-        XCTAssertEqual(SmartcarLink.exchangeOutcome(statusCode: 401, hasAccessToken: false),
-                       .rejected)
+        XCTAssertEqual(
+            SmartcarLink.exchangeOutcome(statusCode: 400, hasAccessToken: false),
+            .rejected)
+        XCTAssertEqual(
+            SmartcarLink.exchangeOutcome(statusCode: 401, hasAccessToken: false),
+            .rejected)
     }
 
     func testNoAnswerOrAServerHiccupKeepsTheSignIn() {
-        XCTAssertEqual(SmartcarLink.exchangeOutcome(statusCode: nil, hasAccessToken: false),
-                       .unreachable)
-        XCTAssertEqual(SmartcarLink.exchangeOutcome(statusCode: 503, hasAccessToken: false),
-                       .unreachable)
-        XCTAssertEqual(SmartcarLink.exchangeOutcome(statusCode: 429, hasAccessToken: false),
-                       .unreachable)
+        XCTAssertEqual(
+            SmartcarLink.exchangeOutcome(statusCode: nil, hasAccessToken: false),
+            .unreachable)
+        XCTAssertEqual(
+            SmartcarLink.exchangeOutcome(statusCode: 503, hasAccessToken: false),
+            .unreachable)
+        XCTAssertEqual(
+            SmartcarLink.exchangeOutcome(statusCode: 429, hasAccessToken: false),
+            .unreachable)
         // A 200 with no token in it says nothing about the grant either.
-        XCTAssertEqual(SmartcarLink.exchangeOutcome(statusCode: 200, hasAccessToken: false),
-                       .unreachable)
+        XCTAssertEqual(
+            SmartcarLink.exchangeOutcome(statusCode: 200, hasAccessToken: false),
+            .unreachable)
     }
 }
 
@@ -486,9 +523,11 @@ final class RiskMapDateTests: XCTestCase {
     func testTheBuildStampReadsAsAPlainDate() throws {
         let utc = try XCTUnwrap(TimeZone(identifier: "UTC"))
         let usEnglish = Locale(identifier: "en_US")
-        XCTAssertEqual(RiskFieldService.builtDate("2026-07-04T11:39:45Z",
-                                                  locale: usEnglish, timeZone: utc),
-                       "July 4, 2026")
+        XCTAssertEqual(
+            RiskFieldService.builtDate(
+                "2026-07-04T11:39:45Z",
+                locale: usEnglish, timeZone: utc),
+            "July 4, 2026")
         XCTAssertNil(RiskFieldService.builtDate("not a date", locale: usEnglish, timeZone: utc))
     }
 }

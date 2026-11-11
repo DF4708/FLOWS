@@ -45,7 +45,6 @@ enum GradeProfile {
         segments.flatMap { [$0.startMile, $0.endMile, $0.gradePercent] }
     }
 
-
     /// Segment table from an elevation profile: elevations[i] at
     /// startMile + i·spacing. Missing samples (nil — a failed EPQS call)
     /// break the chain rather than fabricating a grade across the gap.

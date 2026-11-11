@@ -53,7 +53,8 @@ enum SpeechVoiceRules {
         let code = languageCode(language)
         return all.filter { languageCode($0.language) == code }.sorted { a, b in
             if a.quality != b.quality { return a.quality > b.quality }
-            let aHome = a.language == language, bHome = b.language == language
+            let aHome = a.language == language
+            let bHome = b.language == language
             if aHome != bHome { return aHome }
             if a.name != b.name { return a.name < b.name }
             return a.id < b.id
@@ -125,8 +126,10 @@ enum SpeechVoiceRules {
     /// `grace` after the hand-over means lost — except for a picked voice
     /// that has not begun: a natural voice is loaded before its first word,
     /// and a line still loading is not a lost one. It gets `loadGrace`.
-    static func lineIsLost(speaking: Bool, age: Duration, pickedVoice: Bool, began: Bool,
-                           grace: Duration, loadGrace: Duration) -> Bool {
+    static func lineIsLost(
+        speaking: Bool, age: Duration, pickedVoice: Bool, began: Bool,
+        grace: Duration, loadGrace: Duration
+    ) -> Bool {
         guard !speaking else { return false }
         return age > (pickedVoice && !began ? loadGrace : grace)
     }

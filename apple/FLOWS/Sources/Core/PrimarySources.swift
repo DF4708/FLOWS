@@ -34,7 +34,8 @@ enum MexicoFuelParsing {
             var prices: [String: Double] = [:]
             for pair in parts[1].split(separator: "\u{1D}") {
                 guard let eq = pair.lastIndex(of: "="),
-                      let bits = UInt64(pair[pair.index(after: eq)...], radix: 16) else { continue }
+                    let bits = UInt64(pair[pair.index(after: eq)...], radix: 16)
+                else { continue }
                 prices[String(pair[..<eq])] = Double(bitPattern: bits)
             }
             out[String(parts[0])] = prices
@@ -48,8 +49,11 @@ enum MexicoFuelParsing {
         var out: [String: CLLocationCoordinate2D] = [:]
         for row in flows_hazard_fuel_places(xml) {
             let parts = row.text.split(separator: "\u{1F}", omittingEmptySubsequences: false)
-            guard parts.count == 3, let lat = UInt64(parts[1], radix: 16), let lon = UInt64(parts[2], radix: 16) else { continue }
-            out[String(parts[0])] = CLLocationCoordinate2D(latitude: Double(bitPattern: lat), longitude: Double(bitPattern: lon))
+            guard parts.count == 3, let lat = UInt64(parts[1], radix: 16), let lon = UInt64(parts[2], radix: 16) else {
+                continue
+            }
+            out[String(parts[0])] = CLLocationCoordinate2D(
+                latitude: Double(bitPattern: lat), longitude: Double(bitPattern: lon))
         }
         return out
     }
@@ -66,8 +70,8 @@ actor MexicoFuelPrices {
     /// price(near:) maps every non-diesel fuel to "regular".
     struct Station {
         let coordinate: CLLocationCoordinate2D
-        let regular: Double?   // MXN/L
-        let diesel: Double?    // MXN/L
+        let regular: Double?  // MXN/L
+        let diesel: Double?  // MXN/L
     }
 
     private var grid: [Int: [Station]] = [:]
@@ -83,19 +87,22 @@ actor MexicoFuelPrices {
         loading = true
         defer { loading = false }
         guard let pricesURL = URL(string: "https://publicacionexterna.azurewebsites.net/publicaciones/prices"),
-              let placesURL = URL(string: "https://publicacionexterna.azurewebsites.net/publicaciones/places") else { return }
+            let placesURL = URL(string: "https://publicacionexterna.azurewebsites.net/publicaciones/places")
+        else { return }
         async let pricesData = try? ThrottledNet.fetch(pricesURL).0
         async let placesData = try? ThrottledNet.fetch(placesURL).0
         guard let pd = await pricesData, let ld = await placesData,
-              let pricesXML = String(data: pd, encoding: .utf8),
-              let placesXML = String(data: ld, encoding: .utf8) else { return }
+            let pricesXML = String(data: pd, encoding: .utf8),
+            let placesXML = String(data: ld, encoding: .utf8)
+        else { return }
         let prices = MexicoFuelParsing.parsePrices(pricesXML)
         let places = MexicoFuelParsing.parsePlaces(placesXML)
         var g: [Int: [Station]] = [:]
         for (id, coord) in places {
             guard let p = prices[id] else { continue }
-            g[cellKey(coord), default: []].append(Station(
-                coordinate: coord, regular: p["regular"], diesel: p["diesel"]))
+            g[cellKey(coord), default: []].append(
+                Station(
+                    coordinate: coord, regular: p["regular"], diesel: p["diesel"]))
         }
         grid = g
         loaded = Date()
@@ -108,7 +115,7 @@ actor MexicoFuelPrices {
         guard fuel != .electric else { return nil }
         let wantDiesel = fuel == .diesel
         let base = cellKey(point)
-        var best: (Double, Double)?   // (distance, price)
+        var best: (Double, Double)?  // (distance, price)
         for dy in -1...1 {
             for dx in -1...1 {
                 for s in grid[base &+ dy &* 100_000 &+ dx] ?? [] {
@@ -132,24 +139,29 @@ actor WorkZones {
         let road: String
     }
 
-    private var registry: [String: String] = [:]   // state name → feed URL
+    private var registry: [String: String] = [:]  // state name → feed URL
     private var registryLoaded = Date.distantPast
     private var zones: [String: (fetched: Date, zones: [Zone])] = [:]
 
     private func loadRegistry() async {
         guard Date().timeIntervalSince(registryLoaded) > 24 * 3600 else { return }
-        guard let url = URL(string:
-            "https://data.transportation.gov/resource/69qe-yiui.json?$limit=200"),
-              let (data, resp) = try? await ThrottledNet.fetch(url),
-              (resp as? HTTPURLResponse)?.statusCode == 200,
-              let rows = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]]
+        guard
+            let url = URL(
+                string:
+                    "https://data.transportation.gov/resource/69qe-yiui.json?$limit=200"),
+            let (data, resp) = try? await ThrottledNet.fetch(url),
+            (resp as? HTTPURLResponse)?.statusCode == 200,
+            let rows = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]]
         else { return }
         var out: [String: String] = [:]
-        for row in rows where (row["active"] as? Bool ?? false)
-            && (row["format"] as? String)?.lowercased() == "geojson" {
+        for row in rows
+        where (row["active"] as? Bool ?? false)
+            && (row["format"] as? String)?.lowercased() == "geojson"
+        {
             guard let state = row["state"] as? String,
-                  let urlDict = row["url"] as? [String: Any],
-                  let feed = urlDict["url"] as? String else { continue }
+                let urlDict = row["url"] as? [String: Any],
+                let feed = urlDict["url"] as? String
+            else { continue }
             out[state.lowercased()] = feed
         }
         registry = out
@@ -168,23 +180,26 @@ actor WorkZones {
         }
         if zones.count > 4 { CacheEviction.dropOldestHalf(&zones) { $0.fetched } }
         guard let feed = registry[stateName], let url = URL(string: feed),
-              let (data, resp) = try? await ThrottledNet.fetch(url),
-              (resp as? HTTPURLResponse)?.statusCode == 200,
-              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let features = json["features"] as? [[String: Any]] else { return [] }
+            let (data, resp) = try? await ThrottledNet.fetch(url),
+            (resp as? HTTPURLResponse)?.statusCode == 200,
+            let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+            let features = json["features"] as? [[String: Any]]
+        else { return [] }
         let parsed: [Zone] = features.compactMap { f in
             guard let geo = f["geometry"] as? [String: Any] else { return nil }
             var coord: CLLocationCoordinate2D?
             if let c = geo["coordinates"] as? [Double], c.count >= 2 {
                 coord = CLLocationCoordinate2D(latitude: c[1], longitude: c[0])
             } else if let line = geo["coordinates"] as? [[Double]], let first = line.first,
-                      first.count >= 2 {
+                first.count >= 2
+            {
                 coord = CLLocationCoordinate2D(latitude: first[1], longitude: first[0])
             }
             guard let coord else { return nil }
             let props = f["properties"] as? [String: Any]
             let core = props?["core_details"] as? [String: Any]
-            let road = (core?["road_names"] as? [String])?.first
+            let road =
+                (core?["road_names"] as? [String])?.first
                 ?? (props?["road_name"] as? String) ?? "roadwork"
             return Zone(coordinate: coord, road: road)
         }

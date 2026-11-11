@@ -154,7 +154,10 @@ final class VehicleStore: ObservableObject {
             // of slack is invisible to the range model; a fill-up (zero)
             // always lands at once.
             if let p = persistedMilesSinceFill,
-               abs(milesSinceFill - p) < 0.5, milesSinceFill != 0 { return }
+                abs(milesSinceFill - p) < 0.5, milesSinceFill != 0
+            {
+                return
+            }
             defaults.set(milesSinceFill, forKey: Self.milesKey)
             persistedMilesSinceFill = milesSinceFill
         }
@@ -225,20 +228,23 @@ final class VehicleStore: ObservableObject {
         self.defaults = defaults
         milesSinceFill = defaults.double(forKey: Self.milesKey)
         if let data = defaults.data(forKey: Self.profileKey),
-           let saved = try? JSONDecoder().decode(VehicleProfile.self, from: data) {
+            let saved = try? JSONDecoder().decode(VehicleProfile.self, from: data)
+        {
             profile = saved
         }
         if let data = defaults.data(forKey: Self.learningKey),
-           let saved = try? JSONDecoder().decode(RefuelLearning.self, from: data) {
+            let saved = try? JSONDecoder().decode(RefuelLearning.self, from: data)
+        {
             refuelLearning = saved
         }
     }
 
     /// Model's guess at the tank fraction RIGHT NOW (before any refuel).
     var predictedFuelFraction: Double? {
-        profile?.fuelFractionAfter(milesSinceFill: milesSinceFill,
-                                   averageSpeedMph: averageSpeedMph,
-                                   idleFraction: idleFraction)
+        profile?.fuelFractionAfter(
+            milesSinceFill: milesSinceFill,
+            averageSpeedMph: averageSpeedMph,
+            idleFraction: idleFraction)
     }
 
     /// The tank as the driver sees it: a current real reading when there is
@@ -269,8 +275,9 @@ final class VehicleStore: ObservableObject {
     private func milesWhereModelReads(_ target: Double) -> Double? {
         guard let profile else { return nil }
         func modelled(_ miles: Double) -> Double {
-            profile.fuelFractionAfter(milesSinceFill: miles, averageSpeedMph: averageSpeedMph,
-                                      idleFraction: idleFraction)
+            profile.fuelFractionAfter(
+                milesSinceFill: miles, averageSpeedMph: averageSpeedMph,
+                idleFraction: idleFraction)
         }
         // The model's fraction falls as the miles grow: bisect for the
         // miles where it meets the level, up to two tanks' worth.
@@ -311,7 +318,8 @@ final class VehicleStore: ObservableObject {
         // The once-a-minute gate first: `telemetry()` merges and sorts the tire
         // dictionaries, and this runs on every fix.
         guard profile != nil, now.timeIntervalSince(lastFollowed) >= 60,
-              let real = telemetry().fuelFraction, real.isFinite else { return }
+            let real = telemetry().fuelFraction, real.isFinite
+        else { return }
         lastFollowed = now
         guard let miles = milesWhereModelReads(min(max(real, 0), 1)) else { return }
         if abs(miles - milesSinceFill) > 0.5 { milesSinceFill = miles }

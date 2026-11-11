@@ -21,7 +21,7 @@ public let goldenRatio: CGFloat = 1.61803398875
 /// Interactive icon sizes clamp to Apple's hit-target floor (and a sane
 /// ceiling) so accessibility never loses to proportion.
 struct GoldenScale: Equatable {
-    var size = CGSize(width: 393, height: 852)   // phone-portrait default
+    var size = CGSize(width: 393, height: 852)  // phone-portrait default
 
     var short: CGFloat { min(size.width, size.height) }
     var long: CGFloat { max(size.width, size.height) }
@@ -137,8 +137,10 @@ enum ChromeLayout {
     /// the highest top edge among the `bottom` frames, in a window `height`
     /// tall whose safe areas add `insetTop` and `insetBottom` beyond it.
     /// Collapsed (zero-size) frames are ignored.
-    static func cover(top: [CGRect], bottom: [CGRect], height: CGFloat,
-                      insetTop: CGFloat, insetBottom: CGFloat) -> ChromeCover {
+    static func cover(
+        top: [CGRect], bottom: [CGRect], height: CGFloat,
+        insetTop: CGFloat, insetBottom: CGFloat
+    ) -> ChromeCover {
         let full = height + insetTop + insetBottom
         guard full > 0 else { return ChromeCover() }
         let real = { (r: CGRect) in r.width > 0 && r.height > 0 }
@@ -167,8 +169,10 @@ enum TuckedMenus {
     /// stop list's after its stops were cleared), and every extra icon made
     /// the column longer. The pile itself is unchanged: a hidden icon shows
     /// again where its menu lives.
-    static func comesBack(_ id: String, on screen: ChromeScreen,
-                          mapKeyComesBack: Bool, hasWarning: Bool = false) -> Bool {
+    static func comesBack(
+        _ id: String, on screen: ChromeScreen,
+        mapKeyComesBack: Bool, hasWarning: Bool = false
+    ) -> Bool {
         switch id {
         case "planner": return screen == .planning
         case "routes", "sliders": return screen == .choosing
@@ -197,7 +201,8 @@ enum BalancedRows {
         guard items > 0 else { return [] }
         let fit = max(1, fitPerRow)
         let rows = (items + fit - 1) / fit
-        let base = items / rows, extra = items % rows
+        let base = items / rows
+        let extra = items % rows
         let counts = (0..<rows).map { $0 < extra ? base + 1 : base }
         if counts.contains(1), (counts.max() ?? 1) > 1 {
             return Array(repeating: 1, count: items)

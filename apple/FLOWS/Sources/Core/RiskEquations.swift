@@ -144,12 +144,14 @@ enum RiskEquations {
     ///
     /// - field: the modeled ZIP field's score for a family, 0 when absent.
     /// - onDevice: the on-device forecast's per-family predictors.
-    static func bandInput(field: (String) -> Double,
-                          onDevice: [String: Double],
-                          alertEvent: String?, alertSeverity: Double,
-                          floodMultiplier: Double = 1,
-                          closureScore: Double = 0,
-                          live: [String: Double] = [:]) -> [String: Double] {
+    static func bandInput(
+        field: (String) -> Double,
+        onDevice: [String: Double],
+        alertEvent: String?, alertSeverity: Double,
+        floodMultiplier: Double = 1,
+        closureScore: Double = 0,
+        live: [String: Double] = [:]
+    ) -> [String: Double] {
         func predictor(_ fam: String, _ deviceKey: String) -> Double {
             max(field(fam), onDevice[deviceKey] ?? 0)
         }
@@ -180,7 +182,8 @@ enum RiskEquations {
         if let ev = alertEvent, let fam = alertFamily(ev) {
             out[fam] = max(out[fam] ?? 0, alertSeverity)
         } else if let ev = alertEvent, ImminentAlerts.isLifeSafetyEvent(ev),
-                  !ImminentAlerts.isLookoutEvent(ev) {
+            !ImminentAlerts.isLookoutEvent(ev)
+        {
             // Radiological, hazmat, shelter-in-place, civil danger,
             // evacuation: no WEATHER family maps them. For routing they are
             // what a closure is — proof the road should not be driven.
@@ -197,11 +200,14 @@ enum RiskEquations {
         // Dictionary iterates in can never reach the product. Stack storage;
         // this runs per corridor sample per route.
         let slots = RustTables.dense.count
-        return RustLoans.slots(slots, startingAt: .nan, fill: { set in
-            for (family, score) in families {
-                if let i = RustTables.denseIndex[family] { set(i, score) }
+        return RustLoans.slots(
+            slots, startingAt: .nan,
+            fill: { set in
+                for (family, score) in families {
+                    if let i = RustTables.denseIndex[family] { set(i, score) }
+                }
             }
-        }) { flows_realized_risk_dense($0) }
+        ) { flows_realized_risk_dense($0) }
     }
 
     /// WATERLINE-THRESHOLD flood amplifier (multiplier ≥ 1 on the precip
@@ -245,8 +251,10 @@ enum RiskEquations {
     /// same-band routes the one through lower-identified-risk ZIPs ranks safer.
     /// As the seasonal prior for THIS route/week accrues `priorConfidence`, it
     /// takes over from the static field. Noisy-OR so neither truth is erased.
-    static func rankingRisk(band: Double, zipExposure: Double,
-                            seasonalPrior: Double = 0, priorConfidence: Double = 0) -> Double {
+    static func rankingRisk(
+        band: Double, zipExposure: Double,
+        seasonalPrior: Double = 0, priorConfidence: Double = 0
+    ) -> Double {
         flows_ranking_risk(band, zipExposure, seasonalPrior, priorConfidence)
     }
 
@@ -266,7 +274,6 @@ enum RiskEquations {
     }
 }
 
-
 extension RiskEquations {
     /// The single worst family at or above `floor` — a plain maximum with no
     /// acute nudge, for callers that want the dominant READING rather than
@@ -277,9 +284,10 @@ extension RiskEquations {
         let pairs = Array(families)
         guard !pairs.isEmpty else { return nil }
         let names = pairs.map(\.key).joined(separator: "\u{1F}")
-        let i = Int(pairs.map(\.value).lent {
-            flows_peak_family_position(names, $0, floor)
-        })
+        let i = Int(
+            pairs.map(\.value).lent {
+                flows_peak_family_position(names, $0, floor)
+            })
         return pairs.indices.contains(i) ? pairs[i].key : nil
     }
 }
@@ -304,7 +312,6 @@ enum RouteRiskBand {
         flows_displayed_band(weighted, peak)
     }
 }
-
 
 /// Which hazard gets to NAME an area on the map.
 enum HazardRanking {
@@ -335,17 +342,19 @@ enum HazardRanking {
     /// Exact ties go to the LOWER family name, so the answer depends on the
     /// input set and not on the order a Dictionary happens to yield it in
     /// (which changes between launches). Same rule as rust/flows-core.
-    static func dominantFamily(_ families: [String: Double],
-                               floor: Double = 0.45) -> String? {
+    static func dominantFamily(
+        _ families: [String: Double],
+        floor: Double = 0.45
+    ) -> String? {
         let pairs = Array(families)
         guard !pairs.isEmpty else { return nil }
         let names = pairs.map(\.key).joined(separator: "\u{1F}")
-        let i = Int(pairs.map(\.value).lent {
-            flows_dominant_family_position(names, $0, floor)
-        })
+        let i = Int(
+            pairs.map(\.value).lent {
+                flows_dominant_family_position(names, $0, floor)
+            })
         return pairs.indices.contains(i) ? pairs[i].key : nil
     }
-
 
 }
 

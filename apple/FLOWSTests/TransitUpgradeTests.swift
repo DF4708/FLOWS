@@ -16,19 +16,23 @@ final class TransitUpgradeTests: XCTestCase {
 
     // MARK: - Amtrak stations
 
-    private let chicago = AmtrakStation(code: "CHI", name: "Chicago Union Station",
-                                        lat: 41.87864, lon: -87.63920)
-    private let milwaukee = AmtrakStation(code: "MKE", name: "Milwaukee Intermodal Station",
-                                          lat: 43.03448, lon: -87.91700)
-    private let stLouis = AmtrakStation(code: "STL", name: "St. Louis Gateway Station",
-                                        lat: 38.62230, lon: -90.19400)
+    private let chicago = AmtrakStation(
+        code: "CHI", name: "Chicago Union Station",
+        lat: 41.87864, lon: -87.63920)
+    private let milwaukee = AmtrakStation(
+        code: "MKE", name: "Milwaukee Intermodal Station",
+        lat: 43.03448, lon: -87.91700)
+    private let stLouis = AmtrakStation(
+        code: "STL", name: "St. Louis Gateway Station",
+        lat: 38.62230, lon: -90.19400)
 
     // Madison WI is ~75 mi from Milwaukee, ~130 mi from Chicago: the nearest
     // station must win, not the biggest.
     func testNearestStationPicksClosest() {
         let madison = CLLocationCoordinate2D(latitude: 43.0731, longitude: -89.4012)
-        let hit = AmtrakStations.nearest(to: madison, within: 240_000,
-                                         in: [chicago, milwaukee, stLouis])
+        let hit = AmtrakStations.nearest(
+            to: madison, within: 240_000,
+            in: [chicago, milwaukee, stLouis])
         XCTAssertEqual(hit?.code, "MKE")
     }
 
@@ -37,23 +41,27 @@ final class TransitUpgradeTests: XCTestCase {
     // "nearest".
     func testNearestStationRespectsRadius() {
         let denver = CLLocationCoordinate2D(latitude: 39.7392, longitude: -104.9903)
-        XCTAssertNil(AmtrakStations.nearest(to: denver, within: 120_000,
-                                            in: [chicago, milwaukee, stLouis]))
+        XCTAssertNil(
+            AmtrakStations.nearest(
+                to: denver, within: 120_000,
+                in: [chicago, milwaukee, stLouis]))
         XCTAssertNil(AmtrakStations.nearest(to: denver, within: 120_000, in: []))
     }
 
     // The station's amtrak.com page is derived from its code, lowercased.
     func testStationURL() {
-        XCTAssertEqual(chicago.url?.absoluteString,
-                       "https://www.amtrak.com/stations/chi")
+        XCTAssertEqual(
+            chicago.url?.absoluteString,
+            "https://www.amtrak.com/stations/chi")
     }
 
     // The SHIPPING resource must parse and actually cover the network — big
     // hubs present, coordinates in range. Loaded from the test bundle copy of
     // the same file the app bundles.
     func testBundledStationListParsesAndCoversHubs() throws {
-        let url = try XCTUnwrap(Bundle(for: TransitUpgradeTests.self)
-            .url(forResource: "amtrak_stations", withExtension: "json"))
+        let url = try XCTUnwrap(
+            Bundle(for: TransitUpgradeTests.self)
+                .url(forResource: "amtrak_stations", withExtension: "json"))
         let stations = AmtrakStations.load(from: url)
         XCTAssertGreaterThan(stations.count, 400, "national list, not a sample")
         for code in ["NYP", "CHI", "LAX", "SEA", "WAS", "NOL", "DEN"] {
@@ -65,22 +73,29 @@ final class TransitUpgradeTests: XCTestCase {
         }
         // New York Penn must resolve as the nearest station to midtown.
         let midtown = CLLocationCoordinate2D(latitude: 40.7549, longitude: -73.9840)
-        XCTAssertEqual(AmtrakStations.nearest(to: midtown, within: 120_000,
-                                              in: stations)?.code, "NYP")
+        XCTAssertEqual(
+            AmtrakStations.nearest(
+                to: midtown, within: 120_000,
+                in: stations)?.code, "NYP")
     }
 
     func testStationListDecodesEnvelope() {
         let json = """
-        {"source": "doc", "retrieved": "2026-07-30", "stations":
-         [{"code": "ABC", "name": "Test Station", "lat": 40.0, "lon": -75.0}]}
-        """
+            {"source": "doc", "retrieved": "2026-07-30", "stations":
+             [{"code": "ABC", "name": "Test Station", "lat": 40.0, "lon": -75.0}]}
+            """
         let dir = FileManager.default.temporaryDirectory
             .appendingPathComponent("amtrak_test_\(UUID().uuidString).json")
         try? json.data(using: .utf8)?.write(to: dir)
         defer { try? FileManager.default.removeItem(at: dir) }
         let stations = AmtrakStations.load(from: dir)
-        XCTAssertEqual(stations, [AmtrakStation(code: "ABC", name: "Test Station",
-                                                lat: 40.0, lon: -75.0)])
+        XCTAssertEqual(
+            stations,
+            [
+                AmtrakStation(
+                    code: "ABC", name: "Test Station",
+                    lat: 40.0, lon: -75.0)
+            ])
         XCTAssertEqual(AmtrakStations.load(from: nil), [])
     }
 
@@ -105,11 +120,13 @@ final class TransitUpgradeTests: XCTestCase {
         // ("Flying won't help here"); a pair closer than the airport gap has
         // no ends at all.
         let madison = CLLocationCoordinate2D(latitude: 43.0731, longitude: -89.4012)
-        XCTAssertFalse(AirTravel.worthFlying(
-            tripMiles: POIRanking.meters(milwaukee, madison) / 1609.344))
+        XCTAssertFalse(
+            AirTravel.worthFlying(
+                tripMiles: POIRanking.meters(milwaukee, madison) / 1609.344))
         let racine = CLLocationCoordinate2D(latitude: 42.7261, longitude: -87.7829)
-        XCTAssertNil(AirTravel.flightEnds(from: milwaukee, to: racine),
-                     "both ends are Milwaukee's own airport")
+        XCTAssertNil(
+            AirTravel.flightEnds(from: milwaukee, to: racine),
+            "both ends are Milwaukee's own airport")
 
         // And the nearest list is ordered, with the big fields worth a drive.
         let near = AirTravel.nearest(to: madison, limit: 3)
@@ -135,24 +152,30 @@ final class TransitUpgradeTests: XCTestCase {
 
     func testRentalCompareLinksCarryThePartnerTag() throws {
         // Near a point: the nearest DiscoverCars city, spelled their way.
-        let milwaukee = try XCTUnwrap(RentalCars.compareURL(
-            near: CLLocationCoordinate2D(latitude: 43.0389, longitude: -87.9065)))
-        XCTAssertEqual(milwaukee.absoluteString,
-                       "https://www.discovercars.com/usa-wisconsin/milwaukee?a_aid=FAWN")
+        let milwaukee = try XCTUnwrap(
+            RentalCars.compareURL(
+                near: CLLocationCoordinate2D(latitude: 43.0389, longitude: -87.9065)))
+        XCTAssertEqual(
+            milwaukee.absoluteString,
+            "https://www.discovercars.com/usa-wisconsin/milwaukee?a_aid=FAWN")
         // A map would call it "Mexico City"; DiscoverCars' page is mexico/mexico,
         // and the old name-built link was a 404.
-        let mexico = try XCTUnwrap(RentalCars.compareURL(
-            near: CLLocationCoordinate2D(latitude: 19.4326, longitude: -99.1332)))
+        let mexico = try XCTUnwrap(
+            RentalCars.compareURL(
+                near: CLLocationCoordinate2D(latitude: 19.4326, longitude: -99.1332)))
         XCTAssertEqual(mexico.absoluteString, "https://www.discovercars.com/mexico/mexico?a_aid=FAWN")
         // An arrival airport gets its own page, under the city DiscoverCars
         // files it in (Chicago, not Rosemont where O'Hare sits).
-        let ohare = try XCTUnwrap(RentalCars.compareURL(
-            airport: "ORD", at: CLLocationCoordinate2D(latitude: 41.9786, longitude: -87.9048)))
-        XCTAssertEqual(ohare.absoluteString,
-                       "https://www.discovercars.com/usa-illinois/chicago/ord?a_aid=FAWN")
+        let ohare = try XCTUnwrap(
+            RentalCars.compareURL(
+                airport: "ORD", at: CLLocationCoordinate2D(latitude: 41.9786, longitude: -87.9048)))
+        XCTAssertEqual(
+            ohare.absoluteString,
+            "https://www.discovercars.com/usa-illinois/chicago/ord?a_aid=FAWN")
         // Nowhere DiscoverCars reaches: the partner homepage, still tagged.
-        let paris = try XCTUnwrap(RentalCars.compareURL(
-            near: CLLocationCoordinate2D(latitude: 48.8566, longitude: 2.3522)))
+        let paris = try XCTUnwrap(
+            RentalCars.compareURL(
+                near: CLLocationCoordinate2D(latitude: 48.8566, longitude: 2.3522)))
         XCTAssertEqual(paris, RentalCars.compareURL)
         XCTAssertTrue(paris.absoluteString.contains("a_aid=FAWN"))
     }
@@ -169,19 +192,23 @@ final class TransitUpgradeTests: XCTestCase {
     func testFlightTimingHonest() {
         let taxiAndCruise: TimeInterval = 45 * 60 + 3600
         let withBuffers: TimeInterval = taxiAndCruise + 90 * 60 + 30 * 60
-        XCTAssertEqual(AirTravel.flightSeconds(airportMiles: 460),
-                       taxiAndCruise, accuracy: 1)
-        XCTAssertEqual(AirTravel.doorSeconds(airportMiles: 460),
-                       withBuffers, accuracy: 1)
+        XCTAssertEqual(
+            AirTravel.flightSeconds(airportMiles: 460),
+            taxiAndCruise, accuracy: 1)
+        XCTAssertEqual(
+            AirTravel.doorSeconds(airportMiles: 460),
+            withBuffers, accuracy: 1)
         // Monotonic: longer hops never get shorter estimates.
-        XCTAssertLessThan(AirTravel.doorSeconds(airportMiles: 300),
-                          AirTravel.doorSeconds(airportMiles: 1200))
+        XCTAssertLessThan(
+            AirTravel.doorSeconds(airportMiles: 300),
+            AirTravel.doorSeconds(airportMiles: 1200))
     }
 
     func testFareEstimateFloorsAndScales() {
-        XCTAssertEqual(AirTravel.fareEstimate(airportMiles: 80), 59)   // floor
-        XCTAssertEqual(AirTravel.fareEstimate(airportMiles: 1000),
-                       39 + 110, accuracy: 0.01)
+        XCTAssertEqual(AirTravel.fareEstimate(airportMiles: 80), 59)  // floor
+        XCTAssertEqual(
+            AirTravel.fareEstimate(airportMiles: 1000),
+            39 + 110, accuracy: 0.01)
     }
 
     /// The fare the plane card SHOWS is what people actually pay (US DOT),
@@ -192,10 +219,12 @@ final class TransitUpgradeTests: XCTestCase {
         XCTAssertEqual(AirTravel.typicalFare(airportMiles: 400), 232, accuracy: 60)
         XCTAssertEqual(AirTravel.typicalFare(airportMiles: 800), 245, accuracy: 60)
         XCTAssertEqual(AirTravel.typicalFare(airportMiles: 1200), 269, accuracy: 60)
-        XCTAssertGreaterThan(AirTravel.typicalFare(airportMiles: 2000),
-                             AirTravel.typicalFare(airportMiles: 500))
-        XCTAssertGreaterThan(AirTravel.typicalFare(airportMiles: 800),
-                             AirTravel.fareEstimate(airportMiles: 800) * 1.8)
+        XCTAssertGreaterThan(
+            AirTravel.typicalFare(airportMiles: 2000),
+            AirTravel.typicalFare(airportMiles: 500))
+        XCTAssertGreaterThan(
+            AirTravel.typicalFare(airportMiles: 800),
+            AirTravel.fareEstimate(airportMiles: 800) * 1.8)
     }
 
     // Commercial preference: internationals first, plain airports next;
@@ -204,12 +233,14 @@ final class TransitUpgradeTests: XCTestCase {
         let cands = [
             AirTravel.Candidate(name: "Downtown Heliport", meters: 2_000),
             AirTravel.Candidate(name: "Fulton County Airport", meters: 12_000),
-            AirTravel.Candidate(name: "Hartsfield-Jackson Atlanta International Airport",
-                                meters: 18_000),
+            AirTravel.Candidate(
+                name: "Hartsfield-Jackson Atlanta International Airport",
+                meters: 18_000),
             AirTravel.Candidate(name: "Dobbins Air Force Base", meters: 9_000),
         ]
-        XCTAssertEqual(AirTravel.pickIndex(cands, maxMeters: 150_000), 2,
-                       "international outranks nearer GA field and rejects")
+        XCTAssertEqual(
+            AirTravel.pickIndex(cands, maxMeters: 150_000), 2,
+            "international outranks nearer GA field and rejects")
         // Distance breaks ties inside a tier.
         let two = [
             AirTravel.Candidate(name: "Far International Airport", meters: 90_000),
@@ -218,20 +249,26 @@ final class TransitUpgradeTests: XCTestCase {
         XCTAssertEqual(AirTravel.pickIndex(two, maxMeters: 150_000), 1)
         // The radius cap is hard; all-rejects → nil.
         XCTAssertNil(AirTravel.pickIndex(two, maxMeters: 10_000))
-        XCTAssertNil(AirTravel.pickIndex(
-            [AirTravel.Candidate(name: "City Heliport", meters: 500)],
-            maxMeters: 150_000))
+        XCTAssertNil(
+            AirTravel.pickIndex(
+                [AirTravel.Candidate(name: "City Heliport", meters: 500)],
+                maxMeters: 150_000))
     }
 
     func testFlightTicketLinkKeyless() throws {
         let own = URL(string: "https://www.flylax.com")
-        XCTAssertEqual(AirTravel.ticket(board: "LAX", alight: "JFK",
-                                        airportURL: own).url, own)
-        let neutral = AirTravel.ticket(board: "Austin-Bergstrom International Airport",
-                                       alight: "Denver International Airport",
-                                       airportURL: nil)
-        XCTAssertEqual(neutral.label,
-                       "Find flights: Austin-Bergstrom International Airport → Denver International Airport")
+        XCTAssertEqual(
+            AirTravel.ticket(
+                board: "LAX", alight: "JFK",
+                airportURL: own
+            ).url, own)
+        let neutral = AirTravel.ticket(
+            board: "Austin-Bergstrom International Airport",
+            alight: "Denver International Airport",
+            airportURL: nil)
+        XCTAssertEqual(
+            neutral.label,
+            "Find flights: Austin-Bergstrom International Airport → Denver International Airport")
         let url = try XCTUnwrap(neutral.url)
         XCTAssertEqual(url.host, "www.google.com")
         XCTAssertTrue(url.path.hasPrefix("/travel/flights"))
@@ -241,18 +278,22 @@ final class TransitUpgradeTests: XCTestCase {
     /// With the airport codes known, the ticket link searches THAT pair —
     /// a search by city name can land on the wrong airport, or none.
     func testFlightTicketLinkNamesTheAirportPair() throws {
-        let ticket = AirTravel.ticket(board: "Milwaukee (MKE)", alight: "Augusta (AGS)",
-                                      boardCode: "MKE", alightCode: "AGS",
-                                      airportURL: URL(string: "https://www.mitchellairport.com"))
+        let ticket = AirTravel.ticket(
+            board: "Milwaukee (MKE)", alight: "Augusta (AGS)",
+            boardCode: "MKE", alightCode: "AGS",
+            airportURL: URL(string: "https://www.mitchellairport.com"))
         let url = try XCTUnwrap(ticket.url).absoluteString
         XCTAssertTrue(url.contains("MKE"), url)
         XCTAssertTrue(url.contains("AGS"), url)
         XCTAssertTrue(url.hasPrefix("https://www.google.com/travel/flights"), url)
         // A code FLOWS does not have falls back to the airport's own page.
-        XCTAssertEqual(AirTravel.ticket(board: "LAX", alight: "JFK", boardCode: "LAX",
-                                        alightCode: nil,
-                                        airportURL: URL(string: "https://www.flylax.com")).url,
-                       URL(string: "https://www.flylax.com"))
+        XCTAssertEqual(
+            AirTravel.ticket(
+                board: "LAX", alight: "JFK", boardCode: "LAX",
+                alightCode: nil,
+                airportURL: URL(string: "https://www.flylax.com")
+            ).url,
+            URL(string: "https://www.flylax.com"))
         // Nonsense codes never build a search.
         XCTAssertNil(AirTravel.flightSearchURL(boardCode: "MKE", alightCode: "MKE"))
         XCTAssertNil(AirTravel.flightSearchURL(boardCode: "Milwaukee", alightCode: "AGS"))
@@ -269,8 +310,9 @@ final class TransitUpgradeTests: XCTestCase {
     // 6-mile trip: two-hour walk vs a 15-minute, ~$9.60 ride — clears the bar
     // (87% saved, under the cap) and rides the whole way.
     func testFullRideOfferedWhenSignificant() {
-        let offer = HybridWalk.evaluate(walkAloneSeconds: 7200,
-                                        driveSeconds: 900, tripMiles: 6)
+        let offer = HybridWalk.evaluate(
+            walkAloneSeconds: 7200,
+            driveSeconds: 900, tripMiles: 6)
         XCTAssertNotNil(offer)
         XCTAssertEqual(offer?.rideMiles ?? 0, 6, accuracy: 0.001)
         XCTAssertEqual(offer?.walkSeconds, 0)
@@ -280,27 +322,39 @@ final class TransitUpgradeTests: XCTestCase {
     // The walker didn't want to spend money: a short stroll (under 30 min)
     // never gets a ride pitch, no matter how fast a car would be.
     func testShortWalkNeverOffered() {
-        XCTAssertNil(HybridWalk.evaluate(walkAloneSeconds: 20 * 60,
-                                         driveSeconds: 180, tripMiles: 1.0))
+        XCTAssertNil(
+            HybridWalk.evaluate(
+                walkAloneSeconds: 20 * 60,
+                driveSeconds: 180, tripMiles: 1.0))
     }
 
     // Significance is BOTH relative and absolute: 40% of the time AND at
     // least 15 minutes.
     func testSignificanceBar() {
         // 35% saved — under the fraction bar.
-        XCTAssertFalse(HybridWalk.meetsBar(walkAloneSeconds: 3600,
-                                           totalSeconds: 2340, costUSD: 10))
+        XCTAssertFalse(
+            HybridWalk.meetsBar(
+                walkAloneSeconds: 3600,
+                totalSeconds: 2340, costUSD: 10))
         // Exactly 40% and 24 min saved — passes.
-        XCTAssertTrue(HybridWalk.meetsBar(walkAloneSeconds: 3600,
-                                          totalSeconds: 2160, costUSD: 10))
+        XCTAssertTrue(
+            HybridWalk.meetsBar(
+                walkAloneSeconds: 3600,
+                totalSeconds: 2160, costUSD: 10))
         // 50% saved but only 12.5 minutes — absolute floor fails it.
-        XCTAssertFalse(HybridWalk.meetsBar(walkAloneSeconds: 1500,
-                                           totalSeconds: 750, costUSD: 5))
+        XCTAssertFalse(
+            HybridWalk.meetsBar(
+                walkAloneSeconds: 1500,
+                totalSeconds: 750, costUSD: 5))
         // Over the wallet cap — never offered.
-        XCTAssertFalse(HybridWalk.meetsBar(walkAloneSeconds: 36_000,
-                                           totalSeconds: 3600, costUSD: 25.01))
-        XCTAssertTrue(HybridWalk.meetsBar(walkAloneSeconds: 36_000,
-                                          totalSeconds: 3600, costUSD: 25.0))
+        XCTAssertFalse(
+            HybridWalk.meetsBar(
+                walkAloneSeconds: 36_000,
+                totalSeconds: 3600, costUSD: 25.01))
+        XCTAssertTrue(
+            HybridWalk.meetsBar(
+                walkAloneSeconds: 36_000,
+                totalSeconds: 3600, costUSD: 25.0))
     }
 
     // 40-mile trek: the whole ride would cost $47 — over the cap — so the
@@ -308,17 +362,20 @@ final class TransitUpgradeTests: XCTestCase {
     // half the day.
     func testPartialRideWhenCapBinds() {
         let walkAlone: TimeInterval = 13 * 3600
-        let offer = HybridWalk.evaluate(walkAloneSeconds: walkAlone,
-                                        driveSeconds: 3600, tripMiles: 40)
+        let offer = HybridWalk.evaluate(
+            walkAloneSeconds: walkAlone,
+            driveSeconds: 3600, tripMiles: 40)
         XCTAssertNotNil(offer)
         XCTAssertEqual(offer?.rideMiles ?? 0, 20, accuracy: 0.001)
         XCTAssertEqual(offer?.costUSD ?? 0, 25, accuracy: 0.001)
-        XCTAssertEqual(offer?.rideSeconds ?? 0, 1800, accuracy: 1)     // half the drive
+        XCTAssertEqual(offer?.rideSeconds ?? 0, 1800, accuracy: 1)  // half the drive
         XCTAssertEqual(offer?.walkSeconds ?? 0, walkAlone / 2, accuracy: 1)
         if let offer {
-            XCTAssertTrue(HybridWalk.meetsBar(walkAloneSeconds: walkAlone,
-                                              totalSeconds: offer.totalSeconds,
-                                              costUSD: offer.costUSD))
+            XCTAssertTrue(
+                HybridWalk.meetsBar(
+                    walkAloneSeconds: walkAlone,
+                    totalSeconds: offer.totalSeconds,
+                    costUSD: offer.costUSD))
         }
     }
 
@@ -337,8 +394,9 @@ final class TransitUpgradeTests: XCTestCase {
         XCTAssertEqual(prefix.count, 3)
         XCTAssertEqual(prefix.last?.latitude ?? 0, 40.15, accuracy: 0.0005)
         XCTAssertEqual(prefix.last?.longitude ?? 0, -75.0, accuracy: 0.0005)
-        XCTAssertEqual(HybridWalk.prefixCoordinates(line, meters: segment * 99).count,
-                       line.count, "past the end → the whole path")
+        XCTAssertEqual(
+            HybridWalk.prefixCoordinates(line, meters: segment * 99).count,
+            line.count, "past the end → the whole path")
         XCTAssertTrue(HybridWalk.prefixCoordinates([], meters: 100).isEmpty)
     }
 
@@ -346,8 +404,9 @@ final class TransitUpgradeTests: XCTestCase {
     func testHailDeepLinks() throws {
         let pickup = CLLocationCoordinate2D(latitude: 40.75490, longitude: -73.98400)
         let drop = CLLocationCoordinate2D(latitude: 40.64130, longitude: -73.77810)
-        let uber = try XCTUnwrap(HybridWalk.uberURL(
-            pickup: pickup, pickupName: "Midtown", drop: drop, dropName: "JFK"))
+        let uber = try XCTUnwrap(
+            HybridWalk.uberURL(
+                pickup: pickup, pickupName: "Midtown", drop: drop, dropName: "JFK"))
         XCTAssertEqual(uber.host, "m.uber.com")
         let uberQ = uber.absoluteString
         XCTAssertTrue(uberQ.contains("action=setPickup"))
@@ -356,8 +415,9 @@ final class TransitUpgradeTests: XCTestCase {
         XCTAssertEqual(lyft.host, "lyft.com")
         XCTAssertTrue(lyft.absoluteString.contains("40.64130"))
         for url in [uber, lyft] {
-            XCTAssertFalse(url.absoluteString.lowercased().contains("client_id"),
-                           "keyless by design")
+            XCTAssertFalse(
+                url.absoluteString.lowercased().contains("client_id"),
+                "keyless by design")
         }
     }
 }

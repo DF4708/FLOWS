@@ -8,6 +8,7 @@
 
 import CoreLocation
 import XCTest
+import os
 
 /// What counts as shelter from a given hazard, and how long to sit it out.
 final class ShelterPolicyTests: XCTestCase {
@@ -18,57 +19,74 @@ final class ShelterPolicyTests: XCTestCase {
         // The bug this exists for: a driver was told there was no shelter on
         // a route lined with open restaurants, because the search asked for
         // "storm shelter" — a facility that barely exists as a mapped place.
-        let kind = ShelterPolicy.kind(forEvent: "Severe Thunderstorm Warning",
-                                      severityScore: 0.65)
+        let kind = ShelterPolicy.kind(
+            forEvent: "Severe Thunderstorm Warning",
+            severityScore: 0.65)
         XCTAssertEqual(kind, .anyBuilding)
         XCTAssertTrue(kind.searchQueries.contains("restaurant"))
     }
 
     func testAViolentStormNeedsSomethingSolid() {
-        XCTAssertEqual(ShelterPolicy.kind(forEvent: "Severe Thunderstorm Warning",
-                                          severityScore: 0.85), .sturdyBuilding)
+        XCTAssertEqual(
+            ShelterPolicy.kind(
+                forEvent: "Severe Thunderstorm Warning",
+                severityScore: 0.85), .sturdyBuilding)
     }
 
     func testATornadoOnTheGroundIsNotAnApplebees() {
-        XCTAssertEqual(ShelterPolicy.kind(forEvent: "Tornado Warning",
-                                          severityScore: 0.95), .officialShelter)
+        XCTAssertEqual(
+            ShelterPolicy.kind(
+                forEvent: "Tornado Warning",
+                severityScore: 0.95), .officialShelter)
     }
 
     func testATornadoWATCHIsStillOnlyGetReady() {
         // A watch means conditions are favourable, not that one is coming
         // down the road — a solid building is the proportionate answer.
-        XCTAssertEqual(ShelterPolicy.kind(forEvent: "Tornado Watch",
-                                          severityScore: 0.7), .sturdyBuilding)
+        XCTAssertEqual(
+            ShelterPolicy.kind(
+                forEvent: "Tornado Watch",
+                severityScore: 0.7), .sturdyBuilding)
     }
 
     func testAnEvacuationMeansLeave() {
-        for event in ["Evacuation Order", "Wildfire Evacuation",
-                      "Radiological Hazard Warning"] {
-            XCTAssertEqual(ShelterPolicy.kind(forEvent: event, severityScore: 0.9),
-                           .officialShelter, event)
+        for event in [
+            "Evacuation Order", "Wildfire Evacuation",
+            "Radiological Hazard Warning",
+        ] {
+            XCTAssertEqual(
+                ShelterPolicy.kind(forEvent: event, severityScore: 0.9),
+                .officialShelter, event)
         }
     }
 
     func testVisibilityHazardsAreSolvedByStopping() {
         // Fog and heavy rain hurt because of driving, not because buildings
         // fail. Pulling over IS the remedy, and the vehicle is the shelter.
-        for event in ["Dense Fog Advisory", "Heavy Rain Warning",
-                      "Blowing Dust Advisory"] {
-            XCTAssertEqual(ShelterPolicy.kind(forEvent: event, severityScore: 0.7),
-                           .inVehicle, event)
+        for event in [
+            "Dense Fog Advisory", "Heavy Rain Warning",
+            "Blowing Dust Advisory",
+        ] {
+            XCTAssertEqual(
+                ShelterPolicy.kind(forEvent: event, severityScore: 0.7),
+                .inVehicle, event)
         }
     }
 
     func testTheAdviceForEachKindIsPlainAndDifferent() {
-        let all: [ShelterPolicy.Kind] = [.inVehicle, .anyBuilding,
-                                         .sturdyBuilding, .officialShelter]
+        let all: [ShelterPolicy.Kind] = [
+            .inVehicle, .anyBuilding,
+            .sturdyBuilding, .officialShelter,
+        ]
         XCTAssertEqual(Set(all.map(\.advice)).count, all.count)
         for k in all { XCTAssertFalse(k.advice.isEmpty) }
     }
 
     func testEveryKindHasSomewhereRealToLookFor() {
-        for k in [ShelterPolicy.Kind.inVehicle, .anyBuilding,
-                  .sturdyBuilding, .officialShelter] {
+        for k in [
+            ShelterPolicy.Kind.inVehicle, .anyBuilding,
+            .sturdyBuilding, .officialShelter,
+        ] {
             XCTAssertFalse(k.searchQueries.isEmpty, k.rawValue)
             // Each term is its own search — MKLocalSearch matches a query as
             // a phrase, so a term with several words in it must be a real
@@ -90,16 +108,18 @@ final class ShelterPolicyTests: XCTestCase {
 
     func testAnAlreadyExpiredAlertStillGivesAMinuteOrTwo() {
         let now = Date()
-        XCTAssertEqual(ShelterPolicy.waitSeconds(
-            expires: now.addingTimeInterval(-60), now: now),
-                       ShelterPolicy.minimumWait)
+        XCTAssertEqual(
+            ShelterPolicy.waitSeconds(
+                expires: now.addingTimeInterval(-60), now: now),
+            ShelterPolicy.minimumWait)
     }
 
     func testAVeryLongWarningIsCappedToSomethingAPersonWillSitThrough() {
         let now = Date()
-        XCTAssertEqual(ShelterPolicy.waitSeconds(
-            expires: now.addingTimeInterval(12 * 3600), now: now),
-                       ShelterPolicy.maximumWait)
+        XCTAssertEqual(
+            ShelterPolicy.waitSeconds(
+                expires: now.addingTimeInterval(12 * 3600), now: now),
+            ShelterPolicy.maximumWait)
     }
 
     func testNoPublishedExpiryGetsAnHonestDefault() {
@@ -125,10 +145,12 @@ final class ShelterPolicyTests: XCTestCase {
 
     func testAWeekAwayMakesTheFuelGaugeStale() {
         let now = Date()
-        XCTAssertTrue(StaleGauge.wentStale(
-            lastUsed: now.addingTimeInterval(-8 * 86_400), now: now))
-        XCTAssertFalse(StaleGauge.wentStale(
-            lastUsed: now.addingTimeInterval(-2 * 86_400), now: now))
+        XCTAssertTrue(
+            StaleGauge.wentStale(
+                lastUsed: now.addingTimeInterval(-8 * 86_400), now: now))
+        XCTAssertFalse(
+            StaleGauge.wentStale(
+                lastUsed: now.addingTimeInterval(-2 * 86_400), now: now))
     }
 
     func testAFirstRunHasNoStaleGaugeToAskAbout() {
@@ -145,39 +167,50 @@ final class AlertActionTests: XCTestCase {
         // The bug this exists for: an AMBER alert offered a "Shelter here"
         // button and advised "get inside any open building". You do not take
         // cover from a child abduction — you watch the road and call 911.
-        for event in ["Child Abduction Emergency", "AMBER Alert",
-                      "Blue Alert", "Silver Alert"] {
-            XCTAssertEqual(ImminentAlerts.classify(event: event,
-                                                   severityScore: 0.95,
-                                                   expires: nil), .lookout, event)
+        for event in [
+            "Child Abduction Emergency", "AMBER Alert",
+            "Blue Alert", "Silver Alert",
+        ] {
+            XCTAssertEqual(
+                ImminentAlerts.classify(
+                    event: event,
+                    severityScore: 0.95,
+                    expires: nil), .lookout, event)
         }
     }
 
     func testARealHazardStillOffersShelter() {
-        XCTAssertEqual(ImminentAlerts.classify(event: "Tornado Warning",
-                                               severityScore: 0.95,
-                                               expires: nil), .shelter)
+        XCTAssertEqual(
+            ImminentAlerts.classify(
+                event: "Tornado Warning",
+                severityScore: 0.95,
+                expires: nil), .shelter)
     }
 
     func testALookoutIsCheckedBeforeTheLifeSafetySweep() {
         // "Law enforcement warning" is on BOTH lists; the lookout reading
         // has to win, or it comes back as a shelter alert again.
-        XCTAssertEqual(ImminentAlerts.classify(event: "Law Enforcement Warning",
-                                               severityScore: 0.9,
-                                               expires: nil), .lookout)
+        XCTAssertEqual(
+            ImminentAlerts.classify(
+                event: "Law Enforcement Warning",
+                severityScore: 0.9,
+                expires: nil), .lookout)
     }
 
     func testATransientStormStillSuggestsWaitingItOut() {
         XCTAssertEqual(
-            ImminentAlerts.classify(event: "Wind Advisory", severityScore: 0.7,
-                                    expires: Date().addingTimeInterval(3600)),
+            ImminentAlerts.classify(
+                event: "Wind Advisory", severityScore: 0.7,
+                expires: Date().addingTimeInterval(3600)),
             .restArea)
     }
 
     func testQuietWeatherIsJustMonitored() {
-        XCTAssertEqual(ImminentAlerts.classify(event: "Frost Advisory",
-                                               severityScore: 0.3,
-                                               expires: nil), .monitor)
+        XCTAssertEqual(
+            ImminentAlerts.classify(
+                event: "Frost Advisory",
+                severityScore: 0.3,
+                expires: nil), .monitor)
     }
 }
 
@@ -186,50 +219,58 @@ final class FuelReachabilityTests: XCTestCase {
     private let here = CLLocationCoordinate2D(latitude: 43.07, longitude: -89.40)
 
     private func north(_ km: Double) -> CLLocationCoordinate2D {
-        CLLocationCoordinate2D(latitude: here.latitude + km * 1000 / 111_320,
-                               longitude: here.longitude)
+        CLLocationCoordinate2D(
+            latitude: here.latitude + km * 1000 / 111_320,
+            longitude: here.longitude)
     }
 
     func testAStationBehindTheVehicleIsNotReachable() {
         // The bug: the scan kept any station inside a straight-line radius
         // and called it "ahead", so pumps already passed counted toward
         // "you still have options" and the last-chance warning stayed quiet.
-        XCTAssertFalse(FuelWarning.isReachable(
-            station: north(-8), from: here, courseDegrees: 0, routeAhead: []))
+        XCTAssertFalse(
+            FuelWarning.isReachable(
+                station: north(-8), from: here, courseDegrees: 0, routeAhead: []))
     }
 
     func testAStationAheadIsReachable() {
-        XCTAssertTrue(FuelWarning.isReachable(
-            station: north(8), from: here, courseDegrees: 0, routeAhead: []))
+        XCTAssertTrue(
+            FuelWarning.isReachable(
+                station: north(8), from: here, courseDegrees: 0, routeAhead: []))
     }
 
     func testAStationJustOffABendStaysReachable() {
         // 60° off the nose is still the road ahead, not behind.
-        let offBend = CLLocationCoordinate2D(latitude: here.latitude + 0.04,
-                                             longitude: here.longitude + 0.06)
-        XCTAssertTrue(FuelWarning.isReachable(
-            station: offBend, from: here, courseDegrees: 0, routeAhead: []))
+        let offBend = CLLocationCoordinate2D(
+            latitude: here.latitude + 0.04,
+            longitude: here.longitude + 0.06)
+        XCTAssertTrue(
+            FuelWarning.isReachable(
+                station: offBend, from: here, courseDegrees: 0, routeAhead: []))
     }
 
     func testWithARouteTheROUTEDecidesNotTheHeading() {
         // Route runs south while the vehicle momentarily points north (a
         // turn in progress). The station on the route is still reachable.
-        XCTAssertTrue(FuelWarning.isReachable(
-            station: north(-8), from: here, courseDegrees: 0,
-            routeAhead: [north(-4), north(-8), north(-12)]))
+        XCTAssertTrue(
+            FuelWarning.isReachable(
+                station: north(-8), from: here, courseDegrees: 0,
+                routeAhead: [north(-4), north(-8), north(-12)]))
     }
 
     func testAStationFarOffTheRouteCorridorIsNotReachable() {
-        XCTAssertFalse(FuelWarning.isReachable(
-            station: north(60), from: here, courseDegrees: -1,
-            routeAhead: [north(-4), north(-8)]))
+        XCTAssertFalse(
+            FuelWarning.isReachable(
+                station: north(60), from: here, courseDegrees: -1,
+                routeAhead: [north(-4), north(-8)]))
     }
 
     func testParkedWithNoCourseAndNoRouteKeepsEverything() {
         // Nothing can be ruled out, so nothing is — silently dropping real
         // options would be the worse error.
-        XCTAssertTrue(FuelWarning.isReachable(
-            station: north(-8), from: here, courseDegrees: -1, routeAhead: []))
+        XCTAssertTrue(
+            FuelWarning.isReachable(
+                station: north(-8), from: here, courseDegrees: -1, routeAhead: []))
     }
 }
 
@@ -238,25 +279,29 @@ final class RadioAutoTuneTests: XCTestCase {
     private let here = CLLocationCoordinate2D(latitude: 43.07, longitude: -89.40)
 
     private func station(_ id: String, _ lat: Double) -> RadioTuning.Station {
-        RadioTuning.Station(id: id,
-                            coordinate: CLLocationCoordinate2D(latitude: lat,
-                                                               longitude: -89.40))
+        RadioTuning.Station(
+            id: id,
+            coordinate: CLLocationCoordinate2D(
+                latitude: lat,
+                longitude: -89.40))
     }
 
     func testAnUnplaceablePlayingStationStillYieldsAtTheTuningLayer() {
         // The pure rule is unchanged and correct for a NOAA relay with no
         // coordinates — the FIX lives in TruckerRadio, which no longer asks
         // about a station that isn't a weather channel at all.
-        XCTAssertEqual(RadioTuning.retarget(
-            playingID: "no-coords", playingCoordinate: nil, position: here,
-            stations: [station("madison", 43.07)]), "madison")
+        XCTAssertEqual(
+            RadioTuning.retarget(
+                playingID: "no-coords", playingCoordinate: nil, position: here,
+                stations: [station("madison", 43.07)]), "madison")
     }
 
     func testATransmitterAlreadyNearestStaysPut() {
-        XCTAssertNil(RadioTuning.retarget(
-            playingID: "madison",
-            playingCoordinate: CLLocationCoordinate2D(latitude: 43.07, longitude: -89.40),
-            position: here, stations: [station("madison", 43.07)]))
+        XCTAssertNil(
+            RadioTuning.retarget(
+                playingID: "madison",
+                playingCoordinate: CLLocationCoordinate2D(latitude: 43.07, longitude: -89.40),
+                position: here, stations: [station("madison", 43.07)]))
     }
 }
 
@@ -320,26 +365,28 @@ final class BehaviorPersistQueueTests: XCTestCase {
         // queued, so the write ran afterwards, found no key, minted a fresh
         // one, and re-sealed the driver's history in readable form. A single
         // FIFO queue is what makes "delete the key last" mean it.
-        var order: [Int] = []
+        let order = OSAllocatedUnfairLock<[Int]>(initialState: [])
         let done = expectation(description: "drained")
         for i in 0..<50 {
-            SecureBehaviorStore.persistQueue.async { order.append(i) }
+            SecureBehaviorStore.persistQueue.async { order.withLock { $0.append(i) } }
         }
-        SecureBehaviorStore.persistQueue.async {   // stands in for destroyKey
-            order.append(999)
+        SecureBehaviorStore.persistQueue.async {  // stands in for destroyKey
+            order.withLock { $0.append(999) }
             done.fulfill()
         }
         wait(for: [done], timeout: 5)
-        XCTAssertEqual(order, Array(0..<50) + [999])
+        XCTAssertEqual(order.withLock { $0 }, Array(0..<50) + [999])
     }
 }
 
 /// Which radio directory mirrors the app will talk to.
 final class RadioMirrorAllowlistTests: XCTestCase {
     func testTheKnownEuropeanAndNorthAmericanMirrorsAreAllowed() {
-        for h in ["de1.api.radio-browser.info", "de2.api.radio-browser.info",
-                  "nl1.api.radio-browser.info", "at1.api.radio-browser.info",
-                  "fi1.api.radio-browser.info", "us1.api.radio-browser.info"] {
+        for h in [
+            "de1.api.radio-browser.info", "de2.api.radio-browser.info",
+            "nl1.api.radio-browser.info", "at1.api.radio-browser.info",
+            "fi1.api.radio-browser.info", "us1.api.radio-browser.info",
+        ] {
             XCTAssertTrue(RadioBrowser.isAllowedMirror(h), h)
         }
     }
@@ -349,8 +396,10 @@ final class RadioMirrorAllowlistTests: XCTestCase {
         // North Korea. The directory is volunteer-run and any of these could
         // appear in the runtime list tomorrow; the allowlist is positive, so
         // they are refused without needing to be named.
-        for h in ["ru1.api.radio-browser.info", "cn1.api.radio-browser.info",
-                  "ir1.api.radio-browser.info", "kp1.api.radio-browser.info"] {
+        for h in [
+            "ru1.api.radio-browser.info", "cn1.api.radio-browser.info",
+            "ir1.api.radio-browser.info", "kp1.api.radio-browser.info",
+        ] {
             XCTAssertFalse(RadioBrowser.isAllowedMirror(h), h)
         }
     }
@@ -374,8 +423,10 @@ final class HandoffLogRedactionTests: XCTestCase {
     }
 
     func testEveryCaseHasAStableName() {
-        let all: [PlaybackFallback.Source] = [.localLibrary, .radio(genre: "x"),
-                                              .nothingAvailable, .keepPlaying]
+        let all: [PlaybackFallback.Source] = [
+            .localLibrary, .radio(genre: "x"),
+            .nothingAvailable, .keepPlaying,
+        ]
         XCTAssertEqual(Set(all.map(\.logName)).count, all.count)
     }
 }
@@ -388,9 +439,11 @@ final class LifeSafetyBandTests: XCTestCase {
         // ZERO to the route band — a corridor under an evacuation order
         // scored green. These must be recognizable so the band can file
         // them as a closure-class primary.
-        for e in ["Radiological Hazard Warning", "Hazardous Materials Warning",
-                  "Shelter In Place Warning", "Civil Danger Warning",
-                  "Evacuation Immediate"] {
+        for e in [
+            "Radiological Hazard Warning", "Hazardous Materials Warning",
+            "Shelter In Place Warning", "Civil Danger Warning",
+            "Evacuation Immediate",
+        ] {
             XCTAssertTrue(ImminentAlerts.isLifeSafetyEvent(e), e)
             XCTAssertFalse(ImminentAlerts.isLookoutEvent(e), e)
         }
@@ -417,8 +470,10 @@ final class LifeSafetyBandTests: XCTestCase {
 /// When the "conditions are worsening — reroute?" prompt appears.
 final class EscalationPolicyTests: XCTestCase {
     private typealias P = EscalationPolicy
-    private func reading(mean: Double, peak: Double? = nil, id: String? = nil,
-                         complete: Bool = true) -> P.Reading {
+    private func reading(
+        mean: Double, peak: Double? = nil, id: String? = nil,
+        complete: Bool = true
+    ) -> P.Reading {
         P.Reading(complete: complete, mean: mean, peak: peak ?? mean, peakAlertID: id)
     }
 
@@ -449,7 +504,7 @@ final class EscalationPolicyTests: XCTestCase {
 
     func testASmallRiseOrAGreenMeanIsNotSustained() {
         let s = P.State.fresh(baseline: 0.5)
-        XCTAssertNil(P.evaluate(reading(mean: 0.58), state: s).trigger)        // +0.08 < rise
+        XCTAssertNil(P.evaluate(reading(mean: 0.58), state: s).trigger)  // +0.08 < rise
         XCTAssertNil(P.evaluate(reading(mean: 0.30), state: .fresh(baseline: 0.1)).trigger)
     }
 
@@ -468,11 +523,13 @@ final class EscalationPolicyTests: XCTestCase {
         var s = P.State.fresh(baseline: 0.3)
         let a = P.evaluate(reading(mean: 0.35, peak: 0.95, id: "tornado-A"), state: s)
         s = P.dismissed(a.trigger!, state: a.state)
-        XCTAssertNil(P.evaluate(reading(mean: 0.35, peak: 0.95, id: "tornado-A"), state: s).trigger,
-                     "the SAME warning stays dismissed")
-        XCTAssertEqual(P.evaluate(reading(mean: 0.35, peak: 0.95, id: "tornado-B"), state: s).trigger,
-                       .acute(peak: 0.95, alertID: "tornado-B"),
-                       "a DIFFERENT warning must prompt again")
+        XCTAssertNil(
+            P.evaluate(reading(mean: 0.35, peak: 0.95, id: "tornado-A"), state: s).trigger,
+            "the SAME warning stays dismissed")
+        XCTAssertEqual(
+            P.evaluate(reading(mean: 0.35, peak: 0.95, id: "tornado-B"), state: s).trigger,
+            .acute(peak: 0.95, alertID: "tornado-B"),
+            "a DIFFERENT warning must prompt again")
     }
 
     func testAnAnonymousRedStillNeedsToBeWorseThanTheLastDismissal() {
@@ -496,19 +553,22 @@ final class EscalationPolicyTests: XCTestCase {
         var s = P.State.fresh(baseline: 0.4)
         let first = P.evaluate(reading(mean: 0.75), state: s)
         s = P.dismissed(first.trigger!, state: first.state)
-        XCTAssertNil(P.evaluate(reading(mean: 0.78), state: s).trigger)     // within margin
+        XCTAssertNil(P.evaluate(reading(mean: 0.78), state: s).trigger)  // within margin
         XCTAssertNotNil(P.evaluate(reading(mean: 0.82), state: s).trigger)  // clearly worse
     }
 }
 
 /// How one point's two-tier band input is assembled.
 final class BandInputTests: XCTestCase {
-    private func input(field: [String: Double] = [:], onDevice: [String: Double] = [:],
-                       event: String? = nil, severity: Double = 0,
-                       flood: Double = 1, closure: Double = 0) -> [String: Double] {
-        RiskEquations.bandInput(field: { field[$0] ?? 0 }, onDevice: onDevice,
-                                alertEvent: event, alertSeverity: severity,
-                                floodMultiplier: flood, closureScore: closure)
+    private func input(
+        field: [String: Double] = [:], onDevice: [String: Double] = [:],
+        event: String? = nil, severity: Double = 0,
+        flood: Double = 1, closure: Double = 0
+    ) -> [String: Double] {
+        RiskEquations.bandInput(
+            field: { field[$0] ?? 0 }, onDevice: onDevice,
+            alertEvent: event, alertSeverity: severity,
+            floodMultiplier: flood, closureScore: closure)
     }
 
     func testAPredictorIsTheWorseOfTheFieldAndTheDeviceForecast() {
@@ -537,8 +597,10 @@ final class BandInputTests: XCTestCase {
 
     func testADOTClosureIsProofAndKeepsTheWorseOfTwoClosureSources() {
         XCTAssertEqual(input(closure: 0.85)["closure"], 0.85)
-        XCTAssertEqual(input(event: "Shelter In Place Warning", severity: 0.95,
-                             closure: 0.85)["closure"], 0.95)
+        XCTAssertEqual(
+            input(
+                event: "Shelter In Place Warning", severity: 0.95,
+                closure: 0.85)["closure"], 0.95)
     }
 }
 
@@ -547,19 +609,22 @@ final class TruckerDesignationTests: XCTestCase {
     private typealias C = TruckerDesignation.Candidate
     private let a = UUID(), b = UUID(), c = UUID()
 
-    private func cand(_ id: UUID, clears: Bool = true, highways: Bool = true,
-                      avoids: Bool = false, grade: Bool = true, wind: Bool = true,
-                      eta: Double = 3600) -> C {
-        C(id: id, clearsBridges: clears, hasHighways: highways, avoidsHighways: avoids,
-          gradeOK: grade, windOK: wind, eta: eta)
+    private func cand(
+        _ id: UUID, clears: Bool = true, highways: Bool = true,
+        avoids: Bool = false, grade: Bool = true, wind: Bool = true,
+        eta: Double = 3600
+    ) -> C {
+        C(
+            id: id, clearsBridges: clears, hasHighways: highways, avoidsHighways: avoids,
+            gradeOK: grade, windOK: wind, eta: eta)
     }
 
     func testAKnownLowBridgeDisqualifiesHoweverGoodTheRestIs() {
         // The bug this pins: a route failing 13'6" scored 6 (highways +
         // grade + wind) and could beat a clearance-passing route.
         let picked = TruckerDesignation.pick([
-            cand(a, clears: false),                       // perfect score, low bridge
-            cand(b, highways: false, grade: false, wind: false),   // score 0, clears
+            cand(a, clears: false),  // perfect score, low bridge
+            cand(b, highways: false, grade: false, wind: false),  // score 0, clears
         ])
         XCTAssertEqual(picked, b)
     }
@@ -577,14 +642,15 @@ final class TruckerDesignationTests: XCTestCase {
         var slowerWalk = cand(b, eta: 7200)
         slowerWalk.isWalk = true
         XCTAssertNil(TruckerDesignation.pick([walk, slowerWalk]))
-        XCTAssertEqual(TruckerDesignation.pick([walk, cand(c, grade: false)]), c,
-                       "beside a drive, only the drive can earn it")
+        XCTAssertEqual(
+            TruckerDesignation.pick([walk, cand(c, grade: false)]), c,
+            "beside a drive, only the drive can earn it")
     }
 
     func testHighwaysGradeAndWindScoreInThatWeight() {
         XCTAssertEqual(TruckerDesignation.score(cand(a)), 6)
         XCTAssertEqual(TruckerDesignation.score(cand(a, highways: false)), 3)
-        XCTAssertEqual(TruckerDesignation.score(cand(a, avoids: true)), 3)   // avoid-highways plan
+        XCTAssertEqual(TruckerDesignation.score(cand(a, avoids: true)), 3)  // avoid-highways plan
         XCTAssertEqual(TruckerDesignation.score(cand(a, grade: false)), 4)
         XCTAssertEqual(TruckerDesignation.score(cand(a, wind: false)), 5)
     }
@@ -610,8 +676,9 @@ final class SecureShredTests: XCTestCase {
     }
 
     func testShreddingAMissingFileIsNotAnError() {
-        SecureBehaviorStore.shred(FileManager.default.temporaryDirectory
-            .appendingPathComponent("flows_never_existed.json"))
+        SecureBehaviorStore.shred(
+            FileManager.default.temporaryDirectory
+                .appendingPathComponent("flows_never_existed.json"))
     }
 }
 
@@ -627,19 +694,23 @@ final class TCCUsageKeyTests: XCTestCase {
     private func projectYAML() throws -> String {
         // Bundled as a test resource: the runner has no permission to open
         // the repository under ~/Documents.
-        let url = try XCTUnwrap(Bundle(for: TCCUsageKeyTests.self)
-            .url(forResource: "project", withExtension: "yml"))
+        let url = try XCTUnwrap(
+            Bundle(for: TCCUsageKeyTests.self)
+                .url(forResource: "project", withExtension: "yml"))
         return try String(contentsOf: url, encoding: .utf8)
     }
 
     /// The `info:` block of one target, by its `platform:` line.
     private func infoBlock(platform: String, in yml: String) -> String {
         let lines = yml.components(separatedBy: "\n")
-        guard let start = lines.firstIndex(where: { $0.trimmingCharacters(in: .whitespaces) == "platform: \(platform)" })
+        guard
+            let start = lines.firstIndex(where: { $0.trimmingCharacters(in: .whitespaces) == "platform: \(platform)" })
         else { return "" }
         // Up to the next target (a two-space-indented key).
         var end = start + 1
-        while end < lines.count, !(lines[end].hasPrefix("  ") && !lines[end].hasPrefix("   ") && lines[end].hasSuffix(":")) { end += 1 }
+        while end < lines.count,
+            !(lines[end].hasPrefix("  ") && !lines[end].hasPrefix("   ") && lines[end].hasSuffix(":"))
+        { end += 1 }
         return lines[start..<end].joined(separator: "\n")
     }
 
@@ -680,12 +751,14 @@ final class TextScaleFactorTests: XCTestCase {
 
 /// The synthesized dispatch call used to prove the audio path, end to end.
 final class DispatchSentenceTests: XCTestCase {
-    private let full = "Attention all units. Report of a two vehicle crash on Highway 51 at Main Street. Injuries reported. Respond code three."
+    private let full =
+        "Attention all units. Report of a two vehicle crash on Highway 51 at Main Street. Injuries reported. Respond code three."
 
     func testTheFullSentenceIsACrashAtAPlace() {
         XCTAssertNotNil(ScannerIncidents.kind(inTranscript: full))
-        XCTAssertNotNil(ScannerIncidents.placePhrase(inTranscript: full),
-                        "Highway 51 at Main Street must resolve as a place")
+        XCTAssertNotNil(
+            ScannerIncidents.placePhrase(inTranscript: full),
+            "Highway 51 at Main Street must resolve as a place")
     }
 
     func testAPartialCutBeforeThePlaceIsNotAnIncident() {
@@ -710,15 +783,19 @@ final class DispatchTranscriptRobustnessTests: XCTestCase {
     }
 
     func testSentencePunctuationDoesNotHideARoadWord() {
-        XCTAssertNotNil(ScannerIncidents.placePhrase(
-            inTranscript: "crash on Highway 51 at Main Street. Injuries reported."))
-        XCTAssertNotNil(ScannerIncidents.placePhrase(
-            inTranscript: "respond to 2100 Washington Road, for the alarm"))
+        XCTAssertNotNil(
+            ScannerIncidents.placePhrase(
+                inTranscript: "crash on Highway 51 at Main Street. Injuries reported."))
+        XCTAssertNotNil(
+            ScannerIncidents.placePhrase(
+                inTranscript: "respond to 2100 Washington Road, for the alarm"))
     }
 
     func testTheWordsDispatchersActuallyUseAreACrash() {
-        for t in ["two vehicle crash on the interstate", "a wreck at Fifth and Main",
-                  "rollover on Route 12", "vehicle crash with entrapment"] {
+        for t in [
+            "two vehicle crash on the interstate", "a wreck at Fifth and Main",
+            "rollover on Route 12", "vehicle crash with entrapment",
+        ] {
             XCTAssertNotNil(ScannerIncidents.kind(inTranscript: t), t)
         }
     }

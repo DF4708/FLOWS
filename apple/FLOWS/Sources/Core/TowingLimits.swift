@@ -32,8 +32,10 @@ enum TowingLimits {
 
         var effectiveGCWR: Double? {
             // Presence crosses on its own: a present effective GCWR can be NaN.
-            guard flows_vehicle_policy_towing_has_effective_gcwr(
-                gvwrLbs != nil, towCapacityLbs != nil, gcwrLbs != nil) else { return nil }
+            guard
+                flows_vehicle_policy_towing_has_effective_gcwr(
+                    gvwrLbs != nil, towCapacityLbs != nil, gcwrLbs != nil)
+            else { return nil }
             return flows_vehicle_policy_towing_effective_gcwr_lbs(
                 gvwrLbs ?? 0, gvwrLbs != nil,
                 towCapacityLbs ?? 0, towCapacityLbs != nil,
@@ -56,8 +58,9 @@ enum TowingLimits {
             return Ratings(gvwrLbs: nil, towCapacityLbs: nil, gcwrLbs: nil, estimated: true)
         }
         func rating(_ v: Double) -> Double? { v.isNaN ? nil : v }
-        return Ratings(gvwrLbs: rating(slots[0]), towCapacityLbs: rating(slots[1]),
-                       gcwrLbs: rating(slots[2]), estimated: slots[3] != 0)
+        return Ratings(
+            gvwrLbs: rating(slots[0]), towCapacityLbs: rating(slots[1]),
+            gcwrLbs: rating(slots[2]), estimated: slots[3] != 0)
     }
 
     enum Violation: Equatable {

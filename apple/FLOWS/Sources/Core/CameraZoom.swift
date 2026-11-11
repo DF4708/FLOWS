@@ -39,15 +39,18 @@ enum CameraZoom {
     /// proportionally farther. The view also starts tightening on the way
     /// INTO a turn — the shown distance never exceeds ~2× the road left
     /// before the maneuver — and pins to the intersection inside 250 m.
-    static func drivingAltitude(intersectionSpacingMeters: Double,
-                                distanceToManeuverMeters: Double,
-                                speedMps: Double) -> Double {
+    static func drivingAltitude(
+        intersectionSpacingMeters: Double,
+        distanceToManeuverMeters: Double,
+        speedMps: Double
+    ) -> Double {
         if distanceToManeuverMeters < 250 { return intersectionAltitude }
-        let effective = min(max(intersectionSpacingMeters, 0),
-                            max(distanceToManeuverMeters, 250) * 2.2)
+        let effective = min(
+            max(intersectionSpacingMeters, 0),
+            max(distanceToManeuverMeters, 250) * 2.2)
         let t = min(max((effective - 300) / 5_700, 0), 1)
         let base = cityAltitude + (highwayAltitude - cityAltitude) * t
-        let speedStretch = min(max(speedMps / 31.0, 1.0), 1.5)   // 31 m/s ≈ 70 mph
+        let speedStretch = min(max(speedMps / 31.0, 1.0), 1.5)  // 31 m/s ≈ 70 mph
         return base * (t > 0.5 ? speedStretch : 1.0)
     }
 
@@ -68,8 +71,9 @@ enum CameraZoom {
     /// there to look at.
     static func usableRect(_ rect: MKMapRect) -> MKMapRect? {
         guard !rect.isNull, !rect.isEmpty,
-              rect.size.width.isFinite, rect.size.height.isFinite,
-              rect.size.width > 1, rect.size.height > 1 else { return nil }
+            rect.size.width.isFinite, rect.size.height.isFinite,
+            rect.size.width > 1, rect.size.height > 1
+        else { return nil }
         return rect
     }
 
@@ -100,10 +104,12 @@ enum CameraZoom {
     /// MKMapRect's y runs SOUTHWARD, so moving the aim point north (a
     /// smaller origin.y) pushes the route down the screen, clear of a top
     /// panel; moving it south lifts the route above a bottom panel.
-    static func framedRect(_ rect: MKMapRect,
-                           panelEdge: PanelEdge,
-                           windowAspect: Double,
-                           panelFraction: Double = choicesPanelFraction) -> MKMapRect {
+    static func framedRect(
+        _ rect: MKMapRect,
+        panelEdge: PanelEdge,
+        windowAspect: Double,
+        panelFraction: Double = choicesPanelFraction
+    ) -> MKMapRect {
         var fit = rect.insetBy(dx: -rect.width * 0.2, dy: -rect.height * 0.2)
         guard windowAspect > 0, panelFraction > 0 else { return fit }
         switch panelEdge {
@@ -136,11 +142,13 @@ enum CameraZoom {
     ///
     /// `topCover` and `bottomCover` are the fractions of the window the
     /// chrome occupies. Returns the vehicle itself when nothing is covered.
-    static func chaseCenter(vehicle: CLLocationCoordinate2D,
-                            headingDegrees: Double,
-                            distanceMeters: Double,
-                            topCover: Double,
-                            bottomCover: Double) -> CLLocationCoordinate2D {
+    static func chaseCenter(
+        vehicle: CLLocationCoordinate2D,
+        headingDegrees: Double,
+        distanceMeters: Double,
+        topCover: Double,
+        bottomCover: Double
+    ) -> CLLocationCoordinate2D {
         let top = min(max(topCover, 0), 0.45)
         let bottom = min(max(bottomCover, 0), 0.45)
         // Middle of the open band, as a fraction down the window.
@@ -155,16 +163,19 @@ enum CameraZoom {
     }
 
     /// A coordinate `meters` away from `from` along a compass bearing.
-    static func offset(_ from: CLLocationCoordinate2D,
-                       metersAlong bearingDegrees: Double,
-                       meters: Double) -> CLLocationCoordinate2D {
+    static func offset(
+        _ from: CLLocationCoordinate2D,
+        metersAlong bearingDegrees: Double,
+        meters: Double
+    ) -> CLLocationCoordinate2D {
         let rad = Double.pi / 180
         let north = cos(bearingDegrees * rad) * meters
         let east = sin(bearingDegrees * rad) * meters
         let dLat = north / 111_320
         let dLon = east / (111_320 * max(cos(from.latitude * rad), 0.01))
-        return CLLocationCoordinate2D(latitude: from.latitude + dLat,
-                                      longitude: from.longitude + dLon)
+        return CLLocationCoordinate2D(
+            latitude: from.latitude + dLat,
+            longitude: from.longitude + dLon)
     }
 
     /// Flight altitude by phase, from the distance to the NEAREST of the two
@@ -177,7 +188,8 @@ enum CameraZoom {
         let cruiseBeyond = 40_000.0
         if metersToNearestAirport <= airportRadius { return walkingAltitude }
         if metersToNearestAirport >= cruiseBeyond { return cruiseAltitude }
-        let t = (metersToNearestAirport - airportRadius)
+        let t =
+            (metersToNearestAirport - airportRadius)
             / (cruiseBeyond - airportRadius)
         return walkingAltitude + (cruiseAltitude - walkingAltitude) * t
     }

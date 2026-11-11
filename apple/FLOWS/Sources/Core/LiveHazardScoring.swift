@@ -40,21 +40,31 @@ struct LiveHazardSnapshot: Sendable {
     private let shared: RustShared<FlowsHazardSnapshot>
     var handle: FlowsHazardSnapshot { shared.handle }
 
-    init(hotspots: [(lat: Double, lon: Double, frp: Double)] = [],
-         perimeters: [[Point]] = [],
-         quakes: [(lat: Double, lon: Double, magnitude: Double, ageHours: Double)] = [],
-         space: (r: Int, s: Int, g: Int) = (0, 0, 0),
-         volcanoes: [(lat: Double, lon: Double, level: String)] = [],
-         avalancheZones: [(rings: [[Point]], rating: Int)] = [],
-         storms: [(lat: Double, lon: Double, maxWindKt: Double)] = [],
-         tsunamis: [(lat: Double, lon: Double, level: String)] = [],
-         spcZones: [(rings: [[Point]], score: Double)] = []) {
-        self.hotspots = hotspots; self.perimeters = perimeters; self.quakes = quakes; self.space = space
-        self.volcanoes = volcanoes; self.avalancheZones = avalancheZones; self.storms = storms
-        self.tsunamis = tsunamis; self.spcZones = spcZones
+    init(
+        hotspots: [(lat: Double, lon: Double, frp: Double)] = [],
+        perimeters: [[Point]] = [],
+        quakes: [(lat: Double, lon: Double, magnitude: Double, ageHours: Double)] = [],
+        space: (r: Int, s: Int, g: Int) = (0, 0, 0),
+        volcanoes: [(lat: Double, lon: Double, level: String)] = [],
+        avalancheZones: [(rings: [[Point]], rating: Int)] = [],
+        storms: [(lat: Double, lon: Double, maxWindKt: Double)] = [],
+        tsunamis: [(lat: Double, lon: Double, level: String)] = [],
+        spcZones: [(rings: [[Point]], score: Double)] = []
+    ) {
+        self.hotspots = hotspots
+        self.perimeters = perimeters
+        self.quakes = quakes
+        self.space = space
+        self.volcanoes = volcanoes
+        self.avalancheZones = avalancheZones
+        self.storms = storms
+        self.tsunamis = tsunamis
+        self.spcZones = spcZones
         let h = flows_hazard_snapshot_new()
         if !hotspots.isEmpty {
-            HazardFeedScores.three(hotspots.map { $0.lat }, hotspots.map { $0.lon }, hotspots.map { $0.frp }) { h.add_hotspots($0, $1, $2) }
+            HazardFeedScores.three(hotspots.map { $0.lat }, hotspots.map { $0.lon }, hotspots.map { $0.frp }) {
+                h.add_hotspots($0, $1, $2)
+            }
         }
         if !perimeters.isEmpty {
             let flat = HazardFeedScores.flatten(perimeters)
@@ -62,7 +72,8 @@ struct LiveHazardSnapshot: Sendable {
         }
         if !quakes.isEmpty {
             let ages = quakes.map { $0.ageHours }
-            HazardFeedScores.three(quakes.map { $0.lat }, quakes.map { $0.lon }, quakes.map { $0.magnitude }) { la, lo, mag in
+            HazardFeedScores.three(quakes.map { $0.lat }, quakes.map { $0.lon }, quakes.map { $0.magnitude }) {
+                la, lo, mag in
                 ages.lent { h.add_quakes(la, lo, mag, $0) }
             }
         }
@@ -73,13 +84,21 @@ struct LiveHazardSnapshot: Sendable {
             }
         }
         if !avalancheZones.isEmpty {
-            let counts = avalancheZones.map { Int64($0.rings.count) }, ratings = avalancheZones.map { Int64($0.rating) }
+            let counts = avalancheZones.map { Int64($0.rings.count) }
+            let ratings = avalancheZones.map { Int64($0.rating) }
             let flat = HazardFeedScores.flatten(avalancheZones.flatMap { $0.rings })
-            counts.lent { zc in ratings.lent { rt in flat.lens.lent { lens in
-                HazardFeedScores.two(flat.lats, flat.lons) { h.add_avalanche_zones(zc, rt, lens, $0, $1) } } } }
+            counts.lent { zc in
+                ratings.lent { rt in
+                    flat.lens.lent { lens in
+                        HazardFeedScores.two(flat.lats, flat.lons) { h.add_avalanche_zones(zc, rt, lens, $0, $1) }
+                    }
+                }
+            }
         }
         if !storms.isEmpty {
-            HazardFeedScores.three(storms.map { $0.lat }, storms.map { $0.lon }, storms.map { $0.maxWindKt }) { h.add_storms($0, $1, $2) }
+            HazardFeedScores.three(storms.map { $0.lat }, storms.map { $0.lon }, storms.map { $0.maxWindKt }) {
+                h.add_storms($0, $1, $2)
+            }
         }
         if !tsunamis.isEmpty {
             HazardFeedScores.two(tsunamis.map { $0.lat }, tsunamis.map { $0.lon }) {
@@ -87,10 +106,16 @@ struct LiveHazardSnapshot: Sendable {
             }
         }
         if !spcZones.isEmpty {
-            let counts = spcZones.map { Int64($0.rings.count) }, scores = spcZones.map { $0.score }
+            let counts = spcZones.map { Int64($0.rings.count) }
+            let scores = spcZones.map { $0.score }
             let flat = HazardFeedScores.flatten(spcZones.flatMap { $0.rings })
-            counts.lent { zc in scores.lent { sc in flat.lens.lent { lens in
-                HazardFeedScores.two(flat.lats, flat.lons) { h.add_spc_zones(zc, sc, lens, $0, $1) } } } }
+            counts.lent { zc in
+                scores.lent { sc in
+                    flat.lens.lent { lens in
+                        HazardFeedScores.two(flat.lats, flat.lons) { h.add_spc_zones(zc, sc, lens, $0, $1) }
+                    }
+                }
+            }
         }
         shared = RustShared(h)
     }
@@ -103,17 +128,25 @@ struct LiveHazardSnapshot: Sendable {
         hotspots = stride(from: 0, to: hot.count - 2, by: 3).map { (lat: hot[$0], lon: hot[$0 + 1], frp: hot[$0 + 2]) }
         perimeters = Self.rings(Array(handle.perimeters_flat()))
         let q = Array(handle.quakes_flat())
-        quakes = stride(from: 0, to: q.count - 3, by: 4).map { (lat: q[$0], lon: q[$0 + 1], magnitude: q[$0 + 2], ageHours: q[$0 + 3]) }
+        quakes = stride(from: 0, to: q.count - 3, by: 4).map {
+            (lat: q[$0], lon: q[$0 + 1], magnitude: q[$0 + 2], ageHours: q[$0 + 3])
+        }
         let sp = Array(handle.space())
         space = sp.count == 3 ? (r: Int(sp[0]), s: Int(sp[1]), g: Int(sp[2])) : (0, 0, 0)
-        let v = Array(handle.volcanoes_flat()), vl = handle.volcano_levels().map { $0.text }
+        let v = Array(handle.volcanoes_flat())
+        let vl = handle.volcano_levels().map { $0.text }
         volcanoes = zip(stride(from: 0, to: v.count - 1, by: 2), vl).map { (lat: v[$0], lon: v[$0 + 1], level: $1) }
-        avalancheZones = zip(Self.zones(Array(handle.avalanche_zones_flat())), Array(handle.avalanche_ratings())).map { (rings: $0, rating: Int($1)) }
+        avalancheZones = zip(Self.zones(Array(handle.avalanche_zones_flat())), Array(handle.avalanche_ratings())).map {
+            (rings: $0, rating: Int($1))
+        }
         let st = Array(handle.storms_flat())
         storms = stride(from: 0, to: st.count - 2, by: 3).map { (lat: st[$0], lon: st[$0 + 1], maxWindKt: st[$0 + 2]) }
-        let t = Array(handle.tsunamis_flat()), tl = handle.tsunami_levels().map { $0.text }
+        let t = Array(handle.tsunamis_flat())
+        let tl = handle.tsunami_levels().map { $0.text }
         tsunamis = zip(stride(from: 0, to: t.count - 1, by: 2), tl).map { (lat: t[$0], lon: t[$0 + 1], level: $1) }
-        spcZones = zip(Self.zones(Array(handle.spc_zones_flat())), Array(handle.spc_scores())).map { (rings: $0, score: $1) }
+        spcZones = zip(Self.zones(Array(handle.spc_zones_flat())), Array(handle.spc_scores())).map {
+            (rings: $0, score: $1)
+        }
     }
 
     /// Rings from the bridge's flat form: `[n, len_1…len_n, lat, lon…]`.
@@ -128,7 +161,8 @@ struct LiveHazardSnapshot: Sendable {
             let len = Int(flat[1 + k])
             var ring: [Point] = []
             for _ in 0..<max(len, 0) where at + 1 < flat.count {
-                ring.append(Point(latitude: flat[at], longitude: flat[at + 1])); at += 2
+                ring.append(Point(latitude: flat[at], longitude: flat[at + 1]))
+                at += 2
             }
             return ring
         }
@@ -143,7 +177,8 @@ struct LiveHazardSnapshot: Sendable {
         var at = 0
         return (0..<n).map { k in
             let count = max(Int(flat[1 + k]), 0)
-            let zone = Array(all[at..<min(at + count, all.count)]); at += count
+            let zone = Array(all[at..<min(at + count, all.count)])
+            at += count
             return zone
         }
     }
@@ -171,7 +206,8 @@ extension LiveHazardFeedFetcher {
     /// to the box. Each fetch is cached by its own TTL inside the fetcher, so
     /// a second call for a nearby box is cheap.
     func liveSnapshot(minLat: Double, minLon: Double, maxLat: Double, maxLon: Double)
-        async -> LiveHazardSnapshot {
+        async -> LiveHazardSnapshot
+    {
         async let hotspots = hotspots()
         async let quakes = recentQuakes()
         async let perimeters = firePerimeters(minLat: minLat, minLon: minLon, maxLat: maxLat, maxLon: maxLon)
@@ -225,18 +261,22 @@ extension HazardFeedScores {
     /// handle in place — the same numbers the map sweep and the route get.
     static func live(at pt: CLLocationCoordinate2D, snapshot s: LiveHazardSnapshot) -> LiveFamilies {
         liveChecked(at: pt, snapshot: s)
-            ?? LiveFamilies(fire: 0, seismic: 0, spaceRadiation: 0, volcanic: 0,
-                            avalanche: 0, tropical: 0, tsunami: 0, convective: 0)
+            ?? LiveFamilies(
+                fire: 0, seismic: 0, spaceRadiation: 0, volcanic: 0,
+                avalanche: 0, tropical: 0, tsunami: 0, convective: 0)
     }
 
     /// The same, or nil when the scorer gave no answer (it failed inside
     /// Rust and sent back nothing). No answer is not "nothing there": the
     /// route and the map treat the point as unchecked.
-    static func liveChecked(at pt: CLLocationCoordinate2D,
-                            snapshot s: LiveHazardSnapshot) -> LiveFamilies? {
+    static func liveChecked(
+        at pt: CLLocationCoordinate2D,
+        snapshot s: LiveHazardSnapshot
+    ) -> LiveFamilies? {
         let v = s.handle.live(pt.latitude, pt.longitude)
         guard v.len() == 8 else { return nil }
-        return LiveFamilies(fire: v[0], seismic: v[1], spaceRadiation: v[2], volcanic: v[3],
-                            avalanche: v[4], tropical: v[5], tsunami: v[6], convective: v[7])
+        return LiveFamilies(
+            fire: v[0], seismic: v[1], spaceRadiation: v[2], volcanic: v[3],
+            avalanche: v[4], tropical: v[5], tsunami: v[6], convective: v[7])
     }
 }

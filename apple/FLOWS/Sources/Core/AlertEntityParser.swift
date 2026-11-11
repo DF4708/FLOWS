@@ -72,9 +72,10 @@ enum AlertEntityParser {
     static func vehicle(in text: String) -> VehicleEntity? {
         let v = flows_alert_text_vehicle(text)
         guard v.has, Int(v.kind) < VehicleKind.allCases.count else { return nil }
-        return VehicleEntity(colorName: v.has_color ? colorNames[Int(v.color_index)] : nil,
-                             kind: VehicleKind.allCases[Int(v.kind)],
-                             brand: v.has_brand ? brands[Int(v.brand_index)] : nil)
+        return VehicleEntity(
+            colorName: v.has_color ? colorNames[Int(v.color_index)] : nil,
+            kind: VehicleKind.allCases[Int(v.kind)],
+            brand: v.has_brand ? brands[Int(v.brand_index)] : nil)
     }
 
     /// First person mentioned (child words win over adult words when both
@@ -82,7 +83,8 @@ enum AlertEntityParser {
     static func person(in text: String) -> PersonEntity? {
         let p = flows_alert_text_person(text)
         guard p.has else { return nil }
-        return PersonEntity(isChild: p.is_child,
-                            colorName: p.has_color ? colorNames[Int(p.color_index)] : nil)
+        return PersonEntity(
+            isChild: p.is_child,
+            colorName: p.has_color ? colorNames[Int(p.color_index)] : nil)
     }
 }

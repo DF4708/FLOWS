@@ -14,7 +14,8 @@ import XCTest
 final class FuelWarningTests: XCTestCase {
 
     private func station(_ name: String, _ miles: Double, _ price: Double? = nil)
-        -> FuelWarning.Station {
+        -> FuelWarning.Station
+    {
         FuelWarning.Station(name: name, milesAhead: miles, pricePerUnit: price)
     }
 
@@ -37,9 +38,11 @@ final class FuelWarningTests: XCTestCase {
     func testSeverityGrowsExponentiallyTowardEmpty() {
         // Losing the first quarter tank barely moves it; the last quarter
         // moves it far more — that's the whole point of the curve.
-        let firstQuarter = FuelWarning.severity(fraction: 0.75)
+        let firstQuarter =
+            FuelWarning.severity(fraction: 0.75)
             - FuelWarning.severity(fraction: 1.0)
-        let lastQuarter = FuelWarning.severity(fraction: 0.0)
+        let lastQuarter =
+            FuelWarning.severity(fraction: 0.0)
             - FuelWarning.severity(fraction: 0.25)
         XCTAssertGreaterThan(lastQuarter, firstQuarter * 4)
     }
@@ -49,17 +52,21 @@ final class FuelWarningTests: XCTestCase {
     func testQuietWhilePlentyOfStationsAreReachable() {
         let stations = (1...8).map { station("Stop \($0)", Double($0) * 10) }
         // 200 mi of range, 40 mi reserve → 160 usable, 8 stations reachable.
-        XCTAssertEqual(FuelWarning.level(stationsAhead: stations, rangeMiles: 200),
-                       .none)
+        XCTAssertEqual(
+            FuelWarning.level(stationsAhead: stations, rangeMiles: 200),
+            .none)
     }
 
     func testWarnsWhileTheLastFewAreStillInRange() {
         // The owner's case: a diesel truck with 50 miles left. Reserve is
         // 40, so only stations inside 10 mi are truly reachable.
-        let stations = [station("Pilot", 4), station("Loves", 8),
-                        station("TA", 40), station("Petro", 120)]
-        XCTAssertEqual(FuelWarning.level(stationsAhead: stations, rangeMiles: 50),
-                       .lastChances(remaining: 2))
+        let stations = [
+            station("Pilot", 4), station("Loves", 8),
+            station("TA", 40), station("Petro", 120),
+        ]
+        XCTAssertEqual(
+            FuelWarning.level(stationsAhead: stations, rangeMiles: 50),
+            .lastChances(remaining: 2))
     }
 
     func testWarnsBeforeTheLastStationGoesOutOfRange() {
@@ -71,8 +78,9 @@ final class FuelWarningTests: XCTestCase {
             switch FuelWarning.level(stationsAhead: stations, rangeMiles: range) {
             case .lastChances: sawLastChance = true
             case .unreachable:
-                XCTAssertTrue(sawLastChance,
-                              "went unreachable at \(range) mi with no prior warning")
+                XCTAssertTrue(
+                    sawLastChance,
+                    "went unreachable at \(range) mi with no prior warning")
             case .none: break
             }
         }
@@ -81,40 +89,47 @@ final class FuelWarningTests: XCTestCase {
 
     func testUnreachableWhenNothingSellsThisFuelInRange() {
         let stations = [station("Far", 300)]
-        XCTAssertEqual(FuelWarning.level(stationsAhead: stations, rangeMiles: 60),
-                       .unreachable)
-        XCTAssertEqual(FuelWarning.level(stationsAhead: [], rangeMiles: 60),
-                       .unreachable)
+        XCTAssertEqual(
+            FuelWarning.level(stationsAhead: stations, rangeMiles: 60),
+            .unreachable)
+        XCTAssertEqual(
+            FuelWarning.level(stationsAhead: [], rangeMiles: 60),
+            .unreachable)
     }
 
     func testReserveIsNeverSpent() {
         // A station exactly at the range limit is NOT reachable — arriving on
         // fumes is not a plan.
         let stations = [station("Edge", 100)]
-        XCTAssertEqual(FuelWarning.level(stationsAhead: stations, rangeMiles: 100),
-                       .unreachable)
+        XCTAssertEqual(
+            FuelWarning.level(stationsAhead: stations, rangeMiles: 100),
+            .unreachable)
     }
 
     // MARK: which station gets recommended
 
     func testCheapestReachableWins() {
-        let stations = [station("Near pricey", 5, 4.59),
-                        station("Cheap", 8, 3.19),
-                        station("Cheapest but too far", 400, 2.99)]
+        let stations = [
+            station("Near pricey", 5, 4.59),
+            station("Cheap", 8, 3.19),
+            station("Cheapest but too far", 400, 2.99),
+        ]
         let pick = FuelWarning.cheapest(stationsAhead: stations, rangeMiles: 60)
         XCTAssertEqual(pick?.name, "Cheap")
     }
 
     func testUnpricedStationsRankBehindPricedOnes() {
         let stations = [station("Unknown price", 3), station("Known", 9, 3.99)]
-        XCTAssertEqual(FuelWarning.cheapest(stationsAhead: stations, rangeMiles: 60)?.name,
-                       "Known")
+        XCTAssertEqual(
+            FuelWarning.cheapest(stationsAhead: stations, rangeMiles: 60)?.name,
+            "Known")
     }
 
     func testFallsBackToNearestWhenNoPricesAreKnown() {
         let stations = [station("Farther", 9), station("Nearest", 3)]
-        XCTAssertEqual(FuelWarning.cheapest(stationsAhead: stations, rangeMiles: 60)?.name,
-                       "Nearest")
+        XCTAssertEqual(
+            FuelWarning.cheapest(stationsAhead: stations, rangeMiles: 60)?.name,
+            "Nearest")
     }
 
     // MARK: what the driver hears
@@ -140,8 +155,10 @@ final class FuelWarningTests: XCTestCase {
     }
 
     func testNothingIsSaidWhenAllIsWell() {
-        XCTAssertNil(FuelWarning.spokenAdvice(fuel: .gas, level: .none,
-                                              station: nil, rangeMiles: 300))
+        XCTAssertNil(
+            FuelWarning.spokenAdvice(
+                fuel: .gas, level: .none,
+                station: nil, rangeMiles: 300))
         XCTAssertNil(FuelWarning.bannerText(fuel: .gas, level: .none, station: nil))
     }
 }
