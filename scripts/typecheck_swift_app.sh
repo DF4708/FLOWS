@@ -23,7 +23,13 @@ case "${1:-macos}" in
   *) echo "usage: $0 [macos|ios]" >&2; exit 2 ;;
 esac
 find "$APP/Sources" -name '*.swift' | sort > "${TMPDIR:-/tmp}/flows_typecheck_files.txt"
-xcrun --sdk "$SDK" swiftc -typecheck -parse-as-library -swift-version 6 \
+xcrun --sdk "$SDK" swiftc -typecheck -parse-as-library -swift-version 5 -strict-concurrency=complete \
+  -enable-upcoming-feature GlobalActorIsolatedTypesUsability \
+  -enable-upcoming-feature InferSendableFromCaptures \
+  -enable-upcoming-feature IsolatedDefaultValues \
+  -enable-upcoming-feature DisableOutwardActorInference \
+  -enable-upcoming-feature RegionBasedIsolation \
+  -enable-upcoming-feature GlobalConcurrency \
   -target "$TARGET" \
   -import-objc-header "$BR/BridgingHeader.h" -I "$BR" \
   "$BR/SwiftBridgeCore.swift" "$BR/flows-bridge/flows-bridge.swift" \
