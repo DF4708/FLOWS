@@ -203,24 +203,5 @@ enum TransitClock {
     }
 }
 
-/// Formatters kept by key. Building a `DateFormatter` or `NumberFormatter` is
-/// among the dearest things Foundation does, and view code asked for one per
-/// label per redraw (a schedule's clock faces, a fare, a ferry's season).
-/// Reads are guarded by a lock, so a shelf can be shared by any thread.
-final class FormatterShelf<F: Formatter>: @unchecked Sendable {
-    private var byKey: [String: F] = [:]
-    private let lock = NSLock()
-
-    /// Run `use` on the formatter kept under `key`, building it with `make`
-    /// the first time. A shelf that has grown past 40 is emptied (zones and
-    /// locales are few; this only bounds a pathological caller).
-    func with<T>(_ key: String, make: () -> F, _ use: (F) -> T) -> T {
-        lock.lock()
-        defer { lock.unlock() }
-        if let kept = byKey[key] { return use(kept) }
-        let made = make()
-        if byKey.count > 40 { byKey.removeAll() }
-        byKey[key] = made
-        return use(made)
-    }
-}
+// `FormatterShelf` (formatters kept by key, behind a lock) is in
+// Islands/UnsafeIslands.swift.

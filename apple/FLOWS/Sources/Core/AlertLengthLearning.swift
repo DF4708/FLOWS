@@ -7,6 +7,7 @@
 // -----------------------------------------------------------------------------
 
 import Foundation
+import os
 
 /// One official event that said both when it began and when it ends: a
 /// free, labeled example of how long that kind of event runs here.
@@ -94,21 +95,21 @@ enum AlertLengthLearning {
 /// Which alerts a device saw says where it has been, so this is a behaviour
 /// store: sealed by `SecureBehaviorStore`, and erased by "Erase everything
 /// FLOWS has learned" (AppModel.eraseEverythingLearned).
-final class AlertLengthMemory: @unchecked Sendable {
+final class AlertLengthMemory: Sendable {
     static let shared = AlertLengthMemory()
 
-    private struct Stat: Codable, Equatable {
+    private struct Stat: Codable, Equatable, Sendable {
         var count: Int
         var sumLn: Double
     }
     /// An event already counted, kept until a week past its end so an
     /// update corrects its length instead of counting it twice.
-    private struct Seen: Codable, Equatable {
+    private struct Seen: Codable, Equatable, Sendable {
         var kind: String
         var ln: Double
         var ends: Date
     }
-    private struct Stored: Codable, Equatable {
+    private struct Stored: Codable, Equatable, Sendable {
         var stats: [String: Stat] = [:]
         var seen: [String: Seen] = [:]
     }
@@ -118,8 +119,7 @@ final class AlertLengthMemory: @unchecked Sendable {
     static let maxSeen = 2_000
     static let keepSeen: TimeInterval = 7 * 86_400
 
-    private let lock = NSLock()
-    private var stored = Stored()
+    private let stored: OSAllocatedUnfairLock<Stored>
     private let url: URL
 
     init(directory: URL? = nil) {
@@ -129,15 +129,17 @@ final class AlertLengthMemory: @unchecked Sendable {
                 appropriateFor: nil, create: true))
             ?? URL(fileURLWithPath: NSTemporaryDirectory())
         url = dir.appendingPathComponent("flows_alert_lengths.json")
-        if let loaded = SecureBehaviorStore.load(Stored.self, from: url) { stored = loaded }
+        stored = OSAllocatedUnfairLock(
+            initialState: SecureBehaviorStore.load(Stored.self, from: url) ?? Stored())
     }
 
     /// Events of this kind seen, and the mean logarithm of their lengths.
     func learned(event: String) -> (count: Int, meanLn: Double) {
         let kind = flows_alerts_usual_kind(event.isEmpty ? "Alert" : event).toString()
-        lock.lock(); defer { lock.unlock() }
-        guard let stat = stored.stats[kind], stat.count > 0 else { return (0, 0) }
-        return (stat.count, stat.sumLn / Double(stat.count))
+        return stored.withLock { stored in
+            guard let stat = stored.stats[kind], stat.count > 0 else { return (0, 0) }
+            return (stat.count, stat.sumLn / Double(stat.count))
+        }
     }
 
     /// The usual length of this kind now, in hours: the measured table,
@@ -150,64 +152,61 @@ final class AlertLengthMemory: @unchecked Sendable {
 
     /// How many events have been learned from, over every kind.
     var eventCount: Int {
-        lock.lock(); defer { lock.unlock() }
-        return stored.stats.values.reduce(0) { $0 + $1.count }
+        stored.withLock { $0.stats.values.reduce(0) { $0 + $1.count } }
     }
 
     /// Learn from a list of examples. An event is counted once: an update
     /// that moves its end replaces the length it was counted with.
     func record(_ samples: [AlertLengthSample], now: Date = Date()) {
         guard !samples.isEmpty else { return }
-        lock.lock()
-        let before = stored
-        for sample in samples where flows_alerts_length_usable(sample.hours) {
-            let old = stored.seen[sample.eventKey]
-            // The start comes only from a message that knows it; the end is
-            // the latest any part of the event states (the longer side).
-            let sampleStart = sample.ends.addingTimeInterval(-sample.hours * 3600)
-            let oldStart = old.map { $0.ends.addingTimeInterval(-exp($0.ln) * 3600) }
-            let start: Date
-            switch (oldStart, sample.opens) {
-            case let (was?, true): start = min(was, sampleStart)
-            case let (was?, false): start = was
-            case (nil, true): start = sampleStart
-            case (nil, false): continue
+        let changed: Stored? = stored.withLock { stored in
+            let before = stored
+            for sample in samples where flows_alerts_length_usable(sample.hours) {
+                let old = stored.seen[sample.eventKey]
+                // The start comes only from a message that knows it; the end is
+                // the latest any part of the event states (the longer side).
+                let sampleStart = sample.ends.addingTimeInterval(-sample.hours * 3600)
+                let oldStart = old.map { $0.ends.addingTimeInterval(-exp($0.ln) * 3600) }
+                let start: Date
+                switch (oldStart, sample.opens) {
+                case let (was?, true): start = min(was, sampleStart)
+                case let (was?, false): start = was
+                case (nil, true): start = sampleStart
+                case (nil, false): continue
+                }
+                let ends = max(old?.ends ?? sample.ends, sample.ends)
+                let hours = ends.timeIntervalSince(start) / 3600
+                guard flows_alerts_length_usable(hours) else { continue }
+                let ln = log(hours)
+                if let old {
+                    guard abs(old.ln - ln) > 1e-9 || old.kind != sample.kind else { continue }
+                    stored.stats[old.kind]?.sumLn -= old.ln
+                    stored.stats[old.kind]?.count -= 1
+                }
+                var stat = stored.stats[sample.kind] ?? Stat(count: 0, sumLn: 0)
+                stat.count += 1
+                stat.sumLn += ln
+                stored.stats[sample.kind] = stat
+                stored.seen[sample.eventKey] = Seen(kind: sample.kind, ln: ln, ends: ends)
             }
-            let ends = max(old?.ends ?? sample.ends, sample.ends)
-            let hours = ends.timeIntervalSince(start) / 3600
-            guard flows_alerts_length_usable(hours) else { continue }
-            let ln = log(hours)
-            if let old {
-                guard abs(old.ln - ln) > 1e-9 || old.kind != sample.kind else { continue }
-                stored.stats[old.kind]?.sumLn -= old.ln
-                stored.stats[old.kind]?.count -= 1
+            stored.stats = stored.stats.filter { $0.value.count > 0 }
+            // Forget which events were counted once they are well over; their
+            // lengths stay in the sums.
+            stored.seen = stored.seen.filter { now.timeIntervalSince($0.value.ends) < Self.keepSeen }
+            if stored.seen.count > Self.maxSeen {
+                let keep = stored.seen.sorted { $0.value.ends > $1.value.ends }.prefix(Self.maxSeen)
+                stored.seen = Dictionary(uniqueKeysWithValues: keep.map { ($0.key, $0.value) })
             }
-            var stat = stored.stats[sample.kind] ?? Stat(count: 0, sumLn: 0)
-            stat.count += 1
-            stat.sumLn += ln
-            stored.stats[sample.kind] = stat
-            stored.seen[sample.eventKey] = Seen(kind: sample.kind, ln: ln, ends: ends)
+            return stored != before ? stored : nil
         }
-        stored.stats = stored.stats.filter { $0.value.count > 0 }
-        // Forget which events were counted once they are well over; their
-        // lengths stay in the sums.
-        stored.seen = stored.seen.filter { now.timeIntervalSince($0.value.ends) < Self.keepSeen }
-        if stored.seen.count > Self.maxSeen {
-            let keep = stored.seen.sorted { $0.value.ends > $1.value.ends }.prefix(Self.maxSeen)
-            stored.seen = Dictionary(uniqueKeysWithValues: keep.map { ($0.key, $0.value) })
-        }
-        let snapshot = stored
-        lock.unlock()
-        guard snapshot != before else { return }
+        guard let snapshot = changed else { return }
         let url = self.url
         SecureBehaviorStore.persistQueue.async { SecureBehaviorStore.save(snapshot, to: url) }
     }
 
     /// "Erase everything FLOWS has learned".
     func erase() {
-        lock.lock()
-        stored = Stored()
-        lock.unlock()
+        stored.withLock { $0 = Stored() }
         // On the save queue, so a save already waiting cannot put the file
         // back after the erase.
         let url = self.url

@@ -70,12 +70,7 @@ enum SecureBehaviorStore {
             return SymmetricKey(data: data)
         }
         // First run (or the item was purged): mint one.
-        var bytes = Data(count: 32)
-        let ok = bytes.withUnsafeMutableBytes { raw -> Bool in
-            guard let base = raw.baseAddress else { return false }
-            return SecRandomCopyBytes(kSecRandomDefault, 32, base) == errSecSuccess
-        }
-        guard ok else { return nil }
+        guard let bytes = RawBytes.secureRandom(32) else { return nil }
         var add: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
@@ -201,10 +196,8 @@ enum SecureBehaviorStore {
             return nil
         }
         // Overwrite the plaintext bytes in place, THEN write the sealed copy.
-        var noise = Data(count: raw.count)
-        _ = noise.withUnsafeMutableBytes { buf in
-            buf.baseAddress.map { SecRandomCopyBytes(kSecRandomDefault, raw.count, $0) }
-        }
+        // If the random source refuses, zeros still overwrite the plaintext.
+        let noise = RawBytes.secureRandom(raw.count) ?? Data(count: raw.count)
         try? noise.write(to: url, options: .atomic)
         guard write(raw, to: url) else { return raw }
         FlowsDiag.log(.info, "privacy",
@@ -219,10 +212,8 @@ enum SecureBehaviorStore {
     static func shred(_ url: URL) {
         if let size = (try? FileManager.default
             .attributesOfItem(atPath: url.path)[.size] as? Int) ?? nil, size > 0 {
-            var noise = Data(count: size)
-            _ = noise.withUnsafeMutableBytes { raw in
-                raw.baseAddress.map { SecRandomCopyBytes(kSecRandomDefault, size, $0) }
-            }
+            // If the random source refuses, zeros still overwrite the file.
+            let noise = RawBytes.secureRandom(size) ?? Data(count: size)
             try? noise.write(to: url, options: .atomic)
         }
         try? FileManager.default.removeItem(at: url)

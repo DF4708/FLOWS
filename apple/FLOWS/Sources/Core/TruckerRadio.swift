@@ -388,11 +388,9 @@ final class TruckerRadio: ObservableObject {
     }
 
     private var statusObservation: NSKeyValueObservation?
-    /// `nonisolated(unsafe)` because deinit runs off the actor: by the time
-    /// it does, nothing else holds a reference, so the exclusive access the
-    /// annotation promises is real rather than asserted.
-    private nonisolated(unsafe) var failureObserver: NSObjectProtocol?
-    private nonisolated(unsafe) var stallObserver: NSObjectProtocol?
+    /// The stall and failure observers, kept where deinit (which runs off the
+    /// actor) can remove them (`ObserverSlots`, in the islands).
+    private let observers = ObserverSlots()
 
     /// Tear the relay down with the object: an emergency radio that goes
     /// away mid-broadcast otherwise leaves an AVPlayer running with nothing
@@ -400,9 +398,7 @@ final class TruckerRadio: ObservableObject {
     deinit {
         player?.pause()
         statusObservation?.invalidate()
-        for o in [failureObserver, stallObserver].compactMap({ $0 }) {
-            NotificationCenter.default.removeObserver(o)
-        }
+        observers.removeAll()
     }
 
     /// Fired when the stream actually runs dry (AVFoundation's stall
@@ -490,8 +486,7 @@ final class TruckerRadio: ObservableObject {
         }
         p.play()
         player = p
-        if let stallObserver { NotificationCenter.default.removeObserver(stallObserver) }
-        stallObserver = NotificationCenter.default.addObserver(
+        observers.set("stall", NotificationCenter.default.addObserver(
             forName: .AVPlayerItemPlaybackStalled, object: item, queue: .main
         ) { [weak self] _ in
             Task { @MainActor in
@@ -499,9 +494,8 @@ final class TruckerRadio: ObservableObject {
                                        "radio", "stream stalled (current station)")
                 self?.onStall?()
             }
-        }
-        if let failureObserver { NotificationCenter.default.removeObserver(failureObserver) }
-        failureObserver = NotificationCenter.default.addObserver(
+        })
+        observers.set("failure", NotificationCenter.default.addObserver(
             forName: .AVPlayerItemFailedToPlayToEndTime, object: item, queue: .main
         ) { [weak self] _ in
             Task { @MainActor in
@@ -509,7 +503,7 @@ final class TruckerRadio: ObservableObject {
                 self.status = "Station cut out. Press play to try again."
                 self.playingChannelID = nil
             }
-        }
+        })
     }
 
     /// State code parsed from the relay name ("AL-Mobile: KEC61" → "AL").
@@ -618,10 +612,7 @@ final class TruckerRadio: ObservableObject {
         player?.pause()
         player = nil
         statusObservation = nil
-        if let failureObserver { NotificationCenter.default.removeObserver(failureObserver) }
-        failureObserver = nil
-        if let stallObserver { NotificationCenter.default.removeObserver(stallObserver) }
-        stallObserver = nil
+        observers.removeAll()
         playingChannelID = nil
         status = nil
         isPaused = false

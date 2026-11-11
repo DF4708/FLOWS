@@ -24,7 +24,7 @@ let flowsSignposter = OSSignposter(subsystem: "com.flows.app", category: "perf")
 /// changes, so a device that heats up on a long drive backs off automatically.
 ///
 /// The tier→settings mapping is pure (`settings(...)`) and pinned by FLOWSTests.
-final class AdaptiveTuning: @unchecked Sendable {
+final class AdaptiveTuning: Sendable {
     static let shared = AdaptiveTuning()
 
     enum Tier: Int, Sendable { case low = 0, standard = 1, high = 2 }
@@ -52,16 +52,15 @@ final class AdaptiveTuning: @unchecked Sendable {
     }
 
     private let baseTier: Tier
-    private let lock = NSLock()
-    private var current: Settings
+    private let current: OSAllocatedUnfairLock<Settings>
 
     private init() {
         let info = ProcessInfo.processInfo
         baseTier = Self.baseTier(cores: info.activeProcessorCount,
                                  memoryGB: Double(info.physicalMemory) / 1_073_741_824)
-        current = Self.settings(tier: baseTier, thermal: info.thermalState,
-                                lowPower: info.isLowPowerModeEnabled
-                                    || NetworkPath.shared.isLowData)
+        current = OSAllocatedUnfairLock(initialState: Self.settings(
+            tier: baseTier, thermal: info.thermalState,
+            lowPower: info.isLowPowerModeEnabled || NetworkPath.shared.isLowData))
         // Low Data Mode is the person asking for less traffic: it backs off
         // the way Low Power Mode does (fewer requests, a smaller map sweep,
         // longer-lived caches). It used to change nothing here.
@@ -81,10 +80,10 @@ final class AdaptiveTuning: @unchecked Sendable {
         let s = Self.settings(tier: baseTier, thermal: info.thermalState,
                               lowPower: info.isLowPowerModeEnabled
                                   || NetworkPath.shared.isLowData)
-        lock.lock(); current = s; lock.unlock()
+        current.withLock { $0 = s }
     }
 
-    var settings: Settings { lock.lock(); defer { lock.unlock() }; return current }
+    var settings: Settings { current.withLock { $0 } }
     var maxInFlight: Int { settings.maxInFlight }
     var viewportGridSpan: Int { settings.viewportGridSpan }
     var debounceSeconds: Double { settings.debounceSeconds }

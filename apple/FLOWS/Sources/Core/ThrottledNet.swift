@@ -8,6 +8,7 @@
 
 import Foundation
 import Network
+import os
 
 /// One shared, throttled HTTP path for the whole app. Two problems it fixes:
 ///   1. There were 8+ independent `URLSession`s, each with its own per-host
@@ -256,10 +257,9 @@ enum CacheEviction {
 /// A big download the system refused because the person has Low Data Mode
 /// on. The refusal is right; saying nothing about it was not: the card fell
 /// back to an estimate with no reason given.
-final class LowDataRefusal: @unchecked Sendable {
+final class LowDataRefusal: Sendable {
     static let shared = LowDataRefusal()
-    private let lock = NSLock()
-    private var last: Date?
+    private let last = OSAllocatedUnfairLock<Date?>(initialState: nil)
 
     static let notice =
         "Low Data Mode is on, so FLOWS did not download bus and train times. These are estimates."
@@ -269,25 +269,26 @@ final class LowDataRefusal: @unchecked Sendable {
     }
 
     func note(_ now: Date = Date()) {
-        lock.lock(); last = now; lock.unlock()
+        last.withLock { $0 = now }
     }
 
     /// Whether a download was refused at or after `start` (a lookup's start:
     /// an older refusal belongs to an earlier plan).
     func happened(since start: Date) -> Bool {
-        lock.lock(); defer { lock.unlock() }
-        return last.map { $0 >= start } ?? false
+        last.withLock { $0.map { $0 >= start } ?? false }
     }
 }
 
 /// Whether the device has a network path right now — a request that failed
 /// while it had none says nothing about the host it asked.
-final class NetworkPath: @unchecked Sendable {
+final class NetworkPath: Sendable {
     static let shared = NetworkPath()
     private let monitor = NWPathMonitor()
-    private let lock = NSLock()
-    private var up = true
-    private var lowData = false
+    private struct State: Sendable {
+        var up = true
+        var lowData = false
+    }
+    private let state = OSAllocatedUnfairLock(initialState: State())
     /// Posted when Low Data Mode comes or goes (AdaptiveTuning listens).
     static let lowDataChanged = Notification.Name("flows.network.lowDataChanged")
 
@@ -299,19 +300,17 @@ final class NetworkPath: @unchecked Sendable {
     }
 
     private func set(_ satisfied: Bool, lowData constrained: Bool) {
-        lock.lock()
-        up = satisfied
-        let changed = lowData != constrained
-        lowData = constrained
-        lock.unlock()
+        let changed = state.withLock { now -> Bool in
+            now.up = satisfied
+            let changed = now.lowData != constrained
+            now.lowData = constrained
+            return changed
+        }
         if changed { NotificationCenter.default.post(name: Self.lowDataChanged, object: nil) }
     }
 
     /// The person put this connection in Low Data Mode: ask for less.
-    var isLowData: Bool {
-        lock.lock(); defer { lock.unlock() }
-        return lowData
-    }
+    var isLowData: Bool { state.withLock { $0.lowData } }
 
     /// The error is the device's, not the host's: no path now, or an
     /// error that only an unconnected device gives.
@@ -319,8 +318,7 @@ final class NetworkPath: @unchecked Sendable {
         let offlineCodes: [URLError.Code] = [.notConnectedToInternet, .networkConnectionLost,
                                              .dataNotAllowed, .internationalRoamingOff]
         if let code = (error as? URLError)?.code, offlineCodes.contains(code) { return true }
-        lock.lock(); defer { lock.unlock() }
-        return !up
+        return state.withLock { !$0.up }
     }
 }
 

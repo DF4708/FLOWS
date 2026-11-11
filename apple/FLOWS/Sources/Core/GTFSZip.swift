@@ -186,10 +186,10 @@ enum GTFSZip {
     static func packedHeader(for entry: Entry) -> Data {
         guard entry.method == 8 else { return Data() }
         var header = packedMagic
-        withUnsafeBytes(of: entry.crc32.littleEndian) { header.append(contentsOf: $0) }
-        withUnsafeBytes(of: UInt64(max(0, entry.uncompressedSize)).littleEndian) {
-            header.append(contentsOf: $0)
-        }
+        // Low byte first, written out by hand: no raw memory is read.
+        let crc = entry.crc32, size = UInt64(max(0, entry.uncompressedSize))
+        for shift in stride(from: 0, to: 32, by: 8) { header.append(UInt8((crc >> shift) & 0xFF)) }
+        for shift in stride(from: 0, to: 64, by: 8) { header.append(UInt8((size >> shift) & 0xFF)) }
         return header
     }
 

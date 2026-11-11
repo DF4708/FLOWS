@@ -7,6 +7,7 @@
 // -----------------------------------------------------------------------------
 
 import Foundation
+import os
 
 /// Live average fuel prices from the U.S. Energy Information Administration's
 /// weekly Gasoline and Diesel Fuel Update (eia.gov/petroleum/gasdiesel — a
@@ -18,17 +19,20 @@ import Foundation
 /// table — labeled "est." in the UI either way (an average, not a station
 /// price). It replaced AAA's state pages on 2026-10-01: AAA reserves all
 /// rights to them and its terms allow personal, non-commercial use only.
-final class EIAFuelPrices: @unchecked Sendable {
+final class EIAFuelPrices: Sendable {
     static let shared = EIAFuelPrices()
 
-    private let lock = NSLock()
-    private var prices: [String: (gas: Double, diesel: Double)] = [:]
-    private var fetchedAt: Date?
+    private struct State: Sendable {
+        var prices: [String: (gas: Double, diesel: Double)] = [:]
+        var fetchedAt: Date?
+    }
+    private let state = OSAllocatedUnfairLock(initialState: State())
 
     func cached(_ code: String) -> (gas: Double, diesel: Double)? {
-        lock.lock(); defer { lock.unlock() }
-        guard let at = fetchedAt, Date().timeIntervalSince(at) < 43_200 else { return nil }
-        return prices[code]
+        state.withLock { kept in
+            guard let at = kept.fetchedAt, Date().timeIntervalSince(at) < 43_200 else { return nil }
+            return kept.prices[code]
+        }
     }
 
     /// Fetch the week's table once per 12 h (EIA publishes it each Monday).
@@ -44,15 +48,17 @@ final class EIAFuelPrices: @unchecked Sendable {
     }
 
     private var isStale: Bool {
-        lock.lock(); defer { lock.unlock() }
-        return fetchedAt.map { Date().timeIntervalSince($0) >= 43_200 } ?? true
+        state.withLock { kept in
+            kept.fetchedAt.map { Date().timeIntervalSince($0) >= 43_200 } ?? true
+        }
     }
 
-    /// Synchronous mutation point (NSLock is not await-safe; this never awaits).
+    /// Synchronous mutation point (the lock is never held across an await).
     private func store(_ parsed: [String: (gas: Double, diesel: Double)]) {
-        lock.lock(); defer { lock.unlock() }
-        prices = parsed
-        fetchedAt = Date()
+        state.withLock { kept in
+            kept.prices = parsed
+            kept.fetchedAt = Date()
+        }
     }
 
     /// Pure parse (testable offline), done in Rust: every state's (gas,

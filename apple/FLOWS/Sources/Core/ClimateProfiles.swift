@@ -8,6 +8,7 @@
 
 import CoreLocation
 import Foundation
+import os
 
 /// Per-location CLIMATE TYPE — a 2-D replacement for the 1-D latitude bands when
 /// normalizing "abnormal heat/cold for here". Latitude bands vary only N–S, so
@@ -116,12 +117,9 @@ enum ClimateProfiles {
     /// Precise per-ZIP temperature normals, keyed by ~11 km cell. Populated on
     /// demand for a route corridor (and a cached home radius) once the NOAA
     /// Climate-Normals tiles ship; EMPTY until then, so the computed climate
-    /// type serves everywhere. Read on the hot forecast path, so a snapshot is
-    /// swapped atomically rather than mutated in place (no locks on reads).
-    // `nonisolated(unsafe)`: read on the nonisolated forecast path, written only
-    // by `loadPrecise` (main-actor, infrequent) via whole-snapshot replacement.
-    // Empty this build (no on-demand loader yet); add a lock when it ships.
-    nonisolated(unsafe) private static var precise: [Int: LatitudeBands.Profile] = [:]
+    /// type serves everywhere. Read on the forecast path and written by
+    /// `loadPrecise`, so the whole snapshot sits behind one short lock.
+    private static let precise = OSAllocatedUnfairLock<[Int: LatitudeBands.Profile]>(initialState: [:])
     /// The ~11 km cell holding a coordinate, keyed in Rust
     /// (`flows_core::climate::precise_cell`); nil for a coordinate that
     /// cannot be placed, which the original crashed on.
@@ -135,7 +133,7 @@ enum ClimateProfiles {
     /// type. This is the seam every risk equation reads (via NWSForecastService).
     static func profile(latitude lat: Double, longitude lon: Double,
                         elevationMeters elev: Double? = nil) -> LatitudeBands.Profile {
-        if let key = cell(lat, lon), let p = precise[key] { return p }
+        if let key = cell(lat, lon), let p = precise.withLock({ $0[key] }) { return p }
         let p = flows_climate_profile(lat, lon, elev ?? 0, elev != nil)
         return p.has == 1 ? LatitudeBands.Profile(bridge: p) : LatitudeBands.anchorProfile
     }
@@ -145,7 +143,7 @@ enum ClimateProfiles {
     /// trimming, since local driving reuses them constantly.
     static func loadPrecise(_ entries: [(lat: Double, lon: Double, profile: LatitudeBands.Profile)],
                             home: CLLocationCoordinate2D?, maxCells: Int = 20_000) {
-        var next = precise
+        var next = precise.withLock { $0 }
         for e in entries { if let key = cell(e.lat, e.lon) { next[key] = e.profile } }
         if next.count > maxCells, let home {
             // Keep the home ring (~25 cells each way, decided in Rust); a home
@@ -155,6 +153,7 @@ enum ClimateProfiles {
             }
             for e in entries { if let key = cell(e.lat, e.lon) { next[key] = e.profile } }  // never evict the just-loaded corridor
         }
-        precise = next
+        let merged = next
+        precise.withLock { $0 = merged }
     }
 }

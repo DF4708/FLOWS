@@ -965,14 +965,9 @@ final class WeatherAlertService: ObservableObject {
         var references: [String] = []
     }
 
-    // ISO8601DateFormatter is thread-safe (Foundation guarantees it post-iOS
-    // 10), so unsafe-nonisolated shared use across the concurrent fetchers is
-    // correct; the Sendable checker just can't prove it.
-    nonisolated(unsafe) private static let alertDateParser: ISO8601DateFormatter = {
-        let f = ISO8601DateFormatter()
-        f.formatOptions = [.withInternetDateTime]
-        return f
-    }()
+    // Shared across the concurrent fetchers (SharedISO8601Parser, in the
+    // islands, says why that is sound).
+    nonisolated private static let alertDateParser = SharedISO8601Parser([.withInternetDateTime])
 
     /// nonisolated: touches only the immutable `session`, so TaskGroup children
     /// can fetch truly concurrently instead of hopping through the main actor.
@@ -1125,11 +1120,8 @@ final class WeatherAlertService: ObservableObject {
 
     /// ECCC stamps times with milliseconds ("2026-09-22T08:50:44.658Z"),
     /// which the plain internet-date parser rejects.
-    nonisolated(unsafe) private static let ecccDateParser: ISO8601DateFormatter = {
-        let f = ISO8601DateFormatter()
-        f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        return f
-    }()
+    nonisolated private static let ecccDateParser =
+        SharedISO8601Parser([.withInternetDateTime, .withFractionalSeconds])
 
     nonisolated static func ecccDate(_ text: String) -> Date? {
         ecccDateParser.date(from: text) ?? alertDateParser.date(from: text)

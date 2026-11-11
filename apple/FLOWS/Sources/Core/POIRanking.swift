@@ -35,24 +35,27 @@ enum POIRanking {
     /// then a full scan past sixteen rings) are the Rust route behind
     /// `handle`; this struct keeps the vertices and their cumulative meters
     /// for its readers. Nothing mutates the handle after init, which is what
-    /// makes the value safe to hand to the ranking task off the main actor.
-    struct RoutePath: @unchecked Sendable {
+    /// makes the value safe to hand to the ranking task off the main actor
+    /// (`RustShared`).
+    struct RoutePath: Sendable {
         let coords: [CLLocationCoordinate2D]
         let cumulative: [CLLocationDistance]   // meters from origin to coords[i]
-        let handle: FlowsRoutePath
+        private let shared: RustShared<FlowsRoutePath>
+        var handle: FlowsRoutePath { shared.handle }
 
         init(coords: [CLLocationCoordinate2D]) {
             self.coords = coords
             guard !coords.isEmpty else {
-                handle = flows_places_route_path_empty()
+                shared = RustShared(flows_places_route_path_empty())
                 cumulative = []
                 return
             }
             let lats = coords.map(\.latitude), lons = coords.map(\.longitude)
-            handle = lats.withUnsafeBufferPointer { la in
+            let made = lats.withUnsafeBufferPointer { la in
                 lons.withUnsafeBufferPointer { lo in flows_places_route_path(la, lo) }
             }
-            cumulative = Array(handle.cumulative())
+            shared = RustShared(made)
+            cumulative = Array(made.cumulative())
         }
 
         /// Nearest route vertex to a coordinate → (index, off-route meters).

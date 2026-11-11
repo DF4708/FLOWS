@@ -268,11 +268,13 @@ enum RiskSummaryText {
 
 /// The Rust field behind `RiskFieldService`: one opaque handle, parsed once
 /// and read in place. Nothing mutates it after `load()` finishes its rescore,
-/// so it moves between the loading task and the main actor as a value would.
-final class RiskField: @unchecked Sendable {
-    let handle: FlowsRiskField
+/// so it moves between the loading task and the main actor as a value would
+/// (`RustShared`).
+final class RiskField: Sendable {
+    private let shared: RustShared<FlowsRiskField>
+    var handle: FlowsRiskField { shared.handle }
 
-    init(handle: FlowsRiskField) { self.handle = handle }
+    init(handle: FlowsRiskField) { shared = RustShared(handle) }
 
     /// The FRB1 shard; nil for a corrupt one. An empty buffer never crosses.
     convenience init?(frb1 data: Data) {

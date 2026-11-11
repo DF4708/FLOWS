@@ -173,9 +173,11 @@ final class VehicleLink: NSObject, ObservableObject {
     private var obdBuffer = ""
     private var obdPollTask: Task<Void, Never>?
 
-    // Immutable UUID list read from nonisolated CoreBluetooth delegates.
-    nonisolated(unsafe) private static let uartServices =
+    // Read from nonisolated CoreBluetooth delegates: built on each read (three
+    // short UUIDs), so nothing is shared between threads.
+    nonisolated private static var uartServices: [CBUUID] {
         [CBUUID(string: "FFF0"), CBUUID(string: "FFE0"), CBUUID(string: "18F0")]
+    }
 
     // MARK: pure TPMS advertisement parsing (tested)
 
@@ -330,9 +332,7 @@ final class VehicleLink: NSObject, ObservableObject {
     private func mfiWrite(_ command: String) {
         guard let out = mfiSession?.outputStream,
               let data = (command + "\r").data(using: .ascii) else { return }
-        _ = data.withUnsafeBytes {
-            out.write($0.bindMemory(to: UInt8.self).baseAddress!, maxLength: data.count)
-        }
+        _ = RawBytes.write(data, to: out)
     }
 
     private func mfiReadFuel() {

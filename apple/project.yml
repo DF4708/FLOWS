@@ -342,6 +342,7 @@ targets:
       - path: FLOWS/Sources/Core/WMOAlerts.swift
       - path: FLOWS/Sources/Core/TransitItinerary.swift
       - path: FLOWS/Sources/Core/TransitClock.swift
+      - path: FLOWS/Sources/Core/Islands/UnsafeIslands.swift
       - path: FLOWS/Sources/Core/TransitShard.swift
       - path: FLOWS/Sources/Core/GTFSZip.swift
       - path: FLOWS/Sources/Core/TransitFeeds.swift

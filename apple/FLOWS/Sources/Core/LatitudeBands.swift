@@ -42,7 +42,7 @@ enum LatitudeBands {
     static let referenceElevationMeters = flows_climate_reference_elevation_meters()
     static let metersPerBandStep = flows_climate_meters_per_band_step()
 
-    struct Profile: Equatable {
+    struct Profile: Equatable, Sendable {
         var band: Int
         var comfortLowF: Double
         var comfortHighF: Double

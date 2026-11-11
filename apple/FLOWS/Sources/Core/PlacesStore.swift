@@ -22,8 +22,8 @@ import Foundation
 /// (cellKey i64, startRecord u32, count u32) grid index. Records are
 /// variable-length, so the reader builds a byte-offset table in one
 /// sequential load-time scan; queries then decode only matching cells.
-struct PlacesShard: @unchecked Sendable {
-    struct Place {
+struct PlacesShard: Sendable {
+    struct Place: Sendable {
         let coordinate: CLLocationCoordinate2D
         let group: UInt8
         let name: String
@@ -41,9 +41,10 @@ struct PlacesShard: @unchecked Sendable {
     /// rust/flows-bridge): the byte offset of every record and the cell
     /// table, built by the validation pass. Nothing mutates it after init,
     /// which is what makes the shard safe to hand from the loading task to
-    /// its readers. Pinned to the original by
+    /// its readers (`RustShared`). Pinned to the original by
     /// rust/flows-bridge/tests/fixtures/swift_places_oracle.tsv.
-    private let index: FlowsPlacesIndex
+    private let shared: RustShared<FlowsPlacesIndex>
+    private var index: FlowsPlacesIndex { shared.handle }
 
     /// Parse + validate a shard; nil on any structural or hash mismatch
     /// (a corrupt shard is refused, never "repaired").
@@ -54,7 +55,7 @@ struct PlacesShard: @unchecked Sendable {
               })
         else { return nil }
         self.data = data
-        self.index = index
+        self.shared = RustShared(index)
     }
 
     /// The builder's cell key: 0.2° cells, always positive. A key that would

@@ -117,23 +117,15 @@ enum IntlWeatherParsing {
         let deflated = data.subdata(in: offset..<(data.count - 8))
 
         // ISIZE trailer: uncompressed size mod 2^32 — sizes our buffer.
-        let isize = data.suffix(4).withUnsafeBytes { $0.loadUnaligned(as: UInt32.self) }
+        // Low byte first, read by hand: no raw memory is touched.
+        let isize = data.suffix(4).reversed().reduce(UInt32(0)) { ($0 << 8) | UInt32($1) }
         // Capped: the trailer is the server's word, and a bad one asked for
         // up to 4 GB. A decode that fills the buffer stopped at its end —
         // truncated, unless the trailer names exactly that size — and is
         // refused (it was returned as the whole file).
         let capacity = min(max(Int(isize), deflated.count * 4, 64_000), 16 << 20)
-        var out = Data(count: capacity)
-        let written = out.withUnsafeMutableBytes { dst in
-            deflated.withUnsafeBytes { src in
-                compression_decode_buffer(
-                    dst.bindMemory(to: UInt8.self).baseAddress!, capacity,
-                    src.bindMemory(to: UInt8.self).baseAddress!, deflated.count,
-                    nil, COMPRESSION_ZLIB)
-            }
-        }
-        guard written > 0, written < capacity || written == Int(isize) else { return nil }
-        out.removeSubrange(written..<out.count)
+        guard let out = RawBytes.inflate(deflated, capacity: capacity),
+              out.count < capacity || out.count == Int(isize) else { return nil }
         return out
     }
 }

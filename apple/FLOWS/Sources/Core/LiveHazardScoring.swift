@@ -19,7 +19,7 @@ import Foundation
 /// beside it was. Both now score through `HazardFeedScores.live`, from one
 /// snapshot per area, and the route folds the result into the same two-tier
 /// band input the map uses.
-struct LiveHazardSnapshot: @unchecked Sendable {
+struct LiveHazardSnapshot: Sendable {
     typealias Point = CLLocationCoordinate2D
     var hotspots: [(lat: Double, lon: Double, frp: Double)]
     var perimeters: [[Point]]
@@ -35,9 +35,10 @@ struct LiveHazardSnapshot: @unchecked Sendable {
     /// through rust/flows-bridge), built once here so every per-point score
     /// reads them in place, never copied per sample. Nothing mutates the
     /// handle after this init, which is what makes the struct safe to hand
-    /// between the fetcher and the actors that score. Pinned to the original by
-    /// rust/flows-bridge/tests/fixtures/swift_hazard_feeds_oracle.tsv.
-    let handle: FlowsHazardSnapshot
+    /// between the fetcher and the actors that score (`RustShared`). Pinned to
+    /// the original by rust/flows-bridge/tests/fixtures/swift_hazard_feeds_oracle.tsv.
+    private let shared: RustShared<FlowsHazardSnapshot>
+    var handle: FlowsHazardSnapshot { shared.handle }
 
     init(hotspots: [(lat: Double, lon: Double, frp: Double)] = [],
          perimeters: [[Point]] = [],
@@ -91,13 +92,13 @@ struct LiveHazardSnapshot: @unchecked Sendable {
             counts.withUnsafeBufferPointer { zc in scores.withUnsafeBufferPointer { sc in flat.lens.withUnsafeBufferPointer { lens in
                 HazardFeedScores.two(flat.lats, flat.lons) { h.add_spc_zones(zc, sc, lens, $0, $1) } } } }
         }
-        handle = h
+        shared = RustShared(h)
     }
 
     /// A snapshot the Rust side produced (a clip): its lists are read back
     /// so the fields stay inspectable.
     private init(handle: FlowsHazardSnapshot) {
-        self.handle = handle
+        shared = RustShared(handle)
         let hot = Array(handle.hotspots_flat())
         hotspots = stride(from: 0, to: hot.count - 2, by: 3).map { (lat: hot[$0], lon: hot[$0 + 1], frp: hot[$0 + 2]) }
         perimeters = Self.rings(Array(handle.perimeters_flat()))
