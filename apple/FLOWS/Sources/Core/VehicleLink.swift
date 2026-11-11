@@ -114,6 +114,23 @@ final class VehicleLink: NSObject, ObservableObject {
             sensor.heardMoving += 1
         }
         sensors[id] = sensor
+        republishTires(now: now)
+        // Sensors were only let go when another one was heard: with the car
+        // gone out of range nothing was heard, and the last pressures stood
+        // as checked and fine for as long as the app stayed open. Look again
+        // once this reading has had its time.
+        staleCheck?.cancel()
+        staleCheck = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64((Self.sensorStaleSeconds + 1) * 1_000_000_000))
+            guard !Task.isCancelled else { return }
+            self?.republishTires(now: Date())
+        }
+    }
+
+    private var staleCheck: Task<Void, Never>?
+
+    /// Let go of sensors not heard lately and publish what the rest read.
+    private func republishTires(now: Date) {
         sensors = sensors.filter { now.timeIntervalSince($0.value.lastHeard) < Self.sensorStaleSeconds }
         var tires: [String: Double] = [:]
         var heardAt: [String: Date] = [:]

@@ -458,6 +458,7 @@ struct MapsStartNavigationIntent {
         }
         // A new mode or road choice re-plans what is on screen; under a
         // live trip that would replan the road being driven, so it waits.
+        let walkingBefore = model.walkingMode, filtersBefore = model.routeFilters
         switch SiriSchemaRules.tripRequest(
             mode: transportationType.mode, preferences: Set(preferences.map(\.preference)),
             walkingNow: model.walkingMode, filters: model.routeFilters,
@@ -467,6 +468,19 @@ struct MapsStartNavigationIntent {
         case .plan(let walking, let addFilters):
             if let walking { model.walkingMode = walking }
             if !addFilters.isEmpty { model.routeFilters.formUnion(addFilters) }
+        }
+        // A plan that comes to nothing puts the mode and the road choices
+        // back: "walk to Denver" that found no way left Walk on, and the next
+        // trip planned on foot. Only what this request set is undone; a
+        // switch made on screen meanwhile is the driver's and stays.
+        let askedWalking = model.walkingMode, askedFilters = model.routeFilters
+        func putBack() {
+            if model.walkingMode == askedWalking, askedWalking != walkingBefore {
+                model.walkingMode = walkingBefore
+            }
+            if model.routeFilters == askedFilters, askedFilters != filtersBefore {
+                model.routeFilters = filtersBefore
+            }
         }
         let routes: [PlannedRoute]
         do {
@@ -478,10 +492,12 @@ struct MapsStartNavigationIntent {
                 "The trip changed on screen while I planned. Ask me again."))
         } catch {
             // The router did not answer: that is not "no road goes there".
+            putBack()
             return .result(value: nil, dialog: IntentDialog(
                 "I couldn't plan that right now. Check the connection and ask again."))
         }
         guard !routes.isEmpty else {
+            putBack()
             return .result(value: nil, dialog: IntentDialog("No route found to \(name)."))
         }
         // present(routes:) is the one way in to the choices (see

@@ -1289,6 +1289,11 @@ struct NavigationHUD: View {
                 .padding(.trailing, 2)
             }
             Button("Add stop") {
+                // A picked chain's logo stays cached (LogoCache's weekly check).
+                if !BrandMark.logoClientID.isEmpty,
+                   let domain = BrandMark.logoDomain(for: ranked.item.name ?? "") {
+                    LogoCache.shared.notePicked(domain)
+                }
                 Task { await model.addStop(ranked.item) }
             }
             .scaledFont(size: 13, weight: .heavy)
@@ -1363,20 +1368,57 @@ struct NavigationHUD: View {
                               design: .rounded))
                 .foregroundStyle(Color(red: ink.r, green: ink.g, blue: ink.b))
                 .minimumScaleFactor(0.6)
-            if let url = BrandMark.logoURL(for: name) {
-                AsyncImage(url: url) { phase in
-                    if case .success(let image) = phase {
-                        image.resizable().scaledToFit()
-                            .padding(3)
-                            .frame(width: 32, height: 32)
-                            .background(Color.white)
-                            .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
-                    }
-                }
+            if !BrandMark.logoClientID.isEmpty, let domain = BrandMark.logoDomain(for: name) {
+                ChainLogo(domain: domain)
             }
         }
         .frame(width: 32, height: 32)
         .accessibilityHidden(true)
+    }
+
+    /// A chain's logo over its tile, from LogoCache: the picture already in
+    /// memory shows on the first frame, so a list reopened does not blink
+    /// from initials to logos.
+    private struct ChainLogo: View {
+        let domain: String
+        @State private var image: Image?
+
+        init(domain: String) {
+            self.domain = domain
+            _image = State(initialValue: Self.decoded[domain])
+        }
+
+        /// Decoded once per logo, not once per redraw.
+        @MainActor private static var decoded: [String: Image] = [:]
+
+        var body: some View {
+            ZStack {
+                if let image {
+                    image.resizable().scaledToFit()
+                        .padding(3)
+                        .frame(width: 32, height: 32)
+                        .background(Color.white)
+                        .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+                }
+            }
+            .task(id: domain) {
+                LogoCache.shared.noteShown(domain)
+                if let ready = Self.decoded[domain] { image = ready; return }
+                guard let data = await LogoCache.shared.data(domain: domain),
+                      let made = Self.picture(data) else { return }
+                if Self.decoded.count >= 64 { CacheEviction.dropHalf(&Self.decoded) }
+                Self.decoded[domain] = made
+                image = made
+            }
+        }
+
+        private static func picture(_ data: Data) -> Image? {
+            #if canImport(UIKit)
+            return UIImage(data: data).map { Image(uiImage: $0) }
+            #else
+            return NSImage(data: data).map { Image(nsImage: $0) }
+            #endif
+        }
     }
 
     /// At the stop, but the way on could not be planned. Plain words, and

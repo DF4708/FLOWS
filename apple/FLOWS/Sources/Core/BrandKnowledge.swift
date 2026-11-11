@@ -301,13 +301,27 @@ enum BrandMark {
         (Bundle.main.object(forInfoDictionaryKey: "FLOWSBrandfetchClientID") as? String)?
             .trimmingCharacters(in: .whitespaces) ?? ""
 
-    /// A chain's official logo, square, from Brandfetch's free Logo API —
-    /// loaded straight into the tile, never saved (its terms forbid keeping
-    /// copies). "fallback/404" makes an unknown brand fail, so the initials
-    /// stay rather than a stand-in letter of theirs.
+    /// The site address sent as the Referer with each logo request
+    /// (Info.plist FLOWSBrandfetchReferer): Brandfetch serves only requests
+    /// that name the site embedding the logo. Empty = none sent.
+    static let logoReferer: String =
+        (Bundle.main.object(forInfoDictionaryKey: "FLOWSBrandfetchReferer") as? String)?
+            .trimmingCharacters(in: .whitespaces) ?? ""
+
+    /// A chain's official logo, square, from Brandfetch's free Logo API.
+    /// Kept only in the HTTP cache, as the host's own headers allow
+    /// (LogoCache); no copy is saved anywhere else (its terms). "fallback/404"
+    /// makes an unknown brand fail, so the initials stay rather than a
+    /// stand-in letter of theirs.
     static func logoURL(for name: String, clientID: String = logoClientID,
                         pixels: Int = 96) -> URL? {
-        guard !clientID.isEmpty, let domain = logoDomain(for: name),
+        guard let domain = logoDomain(for: name) else { return nil }
+        return logoURL(domain: domain, clientID: clientID, pixels: pixels)
+    }
+
+    static func logoURL(domain: String, clientID: String = logoClientID,
+                        pixels: Int = 96) -> URL? {
+        guard !clientID.isEmpty,
               let id = clientID.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed)
         else { return nil }
         return URL(string: "https://cdn.brandfetch.io/domain/\(domain)/w/\(pixels)/h/\(pixels)"

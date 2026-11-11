@@ -193,6 +193,33 @@ enum GTFSZip {
         return header
     }
 
+    private static let crcTable: [UInt32] = (0..<256).map { n -> UInt32 in
+        var c = UInt32(n)
+        for _ in 0..<8 { c = c & 1 == 1 ? 0xEDB8_8320 ^ (c >> 1) : c >> 1 }
+        return c
+    }
+
+    /// The CRC-32 of a file, read a piece at a time; nil when it cannot be
+    /// read. A stored member is kept as its own bytes with nothing to check
+    /// it at build time (a packed one carries its CRC in its header), so it
+    /// is checked here, as it is kept.
+    static func crc32(ofFile file: URL) -> UInt32? {
+        guard let handle = try? FileHandle(forReadingFrom: file) else { return nil }
+        defer { try? handle.close() }
+        var crc: UInt32 = 0xFFFF_FFFF
+        while true {
+            // read gives nil at the end of the file, and throws when it
+            // cannot read: only the second is a failure.
+            let piece: Data?
+            do { piece = try handle.read(upToCount: 1 << 20) } catch { return nil }
+            guard let piece, !piece.isEmpty else { break }
+            for byte in piece {
+                crc = crcTable[Int((crc ^ UInt32(byte)) & 0xFF)] ^ (crc >> 8)
+            }
+        }
+        return crc ^ 0xFFFF_FFFF
+    }
+
     /// Where a member's data sits, counted from the start of its LOCAL header,
     /// given at least that header's first 30 bytes. Nil when fewer arrived.
     static func dataRange(of entry: Entry, localHeader: Data) throws -> Range<Int>? {

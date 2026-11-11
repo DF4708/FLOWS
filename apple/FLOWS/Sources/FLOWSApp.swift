@@ -3356,6 +3356,7 @@ final class AppModel: ObservableObject {
         shareHistory.erase()
         ShowerAvailability.eraseReports()
         radio.eraseLastPlayed()
+        LogoCache.shared.erase()   // which chains were seen and picked
         // Missed until now: the refuel answers, the signal-buffer learning,
         // the hours-of-service clock, and the network cache — its request
         // URLs carry the positions and route points weather.gov, Open-Meteo

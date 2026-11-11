@@ -96,6 +96,52 @@ final class StopTileTests: XCTestCase {
                        "https://cdn.brandfetch.io/domain/starbucks.com/w/96/h/96/fallback/404/type/icon?c=abc")
     }
 
+    /// The weekly check keeps a logo that was seen on two occasions in the
+    /// week or whose chain was picked in the last four weeks, and lets the
+    /// rest go.
+    func testTheWeeklyLogoCheckKeepsWhatIsUsed() {
+        let t0 = Date(timeIntervalSinceReferenceDate: 800_000_000)
+        // Tiles redrawn within ten minutes are one sighting.
+        var seen = LogoKeepRule.sighted(nil, now: t0)
+        seen = LogoKeepRule.sighted(seen, now: t0.addingTimeInterval(60))
+        XCTAssertEqual(seen.shown, 1)
+        seen = LogoKeepRule.sighted(seen, now: t0.addingTimeInterval(3_600))
+        XCTAssertEqual(seen.shown, 2)
+
+        let once = LogoKeepRule.sighted(nil, now: t0)
+        let picked = LogoKeepRule.picked(nil, now: t0)
+        let week = t0.addingTimeInterval(LogoKeepRule.reviewEvery)
+        let first = LogoKeepRule.review(
+            ["seen.com": seen, "once.com": once, "picked.com": picked], now: week)
+        XCTAssertEqual(first.dropped, ["once.com"])
+        XCTAssertEqual(first.kept["seen.com"]?.shown, 0, "sightings start again each week")
+
+        // A week with no sighting: the seen one goes, the picked one stays
+        // until four weeks after the pick.
+        let second = LogoKeepRule.review(first.kept, now: week.addingTimeInterval(7 * 86_400))
+        XCTAssertEqual(second.dropped, ["seen.com"])
+        XCTAssertNotNil(second.kept["picked.com"])
+        let month = LogoKeepRule.review(second.kept, now: t0.addingTimeInterval(29 * 86_400))
+        XCTAssertEqual(month.dropped, ["picked.com"])
+    }
+
+    @MainActor
+    func testTheLogoUseRecordIsReviewedWeeklyAndErased() throws {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("flows-logo-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let t0 = Date(timeIntervalSinceReferenceDate: 800_000_000)
+        let cache = LogoCache(directory: dir, now: t0)
+        cache.noteShown("once.com", now: t0)
+        cache.notePicked("picked.com", now: t0)
+        XCTAssertEqual(cache.useRecord.count, 2)
+        cache.noteShown("new.com", now: t0.addingTimeInterval(8 * 86_400))
+        XCTAssertEqual(Set(cache.useRecord.keys), ["picked.com", "new.com"])
+        cache.erase()
+        XCTAssertTrue(cache.useRecord.isEmpty)
+    }
+
     func testLocalPlacesGetInitialsFromTheirName() {
         XCTAssertEqual(LocalMarks.initialCandidates("Rheta's Market").first, "RM")
         XCTAssertEqual(LocalMarks.initialCandidates("The Corner Cafe").first, "CC")

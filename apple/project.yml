@@ -57,6 +57,9 @@ targets:
         # The owner's Brandfetch Logo API client ID (free developer account):
         # official chain logos in the stop list. Empty = initials only.
         FLOWSBrandfetchClientID: ""
+        # The site address Brandfetch has on file for this client ID, sent as
+        # the Referer with each logo request. Empty = none sent.
+        FLOWSBrandfetchReferer: ""
         CFBundleDisplayName: FLOWS
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
@@ -196,6 +199,9 @@ targets:
         # The owner's Brandfetch Logo API client ID (free developer account):
         # official chain logos in the stop list. Empty = initials only.
         FLOWSBrandfetchClientID: ""
+        # The site address Brandfetch has on file for this client ID, sent as
+        # the Referer with each logo request. Empty = none sent.
+        FLOWSBrandfetchReferer: ""
         CFBundleDisplayName: FLOWS
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
@@ -322,6 +328,7 @@ targets:
       - path: FLOWS/Sources/Core/LiveHazardScoring.swift
       - path: FLOWS/Sources/Core/RatingsAndCost.swift
       - path: FLOWS/Sources/Core/BrandKnowledge.swift
+      - path: FLOWS/Sources/Core/LogoCache.swift
       - path: FLOWS/Sources/Core/SecureStore.swift
       - path: FLOWS/Sources/Core/DestinationSearch.swift
       - path: FLOWS/Sources/Core/MusicProviders.swift

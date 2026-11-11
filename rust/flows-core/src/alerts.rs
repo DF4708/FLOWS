@@ -244,7 +244,26 @@ fn spanish_display_kind(lowercase: &str) -> DisplayKind {
     if word(&["inundacion", "crecida", "desbordamiento"]) {
         return DisplayKind::Flood;
     }
-    if word(&["nevada", "nieve", "invernal"]) {
+    // "Nevada" alone is also a US state in an English name: the singular
+    // counts as snowfall only beside another Spanish word.
+    let spanish_beside = words.iter().any(|w| {
+        matches!(
+            *w,
+            "aviso"
+                | "alerta"
+                | "advertencia"
+                | "vigilancia"
+                | "por"
+                | "de"
+                | "la"
+                | "una"
+                | "fuerte"
+                | "intensa"
+                | "caida"
+        )
+    });
+    let snowfall = words.contains(&"nevadas") || (words.contains(&"nevada") && spanish_beside);
+    if snowfall || word(&["nieve", "invernal"]) {
         return DisplayKind::Snow;
     }
     if word(&["helada", "hielo", "congelante"]) {
@@ -577,6 +596,12 @@ mod tests {
         ] {
             assert_eq!(display_kind(event), kind, "{event}");
         }
+    }
+
+    #[test]
+    fn the_state_of_nevada_is_not_snowfall() {
+        assert_ne!(display_kind("Nevada Emergency Message"), DisplayKind::Snow);
+        assert_eq!(display_kind("Nevada fuerte"), DisplayKind::Snow);
     }
 
     #[test]

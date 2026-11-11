@@ -237,6 +237,22 @@ final class GTFSZipTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(entry.safeRange.count, 30 + long.utf8.count + 65_536 + stops.count)
     }
 
+    /// A stored member's check: the file's CRC-32 is the one the archive
+    /// records, and one changed byte is caught.
+    func testAStoredFilesChecksumIsTheArchives() throws {
+        let file = FileManager.default.temporaryDirectory
+            .appendingPathComponent("flows-crc-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: file) }
+        try stops.write(to: file)
+        XCTAssertEqual(GTFSZip.crc32(ofFile: file), crc32(stops))
+        let zip = archive([Member(name: "stops.txt", body: stops, method: 0, extra: 0)])
+        XCTAssertEqual(try entries(zip).first?.crc32, GTFSZip.crc32(ofFile: file))
+        var damaged = stops
+        damaged[damaged.startIndex] ^= 0x01
+        try damaged.write(to: file)
+        XCTAssertNotEqual(GTFSZip.crc32(ofFile: file), crc32(stops))
+    }
+
     func testAnUnknownCompressionIsRefused() throws {
         let zip = archive([Member(name: "stops.txt", body: stops, method: 99, extra: 0)])
         let entry = try XCTUnwrap(try entries(zip).first)

@@ -640,6 +640,11 @@ actor TransitFeeds {
             }
             guard copied else { throw Failure.feedUnusable("\(entry.name) did not unpack") }
         }
+        // A stored member has no check later on: a download cut or damaged
+        // on the way was built into the timetable as it came.
+        if entry.method == 0, GTFSZip.crc32(ofFile: part) != entry.crc32 {
+            throw Failure.feedUnusable("\(entry.name) did not check out")
+        }
         done = true
         return (part, name)
     }
