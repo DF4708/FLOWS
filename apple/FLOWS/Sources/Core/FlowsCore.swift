@@ -22,7 +22,7 @@ enum FlowsCore {
     static func decodePolyline(bytes: [UInt8]) -> [(lon: Double, lat: Double)] {
         // An empty polyline has no points; nothing to send across.
         guard !bytes.isEmpty else { return [] }
-        let flat = bytes.withUnsafeBufferPointer { flows_decode_polyline_lonlat($0) }
+        let flat = bytes.lent { flows_decode_polyline_lonlat($0) }
         let pairs = flat.len() / 2
         return withExtendedLifetime(flat) {
             let p = flat.as_ptr()

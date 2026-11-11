@@ -339,7 +339,7 @@ final class TruckerRadio: ObservableObject {
         let located: [UInt8] = bundled.isEmpty ? [0]
             : bundled.map { $0.latitude != nil && $0.longitude != nil ? 1 : 0 }
         let answer = names.with { joined, lengths, _ in
-            located.withUnsafeBufferPointer { l in
+            located.lent { l in
                 Array(flows_rides_relay_channels(html, joined, lengths, l, Int64(bundled.count)))
             }
         }

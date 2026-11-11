@@ -60,7 +60,7 @@ enum AlertLengthLearning {
             let hours = ends.timeIntervalSince(onset) / 3600
             guard flows_alerts_length_usable(hours) else { return nil }
             return AlertLengthSample(eventKey: eventKey(props: props, id: id),
-                                     kind: flows_alerts_usual_kind(event).toString(),
+                                     kind: flows_alerts_usual_kind(event).text,
                                      hours: hours, ends: ends, opens: opens(props: props))
         }
     }
@@ -135,7 +135,7 @@ final class AlertLengthMemory: Sendable {
 
     /// Events of this kind seen, and the mean logarithm of their lengths.
     func learned(event: String) -> (count: Int, meanLn: Double) {
-        let kind = flows_alerts_usual_kind(event.isEmpty ? "Alert" : event).toString()
+        let kind = flows_alerts_usual_kind(event.isEmpty ? "Alert" : event).text
         return stored.withLock { stored in
             guard let stat = stored.stats[kind], stat.count > 0 else { return (0, 0) }
             return (stat.count, stat.sumLn / Double(stat.count))

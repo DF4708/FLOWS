@@ -37,8 +37,8 @@ struct HarmonicClimatology {
     init?(data: Data) {
         // An empty buffer never crosses; an empty file is not a table anyway.
         guard !data.isEmpty,
-              let parsed = data.withUnsafeBytes({ raw -> FlowsHarmonicTable? in
-                  flows_climate_parse_flhh(raw.bindMemory(to: UInt8.self))
+              let parsed = data.lentBytes({ bytes -> FlowsHarmonicTable? in
+                  flows_climate_parse_flhh(bytes)
               })
         else { return nil }
         table = parsed

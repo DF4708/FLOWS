@@ -50,8 +50,8 @@ struct PlacesShard: Sendable {
     /// (a corrupt shard is refused, never "repaired").
     init?(data: Data) {
         guard !data.isEmpty,
-              let index = data.withUnsafeBytes({ raw -> FlowsPlacesIndex? in
-                  flows_places_index_parse(raw.bindMemory(to: UInt8.self))
+              let index = data.lentBytes({ bytes -> FlowsPlacesIndex? in
+                  flows_places_index_parse(bytes)
               })
         else { return nil }
         self.data = data
@@ -73,16 +73,15 @@ struct PlacesShard: Sendable {
                 radiusMeters: CLLocationDistance, limit: Int) -> [Place] {
         guard !groups.isEmpty else { return [] }
         let wanted = Array(groups)
-        return data.withUnsafeBytes { (raw: UnsafeRawBufferPointer) -> [Place] in
-            let bytes = raw.bindMemory(to: UInt8.self)
-            let hits = wanted.withUnsafeBufferPointer { g in
+        return data.lentBytes { bytes -> [Place] in
+            let hits = wanted.lent { g in
                 index.places_near(bytes, center.latitude, center.longitude, g, radiusMeters, Int64(limit))
             }
             return hits.compactMap { decode(recordAt: $0, in: bytes) }
         }
     }
 
-    private func decode(recordAt i: Int64, in bytes: UnsafeBufferPointer<UInt8>) -> Place? {
+    private func decode(recordAt i: Int64, in bytes: RustLoan<UInt8>) -> Place? {
         let numbers = index.place_numbers(bytes, i)
         let texts = index.place_texts(bytes, i).map { $0.text }
         guard numbers.count == 4, texts.count == 5,

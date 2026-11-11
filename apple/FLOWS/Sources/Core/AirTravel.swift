@@ -173,7 +173,7 @@ enum AirTravel {
         guard !candidates.isEmpty else { return nil }
         let meters = candidates.map(\.meters)
         let i = RustTextColumn(candidates.map(\.name)).with { joined, lens, _ in
-            meters.withUnsafeBufferPointer { m in flows_modes_pick_airport(joined, lens, m, maxMeters) }
+            meters.lent { m in flows_modes_pick_airport(joined, lens, m, maxMeters) }
         }
         return i < 0 ? nil : Int(i)
     }

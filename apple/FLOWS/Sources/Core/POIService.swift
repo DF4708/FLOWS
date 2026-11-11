@@ -1109,12 +1109,12 @@ final class POIService: ObservableObject {
         // everything else soonest first — and the row cap: rust/flows-core
         // places.rs `rank_along`, as [item, ahead, detour] triples.
         let rows = names.with { joined, lens, present in
-            lats.withUnsafeBufferPointer { la in
-                lons.withUnsafeBufferPointer { lo in
-                    priceValues.withUnsafeBufferPointer { p in
-                        hasPrice.withUnsafeBufferPointer { hp in
-                            ratingValues.withUnsafeBufferPointer { r in
-                                hasRating.withUnsafeBufferPointer { hr in
+            lats.lent { la in
+                lons.lent { lo in
+                    priceValues.lent { p in
+                        hasPrice.lent { hp in
+                            ratingValues.lent { r in
+                                hasRating.lent { hr in
                                     path.handle.rank_along(
                                         kind.rustCode, fuel != nil, fuel?.rustCode ?? 0, trucker,
                                         position != nil, position?.latitude ?? 0, position?.longitude ?? 0,
@@ -1194,8 +1194,8 @@ private func dedupIndices(_ items: [MKMapItem], locationOnly: Bool) -> [Int] {
     let coords = items.map(\.placemark.coordinate)
     let lats = coords.map(\.latitude), lons = coords.map(\.longitude)
     return names.with { joined, lens, present in
-        lats.withUnsafeBufferPointer { la in
-            lons.withUnsafeBufferPointer { lo in
+        lats.lent { la in
+            lons.lent { lo in
                 flows_places_dedup(locationOnly, joined, lens, present, la, lo)
             }
         }

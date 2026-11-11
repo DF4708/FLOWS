@@ -51,8 +51,8 @@ enum POIRanking {
                 return
             }
             let lats = coords.map(\.latitude), lons = coords.map(\.longitude)
-            let made = lats.withUnsafeBufferPointer { la in
-                lons.withUnsafeBufferPointer { lo in flows_places_route_path(la, lo) }
+            let made = lats.lent { la in
+                lons.lent { lo in flows_places_route_path(la, lo) }
             }
             shared = RustShared(made)
             cumulative = Array(made.cumulative())
@@ -74,8 +74,8 @@ enum POIRanking {
             // swift-bridge must never see an empty buffer.
             guard !items.isEmpty else { return [] }
             let lats = items.map(\.latitude), lons = items.map(\.longitude)
-            return lats.withUnsafeBufferPointer { la in
-                lons.withUnsafeBufferPointer { lo in
+            return lats.lent { la in
+                lons.lent { lo in
                     handle.spread_along(kind, trucker, position != nil,
                                         position?.latitude ?? 0, position?.longitude ?? 0, la, lo)
                 }
@@ -133,9 +133,9 @@ enum POIRanking {
 
     /// A Rust ranker over the candidate columns: ahead, detour, prices and
     /// their presence, ratings and their presence.
-    private typealias Ranker = (UnsafeBufferPointer<Double>, UnsafeBufferPointer<Double>,
-                                UnsafeBufferPointer<Double>, UnsafeBufferPointer<UInt8>,
-                                UnsafeBufferPointer<Double>, UnsafeBufferPointer<UInt8>) -> RustVec<Int64>
+    private typealias Ranker = (RustLoan<Double>, RustLoan<Double>,
+                                RustLoan<Double>, RustLoan<UInt8>,
+                                RustLoan<Double>, RustLoan<UInt8>) -> RustVec<Int64>
 
     /// The candidates in a Rust ranker's order: it keeps the admissible ones
     /// and sorts them with Swift's own sort on the kind's comparator. The
@@ -149,12 +149,12 @@ enum POIRanking {
         let hasPrice = candidates.map { UInt8($0.pricePerUnit == nil ? 0 : 1) }
         let ratings = candidates.map { $0.rating ?? 0 }
         let hasRating = candidates.map { UInt8($0.rating == nil ? 0 : 1) }
-        let order = ahead.withUnsafeBufferPointer { a in
-            detour.withUnsafeBufferPointer { d in
-                prices.withUnsafeBufferPointer { p in
-                    hasPrice.withUnsafeBufferPointer { hp in
-                        ratings.withUnsafeBufferPointer { r in
-                            hasRating.withUnsafeBufferPointer { hr in ranker(a, d, p, hp, r, hr) }
+        let order = ahead.lent { a in
+            detour.lent { d in
+                prices.lent { p in
+                    hasPrice.lent { hp in
+                        ratings.lent { r in
+                            hasRating.lent { hr in ranker(a, d, p, hp, r, hr) }
                         }
                     }
                 }
@@ -216,7 +216,7 @@ enum POIRanking {
     ) -> [Candidate<Item>] {
         let tiers = candidates.map { Int64(costTier($0.item)) }
         guard !tiers.isEmpty else { return [] }
-        return tiers.withUnsafeBufferPointer { t in
+        return tiers.lent { t in
             ordered(candidates) { flows_places_rank_parking($0, $1, $2, $3, $4, $5, t, maxDetour) }
         }
     }
@@ -381,7 +381,7 @@ extension POIRanking {
     ) -> [Candidate<Item>] {
         let ranks = candidates.map { Int64(storeMarketShareRank(name: name($0.item))) }
         guard !ranks.isEmpty else { return [] }
-        return ranks.withUnsafeBufferPointer { m in
+        return ranks.lent { m in
             ordered(candidates) { flows_places_rank_stores($0, $1, $2, $3, $4, $5, m, maxDetour) }
         }
     }
@@ -393,8 +393,8 @@ extension POIRanking {
                            limit: Int) -> [(index: Int, meters: CLLocationDistance)] {
         guard !points.isEmpty else { return [] }
         let lats = points.map(\.latitude), lons = points.map(\.longitude)
-        let flat = lats.withUnsafeBufferPointer { la in
-            lons.withUnsafeBufferPointer { lo in
+        let flat = lats.lent { la in
+            lons.lent { lo in
                 flows_places_rank_by_distance(la, lo, center.latitude, center.longitude, Int64(limit))
             }
         }
@@ -406,8 +406,8 @@ extension POIRanking {
     static func firstNearest(_ points: [CLLocationCoordinate2D], to target: CLLocationCoordinate2D) -> Int? {
         guard !points.isEmpty else { return nil }
         let lats = points.map(\.latitude), lons = points.map(\.longitude)
-        let i = lats.withUnsafeBufferPointer { la in
-            lons.withUnsafeBufferPointer { lo in
+        let i = lats.lent { la in
+            lons.lent { lo in
                 flows_places_first_nearest(la, lo, target.latitude, target.longitude)
             }
         }
@@ -451,7 +451,7 @@ struct RustTextColumn {
 
     init(_ texts: [String]) { self.init(texts.map { Optional($0) }) }
 
-    func with<R>(_ body: (String, UnsafeBufferPointer<Int64>, UnsafeBufferPointer<UInt8>) -> R) -> R {
-        lengths.withUnsafeBufferPointer { l in present.withUnsafeBufferPointer { p in body(joined, l, p) } }
+    func with<R>(_ body: (String, RustLoan<Int64>, RustLoan<UInt8>) -> R) -> R {
+        lengths.lent { l in present.lent { p in body(joined, l, p) } }
     }
 }

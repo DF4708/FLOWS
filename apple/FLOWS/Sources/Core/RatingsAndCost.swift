@@ -370,8 +370,8 @@ enum ShowerAvailability: String {
         /// placed.
         func entry(nearLat lat: Double, lon: Double) -> Entry? {
             guard !entries.isEmpty else { return nil }
-            let index = lats.withUnsafeBufferPointer { la in
-                lons.withUnsafeBufferPointer { lo in
+            let index = lats.lent { la in
+                lons.lent { lo in
                     flows_places_text_shower_table_entry(la, lo, lat, lon)
                 }
             }

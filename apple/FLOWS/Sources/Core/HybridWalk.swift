@@ -91,8 +91,8 @@ enum HybridWalk {
                                   meters: Double) -> [CLLocationCoordinate2D] {
         guard !coords.isEmpty else { return [] }
         let lats = coords.map(\.latitude), lons = coords.map(\.longitude)
-        let flat = Array(lats.withUnsafeBufferPointer { la in
-            lons.withUnsafeBufferPointer { lo in flows_modes_prefix_coordinates(la, lo, meters) }
+        let flat = Array(lats.lent { la in
+            lons.lent { lo in flows_modes_prefix_coordinates(la, lo, meters) }
         })
         return stride(from: 0, to: flat.count - 1, by: 2).map {
             CLLocationCoordinate2D(latitude: flat[$0], longitude: flat[$0 + 1])

@@ -144,14 +144,14 @@ struct EverydayStore: Codable, Equatable {
     var meanTripMiles: Double? {
         // No trips is no mean (and an empty buffer never crosses).
         guard !tripMiles.isEmpty else { return nil }
-        let r = tripMiles.withUnsafeBufferPointer { flows_learning_everyday_mean_trip_miles($0) }
+        let r = tripMiles.lent { flows_learning_everyday_mean_trip_miles($0) }
         return r.is_some == 1 ? r.value : nil
     }
 
     /// Sample standard deviation (n − 1) of the trip distances.
     var tripMilesSD: Double? {
         guard tripMiles.count >= 2 else { return nil }
-        let r = tripMiles.withUnsafeBufferPointer { flows_learning_everyday_trip_miles_sd($0) }
+        let r = tripMiles.lent { flows_learning_everyday_trip_miles_sd($0) }
         return r.is_some == 1 ? r.value : nil
     }
 
@@ -172,7 +172,7 @@ struct EverydayStore: Codable, Equatable {
     var radiusMiles: Double {
         // No trips is the default (and an empty buffer never crosses).
         guard !tripMiles.isEmpty else { return Self.defaultMiles }
-        return tripMiles.withUnsafeBufferPointer { flows_learning_everyday_radius_miles($0) }
+        return tripMiles.lent { flows_learning_everyday_radius_miles($0) }
     }
 
     /// Whether `radiusMiles` is learned rather than the starting default —
@@ -182,7 +182,7 @@ struct EverydayStore: Codable, Equatable {
     /// Inclusive-rank quantile over the trip-length window. Pure, tested.
     static func quantile(_ values: [Double], _ q: Double) -> Double? {
         guard !values.isEmpty else { return nil }
-        let r = values.withUnsafeBufferPointer { flows_learning_everyday_quantile($0, q) }
+        let r = values.lent { flows_learning_everyday_quantile($0, q) }
         return r.is_some == 1 ? r.value : nil
     }
 
@@ -237,9 +237,9 @@ struct EverydayStore: Codable, Equatable {
                 let kept = places.dropLast()
                 let uses = kept.map { Int64($0.uses) }, seen = kept.map { Int64($0.seen) }
                 let last = kept.map(\.lastUsedT)
-                let evict = uses.withUnsafeBufferPointer { u in
-                    seen.withUnsafeBufferPointer { s in
-                        last.withUnsafeBufferPointer { l in flows_learning_everyday_evict_index(u, s, l) }
+                let evict = uses.lent { u in
+                    seen.lent { s in
+                        last.lent { l in flows_learning_everyday_evict_index(u, s, l) }
                     }
                 }
                 if evict >= 0, Int(evict) < places.count { places.remove(at: Int(evict)) }
@@ -274,9 +274,9 @@ struct EverydayStore: Codable, Equatable {
         let names = places.map {
             $0.name.precomposedStringWithCanonicalMapping.replacingOccurrences(of: "\u{1F}", with: " ")
         }.joined(separator: "\u{1F}")
-        let order = uses.withUnsafeBufferPointer { u in
-            seen.withUnsafeBufferPointer { s in
-                last.withUnsafeBufferPointer { l in flows_learning_everyday_ranked_order(u, s, l, names) }
+        let order = uses.lent { u in
+            seen.lent { s in
+                last.lent { l in flows_learning_everyday_ranked_order(u, s, l, names) }
             }
         }
         guard order.len() == places.count else { return places }

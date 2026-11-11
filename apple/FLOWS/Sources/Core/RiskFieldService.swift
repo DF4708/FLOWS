@@ -279,8 +279,8 @@ final class RiskField: Sendable {
     /// The FRB1 shard; nil for a corrupt one. An empty buffer never crosses.
     convenience init?(frb1 data: Data) {
         guard !data.isEmpty,
-              let parsed = data.withUnsafeBytes({ raw -> FlowsRiskField? in
-                  flows_risk_field_parse_frb1(raw.bindMemory(to: UInt8.self))
+              let parsed = data.lentBytes({ bytes -> FlowsRiskField? in
+                  flows_risk_field_parse_frb1(bytes)
               })
         else { return nil }
         self.init(handle: parsed)
@@ -319,14 +319,14 @@ final class RiskField: Sendable {
         if ringPoints.isEmpty { ringPoints = [0] }
         let zipColumn = RustTextColumn(zips), summaryColumn = RustTextColumn(summaries)
         let handle: FlowsRiskField? = familyColumn.with { fj, fl, _ in zipColumn.with { zj, zl, _ in
-          summaryColumn.with { sj, sl, _ in lats.withUnsafeBufferPointer { la in
-            lons.withUnsafeBufferPointer { lo in
-                scoreCounts.withUnsafeBufferPointer { sc in
-                    scores.withUnsafeBufferPointer { s in
-                        hasSummary.withUnsafeBufferPointer { hs in
-                            ringCounts.withUnsafeBufferPointer { rc in
-                                hasRing.withUnsafeBufferPointer { hr in
-                                    ringPoints.withUnsafeBufferPointer { rp in
+          summaryColumn.with { sj, sl, _ in lats.lent { la in
+            lons.lent { lo in
+                scoreCounts.lent { sc in
+                    scores.lent { s in
+                        hasSummary.lent { hs in
+                            ringCounts.lent { rc in
+                                hasRing.lent { hr in
+                                    ringPoints.lent { rp in
                                         flows_risk_field_from_columns(
                                             generated, fj, fl, Int64(families.count), zj, zl,
                                             la, lo, sc, s, sj, sl, hs, rc, hr, rp)

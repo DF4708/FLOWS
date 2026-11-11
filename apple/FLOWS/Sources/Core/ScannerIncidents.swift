@@ -163,12 +163,12 @@ enum ScannerIncidents {
         // An empty corridor crosses as one placeholder point its count ignores.
         let cLats = corridor.isEmpty ? [0] : corridor.map(\.latitude)
         let cLons = corridor.isEmpty ? [0] : corridor.map(\.longitude)
-        let kept = kinds.withUnsafeBufferPointer { k in
-            lats.withUnsafeBufferPointer { la in
-                lons.withUnsafeBufferPointer { lo in
-                    heard.withUnsafeBufferPointer { h in
-                        cLats.withUnsafeBufferPointer { cla in
-                            cLons.withUnsafeBufferPointer { clo in
+        let kept = kinds.lent { k in
+            lats.lent { la in
+                lons.lent { lo in
+                    heard.lent { h in
+                        cLats.lent { cla in
+                            cLons.lent { clo in
                                 flows_alert_text_visible(k, la, lo, h, position != nil,
                                                          position?.latitude ?? 0, position?.longitude ?? 0,
                                                          cla, clo, Int64(corridor.count),
@@ -193,9 +193,9 @@ enum ScannerIncidents {
         guard !existing.isEmpty else { return [new] }
         let kinds = existing.map { $0.kind.rustCode }
         let lats = existing.map(\.coordinate.latitude), lons = existing.map(\.coordinate.longitude)
-        let kept = kinds.withUnsafeBufferPointer { k in
-            lats.withUnsafeBufferPointer { la in
-                lons.withUnsafeBufferPointer { lo in
+        let kept = kinds.lent { k in
+            lats.lent { la in
+                lons.lent { lo in
                     flows_alert_text_merged_keep(k, la, lo, new.kind.rustCode,
                                                  new.coordinate.latitude, new.coordinate.longitude)
                 }

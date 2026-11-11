@@ -120,8 +120,8 @@ struct ShareColumns {
         count = Int64(recipients.count)
     }
 
-    func withDates<R>(_ body: (UnsafeBufferPointer<Double>, UnsafeBufferPointer<Int64>, Int64) -> R) -> R {
-        dates.withUnsafeBufferPointer { d in counts.withUnsafeBufferPointer { c in body(d, c, count) } }
+    func withDates<R>(_ body: (RustLoan<Double>, RustLoan<Int64>, Int64) -> R) -> R {
+        dates.lent { d in counts.lent { c in body(d, c, count) } }
     }
 }
 

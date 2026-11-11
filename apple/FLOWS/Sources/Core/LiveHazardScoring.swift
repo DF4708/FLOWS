@@ -58,12 +58,12 @@ struct LiveHazardSnapshot: Sendable {
         }
         if !perimeters.isEmpty {
             let flat = HazardFeedScores.flatten(perimeters)
-            flat.lens.withUnsafeBufferPointer { lens in HazardFeedScores.two(flat.lats, flat.lons) { h.add_perimeters(lens, $0, $1) } }
+            flat.lens.lent { lens in HazardFeedScores.two(flat.lats, flat.lons) { h.add_perimeters(lens, $0, $1) } }
         }
         if !quakes.isEmpty {
             let ages = quakes.map { $0.ageHours }
             HazardFeedScores.three(quakes.map { $0.lat }, quakes.map { $0.lon }, quakes.map { $0.magnitude }) { la, lo, mag in
-                ages.withUnsafeBufferPointer { h.add_quakes(la, lo, mag, $0) }
+                ages.lent { h.add_quakes(la, lo, mag, $0) }
             }
         }
         h.set_space(Int64(space.r), Int64(space.s), Int64(space.g))
@@ -75,7 +75,7 @@ struct LiveHazardSnapshot: Sendable {
         if !avalancheZones.isEmpty {
             let counts = avalancheZones.map { Int64($0.rings.count) }, ratings = avalancheZones.map { Int64($0.rating) }
             let flat = HazardFeedScores.flatten(avalancheZones.flatMap { $0.rings })
-            counts.withUnsafeBufferPointer { zc in ratings.withUnsafeBufferPointer { rt in flat.lens.withUnsafeBufferPointer { lens in
+            counts.lent { zc in ratings.lent { rt in flat.lens.lent { lens in
                 HazardFeedScores.two(flat.lats, flat.lons) { h.add_avalanche_zones(zc, rt, lens, $0, $1) } } } }
         }
         if !storms.isEmpty {
@@ -89,7 +89,7 @@ struct LiveHazardSnapshot: Sendable {
         if !spcZones.isEmpty {
             let counts = spcZones.map { Int64($0.rings.count) }, scores = spcZones.map { $0.score }
             let flat = HazardFeedScores.flatten(spcZones.flatMap { $0.rings })
-            counts.withUnsafeBufferPointer { zc in scores.withUnsafeBufferPointer { sc in flat.lens.withUnsafeBufferPointer { lens in
+            counts.lent { zc in scores.lent { sc in flat.lens.lent { lens in
                 HazardFeedScores.two(flat.lats, flat.lons) { h.add_spc_zones(zc, sc, lens, $0, $1) } } } }
         }
         shared = RustShared(h)

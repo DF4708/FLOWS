@@ -158,11 +158,11 @@ final class RadioBrowser: ObservableObject {
         let hasLon: [UInt8] = placeholder ? [0] : found.map { $0.longitude == nil ? 0 : 1 }
         let votes = placeholder ? [0] : found.map { Int64($0.votes) }
         let order = RustTextColumn(found.map(\.url)).with { urls, urlLengths, _ in
-            lats.withUnsafeBufferPointer { la in
-                hasLat.withUnsafeBufferPointer { hla in
-                    lons.withUnsafeBufferPointer { lo in
-                        hasLon.withUnsafeBufferPointer { hlo in
-                            votes.withUnsafeBufferPointer { vo in
+            lats.lent { la in
+                hasLat.lent { hla in
+                    lons.lent { lo in
+                        hasLon.lent { hlo in
+                            votes.lent { vo in
                                 Array(flows_tags_ranked_nearest(
                                     la, hla, lo, hlo, vo, urls, urlLengths, Int64(found.count),
                                     position.latitude, position.longitude))

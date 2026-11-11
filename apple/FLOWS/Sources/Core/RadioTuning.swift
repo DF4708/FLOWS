@@ -47,9 +47,9 @@ enum RadioTuning {
         guard !stations.isEmpty else { return nil }
         let lats = stations.map(\.coordinate.latitude), lons = stations.map(\.coordinate.longitude)
         let exact = stations.map { UInt8($0.isExact ? 1 : 0) }
-        let hit = lats.withUnsafeBufferPointer { la in
-            lons.withUnsafeBufferPointer { lo in
-                exact.withUnsafeBufferPointer { ex in
+        let hit = lats.lent { la in
+            lons.lent { lo in
+                exact.lent { ex in
                     flows_modes_nearest_station(position.latitude, position.longitude, la, lo, ex)
                 }
             }
@@ -70,9 +70,9 @@ enum RadioTuning {
         let lats = stations.map(\.coordinate.latitude), lons = stations.map(\.coordinate.longitude)
         let exact = stations.map { UInt8($0.isExact ? 1 : 0) }
         let i = RustTextColumn(stations.map(\.id)).with { joined, lens, _ in
-            lats.withUnsafeBufferPointer { la in
-                lons.withUnsafeBufferPointer { lo in
-                    exact.withUnsafeBufferPointer { ex in
+            lats.lent { la in
+                lons.lent { lo in
+                    exact.lent { ex in
                         flows_modes_retarget(playingID, playingCoordinate?.latitude ?? 0,
                                              playingCoordinate?.longitude ?? 0, playingCoordinate != nil,
                                              position.latitude, position.longitude, joined, lens, la, lo, ex)

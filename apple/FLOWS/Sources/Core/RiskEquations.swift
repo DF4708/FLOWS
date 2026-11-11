@@ -77,7 +77,7 @@ enum RiskEquations {
         // An empty list has an empty answer; nothing to send across.
         guard !scores.isEmpty else { return 0 }
         let names = scores.map(\.family).joined(separator: "\u{1F}")
-        return scores.map(\.score).withUnsafeBufferPointer { flows_noisy_or_named(names, $0) }
+        return scores.map(\.score).lent { flows_noisy_or_named(names, $0) }
     }
 
     // MARK: primary vs. secondary realization model
@@ -197,13 +197,11 @@ enum RiskEquations {
         // Dictionary iterates in can never reach the product. Stack storage;
         // this runs per corridor sample per route.
         let slots = RustTables.dense.count
-        return withUnsafeTemporaryAllocation(of: Double.self, capacity: slots) { buf in
-            buf.initialize(repeating: .nan)
+        return RustLoans.slots(slots, startingAt: .nan, fill: { set in
             for (family, score) in families {
-                if let i = RustTables.denseIndex[family] { buf[i] = score }
+                if let i = RustTables.denseIndex[family] { set(i, score) }
             }
-            return flows_realized_risk_dense(UnsafeBufferPointer(buf))
-        }
+        }) { flows_realized_risk_dense($0) }
     }
 
     /// WATERLINE-THRESHOLD flood amplifier (multiplier ≥ 1 on the precip
@@ -279,7 +277,7 @@ extension RiskEquations {
         let pairs = Array(families)
         guard !pairs.isEmpty else { return nil }
         let names = pairs.map(\.key).joined(separator: "\u{1F}")
-        let i = Int(pairs.map(\.value).withUnsafeBufferPointer {
+        let i = Int(pairs.map(\.value).lent {
             flows_peak_family_position(names, $0, floor)
         })
         return pairs.indices.contains(i) ? pairs[i].key : nil
@@ -342,7 +340,7 @@ enum HazardRanking {
         let pairs = Array(families)
         guard !pairs.isEmpty else { return nil }
         let names = pairs.map(\.key).joined(separator: "\u{1F}")
-        let i = Int(pairs.map(\.value).withUnsafeBufferPointer {
+        let i = Int(pairs.map(\.value).lent {
             flows_dominant_family_position(names, $0, floor)
         })
         return pairs.indices.contains(i) ? pairs[i].key : nil

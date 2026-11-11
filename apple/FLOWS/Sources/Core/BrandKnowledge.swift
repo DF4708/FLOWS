@@ -80,13 +80,6 @@ enum BrandKnowledge {
     ]
 }
 
-extension RustStringRef {
-    /// The string, with the empty case answered here. An empty Rust string
-    /// crosses with no storage behind it, and Foundation's decoder answers nil
-    /// for that rather than "" — so every facade reads Rust text through this.
-    var text: String { len() == 0 ? "" : as_str().toString() }
-}
-
 /// How a chain's name is written and the colours of its sign, for the stop
 /// list's brand tile: the chain's initials in its own colours, never its
 /// logo — logos are trademarked artwork FLOWS has no licence to copy, and a

@@ -69,8 +69,8 @@ enum AmtrakStations {
     ) -> AmtrakStation? {
         guard !stations.isEmpty else { return nil }
         let lats = stations.map(\.lat), lons = stations.map(\.lon)
-        let i = lats.withUnsafeBufferPointer { la in
-            lons.withUnsafeBufferPointer { lo in
+        let i = lats.lent { la in
+            lons.lent { lo in
                 flows_modes_nearest_within(point.latitude, point.longitude, maxMeters, la, lo)
             }
         }

@@ -209,7 +209,7 @@ struct SeasonalStore: Codable {
         guard hubPath.count >= 2 else { return }
         // Consecutive hub pairs to the persisted "aLat,aLon,bLat,bLon" keys.
         let hubs = hubPath.flatMap { [$0.latitude, $0.longitude] }
-        let keys = hubs.withUnsafeBufferPointer { flows_seasonal_path_edge_keys($0) }
+        let keys = hubs.lent { flows_seasonal_path_edge_keys($0) }
         for key in keys {
             let s = key.text
             var er = edges[s] ?? EdgeRecord()
@@ -227,9 +227,9 @@ struct SeasonalStore: Codable {
             let lastTs = edges[key]?.weeks.values.map(\.lastT) ?? []
             // A record with no weeks is as stale as it gets (and an empty
             // buffer never crosses).
-            return lastTs.isEmpty ? 0 : lastTs.withUnsafeBufferPointer { flows_seasonal_edge_freshness($0) }
+            return lastTs.isEmpty ? 0 : lastTs.lent { flows_seasonal_edge_freshness($0) }
         }
-        let doomed = freshness.withUnsafeBufferPointer { flows_seasonal_edge_evictions($0) }
+        let doomed = freshness.lent { flows_seasonal_edge_evictions($0) }
         for position in doomed {
             if let i = Int(exactly: position), i < order.count { edges.removeValue(forKey: order[i]) }
         }
@@ -256,8 +256,8 @@ struct SeasonalStore: Codable {
             cells += [b.w_sum, b.w_observed, b.w_sq_err, b.last_t, Double(b.count)]
             present.append(ws == nil ? 0 : 1)
         }
-        let prior = cells.withUnsafeBufferPointer { c in
-            present.withUnsafeBufferPointer { p in
+        let prior = cells.lent { c in
+            present.lent { p in
                 flows_seasonal_prior(Int64(rec.tripCount), rec.crossCountry, Int64(week), c, p, t)
             }
         }
@@ -273,7 +273,7 @@ struct SeasonalStore: Codable {
             let b = ws.bridge
             return [b.w_sum, b.w_observed, b.w_sq_err, b.last_t, Double(b.count)]
         }
-        let r = stats.withUnsafeBufferPointer { flows_seasonal_accuracy(Int64(rec.tripCount), $0, t) }
+        let r = stats.lent { flows_seasonal_accuracy(Int64(rec.tripCount), $0, t) }
         return r.is_some == 1 ? r.value : nil
     }
 
@@ -322,7 +322,7 @@ struct SeasonalStore: Codable {
             let stat = origins[key]
             return [stat?.weighted ?? 0, stat?.lastSeen ?? 0]
         }
-        let doomed = stats.withUnsafeBufferPointer { flows_seasonal_origin_evictions($0, t) }
+        let doomed = stats.lent { flows_seasonal_origin_evictions($0, t) }
         for position in doomed {
             if let i = Int(exactly: position), i < order.count { origins.removeValue(forKey: order[i]) }
         }
@@ -347,7 +347,7 @@ struct SeasonalStore: Codable {
             return [cell.has, Double(cell.lat), Double(cell.lon),
                     stat.weighted, stat.lastSeen, stat.firstSeen, Double(stat.trips)]
         }
-        let home = entries.withUnsafeBufferPointer {
+        let home = entries.lent {
             flows_seasonal_learned_home($0, now, Int64(currentHome?.lat ?? 0), Int64(currentHome?.lon ?? 0), currentHome != nil)
         }
         return home.has == 1 ? (home.lat, home.lon, Int(home.trips)) : nil
@@ -357,7 +357,7 @@ struct SeasonalStore: Codable {
     private func legacyLearnedHome() -> (lat: Double, lon: Double, trips: Int)? {
         guard !routes.isEmpty else { return nil }
         let list: [Double] = routes.flatMap { key, rec in [Double(key.oLat), Double(key.oLon), Double(rec.tripCount)] }
-        let home = list.withUnsafeBufferPointer { flows_seasonal_legacy_home($0) }
+        let home = list.lent { flows_seasonal_legacy_home($0) }
         return home.has == 1 ? (home.lat, home.lon, Int(home.trips)) : nil
     }
 
@@ -376,7 +376,7 @@ struct SeasonalStore: Codable {
             }
         }
         guard !cells.isEmpty else { return [] }
-        let flat = cells.withUnsafeBufferPointer { flows_seasonal_training_rows($0, t) }
+        let flat = cells.lent { flows_seasonal_training_rows($0, t) }
         var rows: [[String: Double]] = []
         var i = 0
         while i + 7 < flat.len() {
@@ -464,7 +464,7 @@ struct LearnedHead: Codable {
         // One buffer, `[n, x…, head…]`, so an empty input and a head with no
         // hidden units still cross as a non-empty buffer.
         let buffer = [Double(x.count)] + x + bridgeFlat
-        return buffer.withUnsafeBufferPointer { flows_seasonal_head_predict($0) }
+        return buffer.lent { flows_seasonal_head_predict($0) }
     }
 }
 
@@ -746,7 +746,7 @@ final class SeasonalRiskModel: ObservableObject {
         let now = Date().timeIntervalSince1970
         let errors = store.routes.keys.compactMap { store.accuracy(for: $0, now: now) }
         // No routes is no calibration (and an empty buffer never crosses).
-        let meanOpt = errors.isEmpty ? nil : errors.withUnsafeBufferPointer { flows_seasonal_mean_in_order($0) }
+        let meanOpt = errors.isEmpty ? nil : errors.lent { flows_seasonal_mean_in_order($0) }
         let mean: Double? = (meanOpt?.is_some ?? 0) == 1 ? meanOpt?.value : nil
         return (store.totalTrips, store.routes.count, mean, head?.tunedOnDevice ?? false)
     }

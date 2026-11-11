@@ -40,8 +40,8 @@ enum FasterRoutePolicy {
         else { return nil }
         let samples = leg.riskSamples.map(\.risk)
         let lengths = leg.riskSegments.map(\.lengthMeters)
-        let answer = samples.withUnsafeBufferPointer { s in
-            lengths.withUnsafeBufferPointer { l in
+        let answer = samples.lent { s in
+            lengths.lent { l in
                 flows_ahead_display_risk(s, l, alongMeters)
             }
         }
@@ -104,10 +104,10 @@ enum FasterRoutePolicy {
     static func offLineSpans(candidate: [CLLocationCoordinate2D],
                              road: [CLLocationCoordinate2D]) -> [Span] {
         guard candidate.count > 1, !road.isEmpty else { return [] }
-        let flat = candidate.map(\.latitude).withUnsafeBufferPointer { cla in
-            candidate.map(\.longitude).withUnsafeBufferPointer { clo in
-                road.map(\.latitude).withUnsafeBufferPointer { rla in
-                    road.map(\.longitude).withUnsafeBufferPointer { rlo in
+        let flat = candidate.map(\.latitude).lent { cla in
+            candidate.map(\.longitude).lent { clo in
+                road.map(\.latitude).lent { rla in
+                    road.map(\.longitude).lent { rlo in
                         Array(flows_modes_off_line_spans(cla, clo, rla, rlo))
                     }
                 }
@@ -131,7 +131,7 @@ enum FasterRoutePolicy {
     static func checkSpacing(spans: [Span], candidateMeters: Double) -> CLLocationDistance {
         guard !spans.isEmpty else { return corridorCheckMeters }
         let flat = spans.flatMap { [$0.from, $0.to] }
-        return flat.withUnsafeBufferPointer { flows_modes_detour_check_spacing($0, candidateMeters) }
+        return flat.lent { flows_modes_detour_check_spacing($0, candidateMeters) }
     }
 
     /// The spacing a road is scored at for the map, the watch and the trip.
@@ -145,8 +145,8 @@ enum FasterRoutePolicy {
         let alongs = checkAlongs(of: scored)
         guard alongs.count > 1 else { return false }
         let flat = spans.flatMap { [$0.from, $0.to] }
-        return flat.withUnsafeBufferPointer { s in
-            alongs.withUnsafeBufferPointer { flows_modes_spans_checked(s, $0) }
+        return flat.lent { s in
+            alongs.lent { flows_modes_spans_checked(s, $0) }
         }
     }
 
@@ -168,8 +168,8 @@ enum FasterRoutePolicy {
     static func canStillTake(candidate: [CLLocationCoordinate2D], divergeAlong: CLLocationDistance?,
                              position: CLLocationCoordinate2D, speedMps: Double) -> Bool {
         guard !candidate.isEmpty else { return false }
-        let hit = candidate.map(\.latitude).withUnsafeBufferPointer { la in
-            candidate.map(\.longitude).withUnsafeBufferPointer { lo in
+        let hit = candidate.map(\.latitude).lent { la in
+            candidate.map(\.longitude).lent { lo in
                 Array(flows_modes_nearest_on_line(la, lo, position.latitude, position.longitude))
             }
         }

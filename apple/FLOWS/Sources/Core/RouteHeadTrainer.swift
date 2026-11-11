@@ -70,8 +70,8 @@ enum RouteHeadTrainer {
         // The tuned head comes back flat with the sample count in front;
         // empty for "no tune" (a stale width, no finite target, a result
         // that is not finite).
-        let out = head.withUnsafeBufferPointer { h in
-            flat.withUnsafeBufferPointer { r in flows_seasonal_fine_tune(h, r, Int64(epochs), learningRate, anchor) }
+        let out = head.lent { h in
+            flat.lent { r in flows_seasonal_fine_tune(h, r, Int64(epochs), learningRate, anchor) }
         }
         let values = Array(out)
         guard let samples = values.first.flatMap({ Int(exactly: $0) }),
@@ -88,7 +88,7 @@ enum RouteHeadTrainer {
     static func meanSquaredError(_ head: LearnedHead, rows: [[String: Double]]) -> Double? {
         guard !rows.isEmpty else { return nil }
         let h = head.bridgeFlat, flat = flatRows(rows)
-        let r = h.withUnsafeBufferPointer { hp in flat.withUnsafeBufferPointer { rp in flows_seasonal_mean_squared_error(hp, rp) } }
+        let r = h.lent { hp in flat.lent { rp in flows_seasonal_mean_squared_error(hp, rp) } }
         return r.is_some == 1 ? r.value : nil
     }
 }

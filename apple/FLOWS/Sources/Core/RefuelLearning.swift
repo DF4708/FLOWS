@@ -35,7 +35,7 @@ struct RefuelLearning: Codable, Equatable {
     var accuracy: Double {
         // No answers is no accuracy (and an empty buffer never crosses).
         guard !errors.isEmpty else { return 0 }
-        return errors.withUnsafeBufferPointer { flows_learning_refuel_accuracy($0) }
+        return errors.lent { flows_learning_refuel_accuracy($0) }
     }
 
     /// Record one answered gauge: model predicted `predictedFraction` of a

@@ -87,7 +87,7 @@ enum CrashLogic {
     static func isCrash(_ evidence: ImpactEvidence) -> Bool {
         // No samples is no impact (and an empty buffer never crosses).
         guard !evidence.window.isEmpty else { return false }
-        return evidence.window.withUnsafeBufferPointer {
+        return evidence.window.lent {
             flows_trip_vehicle_is_crash(
                 $0, evidence.speedBeforeMps, evidence.speedAfterMps,
                 evidence.metersFromRoad ?? 0, evidence.metersFromRoad != nil)
@@ -135,7 +135,7 @@ enum CrashLogic {
     static func isImpact(window: [Double]) -> Bool {
         // No samples is no impact (and an empty buffer never crosses).
         guard !window.isEmpty else { return false }
-        return window.withUnsafeBufferPointer { flows_trip_vehicle_is_impact_window($0) }
+        return window.lent { flows_trip_vehicle_is_impact_window($0) }
     }
 
     /// Interpret a voice reply: true = wants help, false = stand down,

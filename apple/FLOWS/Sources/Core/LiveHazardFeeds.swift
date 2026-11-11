@@ -69,7 +69,7 @@ enum HazardFeedScores {
         guard !quakes.isEmpty else { return 0 }
         let ages = quakes.map { $0.ageHours }
         return three(quakes.map { $0.lat }, quakes.map { $0.lon }, quakes.map { $0.magnitude }) { la, lo, mag in
-            ages.withUnsafeBufferPointer { flows_hazard_seismic_score(la, lo, mag, $0, point.latitude, point.longitude) }
+            ages.lent { flows_hazard_seismic_score(la, lo, mag, $0, point.latitude, point.longitude) }
         }
     }
 
@@ -89,7 +89,7 @@ enum HazardFeedScores {
     static func firePerimeterScore(perimeters: [[Point]], at point: Point) -> Double {
         guard !perimeters.isEmpty else { return 0 }
         let flat = flatten(perimeters)
-        return flat.lens.withUnsafeBufferPointer { lens in
+        return flat.lens.lent { lens in
             two(flat.lats, flat.lons) { flows_hazard_fire_perimeter_score(lens, $0, $1, point.latitude, point.longitude) }
         }
     }
@@ -101,7 +101,7 @@ enum HazardFeedScores {
         let usable = rings.filter { $0.count >= 3 }
         guard !usable.isEmpty else { return nil }
         let flat = flatten(usable)
-        let d = flat.lens.withUnsafeBufferPointer { lens in
+        let d = flat.lens.lent { lens in
             two(flat.lats, flat.lons) { flows_hazard_meters_to_rings(lens, $0, $1, point.latitude, point.longitude) }
         }
         return d.isFinite ? d : nil
@@ -186,8 +186,8 @@ enum HazardFeedScores {
         let directed = roads.map { UInt8($0.directed ? 1 : 0) }
         return two(rLats, rLons) { ra, ro in
             two(cLats, cLons) { ca, co in
-                lens.withUnsafeBufferPointer { l in
-                    directed.withUnsafeBufferPointer { d in
+                lens.lent { l in
+                    directed.lent { d in
                         flows_hazard_route_through_closure(ra, ro, ca, co, l, d)
                     }
                 }
@@ -246,9 +246,9 @@ enum HazardFeedScores {
         guard !zones.isEmpty else { return 0 }
         let counts = zones.map { Int64($0.rings.count) }, ratings = zones.map { Int64($0.rating) }
         let flat = flatten(zones.flatMap { $0.rings })
-        return counts.withUnsafeBufferPointer { zc in
-            ratings.withUnsafeBufferPointer { rt in
-                flat.lens.withUnsafeBufferPointer { lens in
+        return counts.lent { zc in
+            ratings.lent { rt in
+                flat.lens.lent { lens in
                     two(flat.lats, flat.lons) { flows_hazard_avalanche_score(zc, rt, lens, $0, $1, point.latitude, point.longitude) }
                 }
             }
@@ -294,9 +294,9 @@ enum HazardFeedScores {
         guard !zones.isEmpty else { return 0 }
         let counts = zones.map { Int64($0.rings.count) }, scores = zones.map { $0.score }
         let flat = flatten(zones.flatMap { $0.rings })
-        return counts.withUnsafeBufferPointer { zc in
-            scores.withUnsafeBufferPointer { sc in
-                flat.lens.withUnsafeBufferPointer { lens in
+        return counts.lent { zc in
+            scores.lent { sc in
+                flat.lens.lent { lens in
                     two(flat.lats, flat.lons) { flows_hazard_outlook_score(zc, sc, lens, $0, $1, point.latitude, point.longitude) }
                 }
             }
@@ -330,13 +330,13 @@ enum HazardFeedScores {
     static func joined(_ texts: [String]) -> String { texts.joined(separator: "\u{1F}") }
 
     static func two<R>(_ a: [Double], _ b: [Double],
-                       _ body: (UnsafeBufferPointer<Double>, UnsafeBufferPointer<Double>) -> R) -> R {
-        a.withUnsafeBufferPointer { x in b.withUnsafeBufferPointer { y in body(x, y) } }
+                       _ body: (RustLoan<Double>, RustLoan<Double>) -> R) -> R {
+        a.lent { x in b.lent { y in body(x, y) } }
     }
 
     static func three<R>(_ a: [Double], _ b: [Double], _ c: [Double],
-                         _ body: (UnsafeBufferPointer<Double>, UnsafeBufferPointer<Double>, UnsafeBufferPointer<Double>) -> R) -> R {
-        a.withUnsafeBufferPointer { x in b.withUnsafeBufferPointer { y in c.withUnsafeBufferPointer { z in body(x, y, z) } } }
+                         _ body: (RustLoan<Double>, RustLoan<Double>, RustLoan<Double>) -> R) -> R {
+        a.lent { x in b.lent { y in c.lent { z in body(x, y, z) } } }
     }
 }
 

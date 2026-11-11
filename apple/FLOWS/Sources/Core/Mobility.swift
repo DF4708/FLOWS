@@ -60,8 +60,8 @@ enum RiskBlob {
     ) -> [[CLLocationCoordinate2D]] {
         guard !points.isEmpty else { return [] }
         let lats = points.map(\.latitude), lons = points.map(\.longitude)
-        let flat = Array(lats.withUnsafeBufferPointer { la in
-            lons.withUnsafeBufferPointer { lo in flows_modes_risk_clusters(la, lo, adjacencyMeters) }
+        let flat = Array(lats.lent { la in
+            lons.lent { lo in flows_modes_risk_clusters(la, lo, adjacencyMeters) }
         })
         // [count, lengths…, indices…]
         guard let count = flat.first else { return [] }

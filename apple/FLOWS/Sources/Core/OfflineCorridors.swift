@@ -119,10 +119,10 @@ enum CorridorRetention {
         let endLons = corridors.isEmpty ? [0] : ends.map { $0?.longitude ?? 0 }
         let hasEnd: [UInt8] = corridors.isEmpty ? [0] : ends.map { $0 == nil ? 0 : 1 }
         let end = corridor.destination
-        let order = saved.withUnsafeBufferPointer { s in
-            endLats.withUnsafeBufferPointer { la in
-                endLons.withUnsafeBufferPointer { lo in
-                    hasEnd.withUnsafeBufferPointer { h in
+        let order = saved.lent { s in
+            endLats.lent { la in
+                endLons.lent { lo in
+                    hasEnd.lent { h in
                         Array(flows_long_trips_record_corridor(
                             s, la, lo, h, Int64(corridors.count),
                             end?.latitude ?? 0, end?.longitude ?? 0, end != nil,
@@ -147,8 +147,8 @@ enum CorridorRetention {
         // run (rust/flows-core long_trips.rs).
         let lats = coords.isEmpty ? [0] : coords.map(\.latitude)
         let lons = coords.isEmpty ? [0] : coords.map(\.longitude)
-        let kept = lats.withUnsafeBufferPointer { la in
-            lons.withUnsafeBufferPointer { lo in
+        let kept = lats.lent { la in
+            lons.lent { lo in
                 Array(flows_long_trips_decimate(la, lo, Int64(coords.count), stepMeters, Int64(limit)))
             }
         }
@@ -174,12 +174,12 @@ struct CorridorGeometry {
         counts = corridors.isEmpty ? [0] : coordinates.map { Int64($0.count) }
     }
 
-    func call<R>(_ body: (UnsafeBufferPointer<Double>, UnsafeBufferPointer<Double>,
-                          UnsafeBufferPointer<Double>, UnsafeBufferPointer<Int64>) -> R) -> R {
-        saved.withUnsafeBufferPointer { s in
-            lats.withUnsafeBufferPointer { la in
-                lons.withUnsafeBufferPointer { lo in
-                    counts.withUnsafeBufferPointer { c in body(s, la, lo, c) }
+    func call<R>(_ body: (RustLoan<Double>, RustLoan<Double>,
+                          RustLoan<Double>, RustLoan<Int64>) -> R) -> R {
+        saved.lent { s in
+            lats.lent { la in
+                lons.lent { lo in
+                    counts.lent { c in body(s, la, lo, c) }
                 }
             }
         }

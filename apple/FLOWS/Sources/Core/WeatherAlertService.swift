@@ -325,7 +325,7 @@ final class WeatherAlertService: ObservableObject {
                 && alertSampleCount[h.id, default: 0] > 0 { unique.append(h) }
         }
         if !unique.isEmpty {
-            let order = unique.map { $0.severityScore }.withUnsafeBufferPointer { flows_hazard_worst_first($0) }
+            let order = unique.map { $0.severityScore }.lent { flows_hazard_worst_first($0) }
             unique = order.compactMap { Int($0) < unique.count && $0 >= 0 ? unique[Int($0)] : nil }
         }
 
@@ -358,7 +358,7 @@ final class WeatherAlertService: ObservableObject {
             risk: normalized,
             worstSeverity: unique.first?.severityScore ?? 0,
             coverage: riskSamples.isEmpty ? 0
-                : riskSamples.map { $0.risk }.withUnsafeBufferPointer { flows_hazard_corridor_coverage($0) },
+                : riskSamples.map { $0.risk }.lent { flows_hazard_corridor_coverage($0) },
             headlines: unique.map(\.headline),
             events: events,
             samples: riskSamples,
@@ -463,10 +463,10 @@ final class WeatherAlertService: ObservableObject {
         let offsets = arrivalOffsets ?? [], offsetsOrOne = offsets.isEmpty ? [0.0] : offsets
         let flat = HazardFeedScores.two(samples.map { $0.latitude }, samples.map { $0.longitude }) { la, lo in
             HazardFeedScores.two(severities, expires) { sev, exp in
-                hasExpires.withUnsafeBufferPointer { he in
-                    countsOrOne.withUnsafeBufferPointer { cc in
-                        indicesOrOne.withUnsafeBufferPointer { ci in
-                            offsetsOrOne.withUnsafeBufferPointer { off in
+                hasExpires.lent { he in
+                    countsOrOne.lent { cc in
+                        indicesOrOne.lent { ci in
+                            offsetsOrOne.lent { off in
                                 flows_hazard_provisional_samples(
                                     la, lo, sev, all.map(\.event).joined(separator: "\u{1F}"),
                                     exp, he, keys.joined(separator: "\u{1F}"), cc, ci,
@@ -581,9 +581,9 @@ final class WeatherAlertService: ObservableObject {
         prepared p: PreparedAlertRings
     ) -> [NWSAlert] {
         guard !alerts.isEmpty else { return [] }
-        let indices = p.ringCounts.withUnsafeBufferPointer { rc in p.zoneCounts.withUnsafeBufferPointer { zc in
-            p.ringLens.withUnsafeBufferPointer { lens in HazardFeedScores.two(p.lats, p.lons) { la, lo in
-                p.zoneRingCounts.withUnsafeBufferPointer { zrc in p.zoneRingLens.withUnsafeBufferPointer { zlens in
+        let indices = p.ringCounts.lent { rc in p.zoneCounts.lent { zc in
+            p.ringLens.lent { lens in HazardFeedScores.two(p.lats, p.lons) { la, lo in
+                p.zoneRingCounts.lent { zrc in p.zoneRingLens.lent { zlens in
                     HazardFeedScores.two(p.zoneLats, p.zoneLons) { zla, zlo in
                         flows_hazard_alerts_covering(point.latitude, point.longitude, rc, zc, lens, la, lo,
                                                      p.zoneNames, p.zoneKeys, zrc, zlens, zla, zlo)
@@ -602,9 +602,9 @@ final class WeatherAlertService: ObservableObject {
     ) -> [[NWSAlert]] {
         guard !alerts.isEmpty, !points.isEmpty else { return points.map { _ in [] } }
         let flat = HazardFeedScores.two(points.map(\.latitude), points.map(\.longitude)) { pla, plo in
-            p.ringCounts.withUnsafeBufferPointer { rc in p.zoneCounts.withUnsafeBufferPointer { zc in
-                p.ringLens.withUnsafeBufferPointer { lens in HazardFeedScores.two(p.lats, p.lons) { la, lo in
-                    p.zoneRingCounts.withUnsafeBufferPointer { zrc in p.zoneRingLens.withUnsafeBufferPointer { zlens in
+            p.ringCounts.lent { rc in p.zoneCounts.lent { zc in
+                p.ringLens.lent { lens in HazardFeedScores.two(p.lats, p.lons) { la, lo in
+                    p.zoneRingCounts.lent { zrc in p.zoneRingLens.lent { zlens in
                         HazardFeedScores.two(p.zoneLats, p.zoneLons) { zla, zlo in
                             flows_hazard_alerts_covering_many(pla, plo, rc, zc, lens, la, lo,
                                                               p.zoneNames, p.zoneKeys, zrc, zlens, zla, zlo)
@@ -1252,8 +1252,8 @@ final class WeatherAlertService: ObservableObject {
         var coordLens: [Int64] = [], values: [Double] = []
         for ring in raws { for c in ring { coordLens.append(Int64(c.count)); values += c } }
         let lensOrOne = coordLens.isEmpty ? [0] : coordLens, valuesOrOne = values.isEmpty ? [0.0] : values
-        let flat = ringCoordCounts.withUnsafeBufferPointer { rc in lensOrOne.withUnsafeBufferPointer { cl in
-            valuesOrOne.withUnsafeBufferPointer { flows_hazard_all_rings(rc, cl, $0, Int64(maxPoints)) } } }
+        let flat = ringCoordCounts.lent { rc in lensOrOne.lent { cl in
+            valuesOrOne.lent { flows_hazard_all_rings(rc, cl, $0, Int64(maxPoints)) } } }
         return LiveHazardSnapshot.decodeRings(Array(flat))
     }
 }

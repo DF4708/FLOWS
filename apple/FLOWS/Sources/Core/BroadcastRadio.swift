@@ -137,11 +137,11 @@ enum BroadcastRadio {
         let lons = placeholder ? [0] : stations.map { $0.longitude ?? 0 }
         let hasLon: [UInt8] = placeholder ? [0] : stations.map { $0.longitude == nil ? 0 : 1 }
         let bitrates = placeholder ? [0] : stations.map { Int64($0.bitrate) }
-        let order = lats.withUnsafeBufferPointer { la in
-            hasLat.withUnsafeBufferPointer { hla in
-                lons.withUnsafeBufferPointer { lo in
-                    hasLon.withUnsafeBufferPointer { hlo in
-                        bitrates.withUnsafeBufferPointer { br in
+        let order = lats.lent { la in
+            hasLat.lent { hla in
+                lons.lent { lo in
+                    hasLon.lent { hlo in
+                        bitrates.lent { br in
                             Array(flows_tags_ranked_stations(
                                 la, hla, lo, hlo, br, Int64(stations.count),
                                 position?.latitude ?? 0, position?.longitude ?? 0, position != nil))

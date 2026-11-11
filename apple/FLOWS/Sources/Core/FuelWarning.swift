@@ -89,8 +89,8 @@ enum FuelWarning {
         // buffer.
         let lats = routeAhead.isEmpty ? [0] : routeAhead.map(\.latitude)
         let lons = routeAhead.isEmpty ? [0] : routeAhead.map(\.longitude)
-        return lats.withUnsafeBufferPointer { la in
-            lons.withUnsafeBufferPointer { lo in
+        return lats.lent { la in
+            lons.lent { lo in
                 flows_geo_fuel_station_is_reachable(
                     station.latitude, station.longitude, here.latitude, here.longitude,
                     courseDegrees, la, lo, Int64(routeAhead.count), corridorMeters)
@@ -170,11 +170,11 @@ enum FuelWarning {
             count = Int64(stations.count)
         }
 
-        func call<R>(_ body: (UnsafeBufferPointer<Double>, UnsafeBufferPointer<Double>,
-                              UnsafeBufferPointer<UInt8>, Int64) -> R) -> R {
-            miles.withUnsafeBufferPointer { m in
-                prices.withUnsafeBufferPointer { p in
-                    priced.withUnsafeBufferPointer { f in body(m, p, f, count) }
+        func call<R>(_ body: (RustLoan<Double>, RustLoan<Double>,
+                              RustLoan<UInt8>, Int64) -> R) -> R {
+            miles.lent { m in
+                prices.lent { p in
+                    priced.lent { f in body(m, p, f, count) }
                 }
             }
         }

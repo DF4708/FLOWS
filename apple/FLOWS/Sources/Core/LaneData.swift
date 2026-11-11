@@ -72,7 +72,7 @@ enum LaneData {
         func allows(_ side: ManeuverSymbol.Side) -> Bool {
             guard !turns.isEmpty else { return false }   // an empty buffer never crosses
             let codes = turns.map { Int64($0.rustCode) }
-            return codes.withUnsafeBufferPointer { flows_places_text_lane_allows($0, side.rustCode) }
+            return codes.lent { flows_places_text_lane_allows($0, side.rustCode) }
         }
 
         /// The flat form the bridge reads: turn codes, then -1.
@@ -102,7 +102,7 @@ enum LaneData {
     static func recommended(lanes: [Lane], maneuver: ManeuverSymbol.Side) -> Set<Int> {
         guard !lanes.isEmpty else { return [] }
         let flat = lanes.flatMap(\.flat)
-        let indices = flat.withUnsafeBufferPointer { flows_places_text_recommended_lanes($0, maneuver.rustCode) }
+        let indices = flat.lent { flows_places_text_recommended_lanes($0, maneuver.rustCode) }
         return Set(indices.map { Int($0) })
     }
 

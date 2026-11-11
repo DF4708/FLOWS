@@ -110,8 +110,8 @@ final class RecentDestinations: ObservableObject {
         let lastUsed = list.isEmpty ? [0] : list.map { $0.lastUsed.timeIntervalSinceReferenceDate }
         let uses = list.isEmpty ? [0] : list.map { Int64($0.uses) }
         let answer = names.with { joined, lengths, _ in
-            lastUsed.withUnsafeBufferPointer { lu in
-                uses.withUnsafeBufferPointer { us in
+            lastUsed.lent { lu in
+                uses.lent { us in
                     Array(flows_rides_merged_recents(
                         joined, lengths, lu, us, Int64(list.count),
                         new.name, new.lastUsed.timeIntervalSinceReferenceDate, Int64(new.uses),

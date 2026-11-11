@@ -91,7 +91,7 @@ enum TripNeeds {
             intervals.foodMiles ?? .nan, intervals.restMiles ?? .nan,
         ]
         // [mile, code, mile, code, …]
-        let flat = cadences.withUnsafeBufferPointer { flows_trip_vehicle_schedule(totalMiles, $0, seed) }
+        let flat = cadences.lent { flows_trip_vehicle_schedule(totalMiles, $0, seed) }
         var events: [Event] = []
         events.reserveCapacity(flat.len() / 2)
         var i = 0
@@ -109,7 +109,7 @@ enum TripNeeds {
         // Nothing scheduled: nothing to find (and an empty buffer never crosses).
         guard !schedule.isEmpty else { return nil }
         let miles = schedule.map(\.mile)
-        let position = miles.withUnsafeBufferPointer { flows_trip_vehicle_next_need_index(mile, $0) }
+        let position = miles.lent { flows_trip_vehicle_next_need_index(mile, $0) }
         guard position >= 0, Int(position) < schedule.count else { return nil }
         return schedule[Int(position)]
     }

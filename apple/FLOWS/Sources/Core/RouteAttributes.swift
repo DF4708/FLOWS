@@ -33,8 +33,8 @@ enum RouteAttributes {
         // zero count: the bridge never sees an empty buffer.
         let values = elevations.isEmpty ? [0] : elevations.map { $0 ?? 0 }
         let present: [UInt8] = elevations.isEmpty ? [0] : elevations.map { $0 == nil ? 0 : 1 }
-        let grade = values.withUnsafeBufferPointer { v in
-            present.withUnsafeBufferPointer { p in
+        let grade = values.lent { v in
+            present.lent { p in
                 flows_tags_max_grade_percent(v, p, Int64(elevations.count), spacingMeters)
             }
         }
@@ -107,11 +107,11 @@ extension RouteAttributes {
                 .joined(separator: "\u{1F}")
         }
         let tags = RustTextColumn(tagTexts)
-        let mask = route.map(\.latitude).withUnsafeBufferPointer { rla in
-            route.map(\.longitude).withUnsafeBufferPointer { rlo in
-                counts.withUnsafeBufferPointer { c in
-                    wayLats.withUnsafeBufferPointer { wla in
-                        wayLons.withUnsafeBufferPointer { wlo in
+        let mask = route.map(\.latitude).lent { rla in
+            route.map(\.longitude).lent { rlo in
+                counts.lent { c in
+                    wayLats.lent { wla in
+                        wayLons.lent { wlo in
                             tags.with { joined, lens, _ in
                                 Array(flows_tags_limits_on_route(rla, rlo, c, wla, wlo, joined, lens))
                             }

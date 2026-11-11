@@ -47,7 +47,7 @@ struct FilterLimits {
     func passesClearances(_ clearancesMeters: [Double]?) -> Bool {
         // No data and no postings both pass; nothing to send across.
         guard let clearancesMeters, !clearancesMeters.isEmpty else { return true }
-        return clearancesMeters.withUnsafeBufferPointer {
+        return clearancesMeters.lent {
             flows_vehicle_policy_passes_clearances(vehicleHeightMeters, clearanceMarginMeters, $0)
         }
     }
@@ -66,7 +66,7 @@ struct FilterLimits {
     func passesWeightLimits(_ limitsLbs: [Double]?) -> Bool {
         // No data and no postings both pass; nothing to send across.
         guard let limitsLbs, !limitsLbs.isEmpty else { return true }
-        return limitsLbs.withUnsafeBufferPointer {
+        return limitsLbs.lent {
             flows_vehicle_policy_passes_weight_limits(rigWeightLbs ?? 0, rigWeightLbs != nil, $0)
         }
     }

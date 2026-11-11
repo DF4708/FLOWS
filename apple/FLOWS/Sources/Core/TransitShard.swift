@@ -153,7 +153,7 @@ enum TransitShard {
     /// before building, because "what day is it?" has to be answered in the
     /// operator's zone: at 9pm in Honolulu, Amtrak is already on tomorrow.
     static func agencyZone(feedDirectory: String) -> String {
-        // `.text`, not `.toString()`: a feed with no readable zone answers
+        // `.text`, not `.text`: a feed with no readable zone answers
         // "", and an empty Rust string traps in toString() — the callers'
         // own empty-zone checks were never reached.
         flows_transit_agency_zone(feedDirectory).text
@@ -166,7 +166,7 @@ enum TransitShard {
     static func build(feedDirectory: String, prefix: String, serviceDate: Int,
                       agencyZone: String = "") throws -> Stamp {
         let starts = TransitClock.dayStarts(serviceDate: serviceDate, agencyZone: agencyZone)
-        let rows = decode(starts.withUnsafeBufferPointer {
+        let rows = decode(starts.lent {
             flows_transit_build(feedDirectory, prefix, Int64(serviceDate), $0)
         })
         if let message = firstError(rows) { throw Failure.notBuilt(message) }
@@ -207,8 +207,8 @@ enum TransitShard {
         let starts = feeds.flatMap {
             TransitClock.dayStarts(serviceDate: serviceDate, agencyZone: $0.agencyZone)
         }
-        let rows = decode(shifts.withUnsafeBufferPointer { shiftBuffer in
-            starts.withUnsafeBufferPointer { startBuffer in
+        let rows = decode(shifts.lent { shiftBuffer in
+            starts.lent { startBuffer in
                 flows_transit_build_many(joined, shiftBuffer, prefix, Int64(serviceDate), startBuffer)
             }
         })

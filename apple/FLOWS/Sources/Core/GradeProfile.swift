@@ -57,8 +57,8 @@ enum GradeProfile {
         guard elevations.count > 1 else { return [] }
         let values = elevations.map { $0 ?? 0 }
         let present: [UInt8] = elevations.map { $0 == nil ? 0 : 1 }
-        let flat = values.withUnsafeBufferPointer { v in
-            present.withUnsafeBufferPointer { p in
+        let flat = values.lent { v in
+            present.lent { p in
                 flows_vehicle_policy_grade_segments(v, p, spacingMeters, startMile)
             }
         }
@@ -69,7 +69,7 @@ enum GradeProfile {
     static func steepest(_ segments: [GradeSegment], top: Int = 3) -> [GradeSegment] {
         guard !segments.isEmpty else { return [] }
         let triples = flat(segments)
-        return Self.segments(fromFlat: triples.withUnsafeBufferPointer { flows_vehicle_policy_grade_steepest($0, Int64(top)) })
+        return Self.segments(fromFlat: triples.lent { flows_vehicle_policy_grade_steepest($0, Int64(top)) })
     }
 
     /// The next steep CLIMB ahead of `mile` within `lookaheadMiles` — the
@@ -82,7 +82,7 @@ enum GradeProfile {
     ) -> GradeSegment? {
         guard !segments.isEmpty else { return nil }
         let triples = flat(segments)
-        let i = triples.withUnsafeBufferPointer {
+        let i = triples.lent {
             flows_vehicle_policy_grade_next_steep_index(mile, $0, thresholdPercent, lookaheadMiles)
         }
         guard i >= 0, Int(i) < segments.count else { return nil }

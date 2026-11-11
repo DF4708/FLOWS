@@ -92,10 +92,10 @@ enum DestinationPrediction {
         let total = evidence.map { Int64($0.totalHits) }
         let last = evidence.map(\.lastUsed)
         // Flat [index, score, reason code] triples, best first.
-        let flat = context.withUnsafeBufferPointer { c in
-            time.withUnsafeBufferPointer { t in
-                total.withUnsafeBufferPointer { tot in
-                    last.withUnsafeBufferPointer { l in
+        let flat = context.lent { c in
+            time.lent { t in
+                total.lent { tot in
+                    last.lent { l in
                         flows_learning_destination_rank(c, t, tot, l, now, Int64(limit))
                     }
                 }

@@ -80,8 +80,8 @@ final class BreadcrumbTrail: ObservableObject {
         let reversed = Array(points.reversed())
         guard points.count >= 2 else { return (reversed, 0) }
         let lats = points.map(\.latitude), lons = points.map(\.longitude)
-        let meters = lats.withUnsafeBufferPointer { la in
-            lons.withUnsafeBufferPointer { lo in flows_modes_way_back_meters(la, lo) }
+        let meters = lats.lent { la in
+            lons.lent { lo in flows_modes_way_back_meters(la, lo) }
         }
         return (reversed, meters)
     }

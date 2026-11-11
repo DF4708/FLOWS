@@ -194,7 +194,7 @@ final class VehicleLink: NSObject, ObservableObject {
         // rust/flows-core tags_and_replies.rs.
         let bytes = manufacturerData.map { [UInt8]($0) } ?? []
         let buffer = bytes.isEmpty ? [UInt8(0)] : bytes
-        let reading = buffer.withUnsafeBufferPointer {
+        let reading = buffer.lent {
             Array(flows_tags_parse_tpms(name ?? "", name != nil, $0,
                                         Int64(bytes.count), manufacturerData != nil))
         }
