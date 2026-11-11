@@ -3111,7 +3111,9 @@ struct NavigationHUD: View {
         let text: String
         switch model.hosStatus {
         case .breakSoon(let until):
-            text = String(format: "Driving hours: 30-min break due in %.0f min", until / 60)
+            text = until < 90
+                ? "Driving hours: 30-min break due in 1 min"
+                : String(format: "Driving hours: 30-min break due in %.0f min", until / 60)
         case .breakDue:
             text = "Driving hours: 8 h driven — take your 30-min break now"
         case .limitReached:
@@ -3518,8 +3520,10 @@ struct NavigationHUD: View {
 
     private func distanceText(_ meters: Double) -> String {
         let miles = meters / 1609.344
-        if miles < 0.19 { return "\(Int((meters / 0.3048 / 50).rounded() * 50)) ft" }
-        return String(format: miles < 10 ? "%.1f mi" : "%.0f mi", miles)
+        // Never "0 ft" (the turn is here, not nowhere), and 9.95–9.99 mi
+        // rounds to "10 mi", not "10.0 mi".
+        if miles < 0.19 { return "\(max(50, Int((meters / 0.3048 / 50).rounded() * 50))) ft" }
+        return String(format: miles < 9.95 ? "%.1f mi" : "%.0f mi", miles)
     }
 
     private func etaText(_ seconds: Double) -> String {

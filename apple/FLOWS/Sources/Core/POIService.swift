@@ -754,11 +754,27 @@ final class POIService: ObservableObject {
             // already labeled "est." in the UI); the pick refines, it does
             // not reveal.
             let pricingFuel = fuel ?? (kind == .gas ? .gas : nil)
-            for item in unique {
+            // Every station's live price is asked for at once (the request
+            // gate still bounds them): one after another, the list waited
+            // a round trip per station before it showed.
+            var live: [Int: Double] = [:]
+            if let fuel {
+                await withTaskGroup(of: (Int, Double?).self) { group in
+                    for (i, item) in unique.enumerated() {
+                        let at = item.placemark.coordinate
+                        group.addTask { @MainActor in
+                            (i, await self.livePriceProvider(at, fuel))
+                        }
+                    }
+                    for await (i, price) in group {
+                        if let price { live[i] = price }
+                    }
+                }
+            }
+            for (i, item) in unique.enumerated() {
                 var value = pricingFuel.flatMap { self.priceProvider(item, $0) }
-                if let fuel, let live = await self.livePriceProvider(
-                    item.placemark.coordinate, fuel) {
-                    value = live   // real station price wins over the estimate
+                if let real = live[i] {
+                    value = real   // real station price wins over the estimate
                     liveIDs.insert(ObjectIdentifier(item))
                 }
                 p.append(value)

@@ -133,6 +133,10 @@ struct PlannedRoute: Identifiable {
     /// a flooded road, a washout, a work zone). Never offered — FLOWS has
     /// no route through an actually flooded road (owner, 2026-10-01).
     var throughClosedRoad = false
+    /// Every state closure feed on the route answered. False = some state's
+    /// closed roads are unknown, which is not the same as none (the card
+    /// says so); it never reads as "no closures".
+    var closuresChecked = true
     /// ELECTRIC vehicles: mile mark of the first stretch with NO charger in
     /// reach (nil = chargers found along the whole route, or not an EV).
     var evChargingGapMiles: Double?

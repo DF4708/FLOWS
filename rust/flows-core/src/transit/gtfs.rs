@@ -454,6 +454,11 @@ struct ServiceCalendar {
 }
 
 impl ServiceCalendar {
+    /// How far past its first possible day [`Self::first_active_weekday`]
+    /// looks: four years, which covers any real feed's lead-in (a weekly row
+    /// that runs at all runs within its first week).
+    const MAX_DEFAULT_SCAN_DAYS: i64 = 4 * 366;
+
     fn load(dir: &Path) -> Result<Self, GtfsError> {
         let mut cal = ServiceCalendar {
             weekly: Vec::new(),
@@ -551,10 +556,26 @@ impl ServiceCalendar {
 
     /// The first weekday (Mon–Fri) the calendar covers that has at least one
     /// active service — the converter's default date. No system clock.
+    ///
+    /// Bounded: the scan starts at the first day anything could run (a
+    /// weekday row's start or an added date — never a removal, which runs
+    /// nothing) and gives up [`Self::MAX_DEFAULT_SCAN_DAYS`] later. A calendar
+    /// can say it spans the years 0001 to 9999, and walking those three and a
+    /// half million days — each one a pass over every service — held the
+    /// converter for minutes over a feed with nothing to convert.
     fn first_active_weekday(&self) -> Option<u32> {
-        let (min, max) = (self.min_date?, self.max_date?);
-        let mut days = date_to_days(min);
-        let last = date_to_days(max);
+        let (_, max) = (self.min_date?, self.max_date?);
+        let first = self
+            .weekly
+            .iter()
+            // A row with no weekday ticked never answers this question,
+            // however early it starts.
+            .filter(|w| w.1[..5].iter().any(|&on| on))
+            .map(|w| w.2)
+            .chain(self.added.keys().copied())
+            .min()?;
+        let mut days = date_to_days(first);
+        let last = date_to_days(max).min(days + Self::MAX_DEFAULT_SCAN_DAYS);
         while days <= last {
             let date = days_to_date(days);
             if weekday_index(date) < 5 && !self.active_on(date).is_empty() {
@@ -1662,10 +1683,16 @@ fn parse_feed(dir: &Path, date: Option<u32>, starts: DayStarts) -> Result<FeedPa
                     .filter(|v| (0.0..=86_400.0).contains(v))
                     .map(|v| v.round() as Time)
             });
+            // The same stop at both ends is not a walk: it is how long a
+            // change of vehicle there takes, and only when the feed says so
+            // in so many seconds (type 2 with a time). A recommended or
+            // timed transfer point (0, 1) asks for no wait, and the default
+            // walk time is not the feed's word about anything.
+            let change_here = ty == "2" && secs.is_some();
             let secs = secs.unwrap_or(DEFAULT_TRANSFER_SECS);
             for &a in &from {
                 for &b in &to {
-                    if a != b && transfers.len() < MAX_TRANSFERS {
+                    if (a != b || change_here) && transfers.len() < MAX_TRANSFERS {
                         transfers.push((a, b, secs));
                     }
                 }
@@ -3609,6 +3636,104 @@ mod tests {
         assert_eq!(zone("P"), "America/Chicago", "its station's clock");
         assert_eq!(zone("A"), "America/New_York", "the agency's clock");
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_default_date_scan_is_bounded_on_a_calendar_of_every_year() {
+        let calendar = |weekly: Vec<(String, [bool; 7], u32, u32)>, added: &[u32]| {
+            let mut dates: Vec<u32> = added.to_vec();
+            dates.extend(weekly.iter().flat_map(|w| [w.2, w.3]));
+            ServiceCalendar {
+                weekly,
+                added: added.iter().map(|&d| (d, vec!["X".to_string()])).collect(),
+                removed: std::collections::HashSet::new(),
+                min_date: dates.iter().copied().min(),
+                max_date: dates.iter().copied().max(),
+            }
+        };
+        let weekend = [false, false, false, false, false, true, true];
+        let weekdays = [true, true, true, true, true, false, false];
+        // Weekend-only service from the year 1 to the year 9999: no weekday
+        // ever runs, and saying so no longer walks 3.6 million days.
+        let cal = calendar(vec![("S".into(), weekend, 10101, 99991231)], &[]);
+        assert_eq!(cal.first_active_weekday(), None);
+        // A Saturday added in the year 1 and a weekday in the year 9999: the
+        // scan gives up after its bound instead of crossing the millennia.
+        assert_eq!(weekday_index(10106), 5);
+        let cal = calendar(Vec::new(), &[10106, 99991229]);
+        assert_eq!(cal.first_active_weekday(), None);
+        // Real calendars answer as before — and a row that never runs on a
+        // weekday, however early it starts, does not hide the one that does.
+        let cal = calendar(
+            vec![
+                ("S".into(), weekend, 10101, 99991231),
+                ("WK".into(), weekdays, 20260706, 20260731),
+            ],
+            &[],
+        );
+        assert_eq!(cal.first_active_weekday(), Some(20260706));
+        let cal = calendar(Vec::new(), &[20260711, 20260714]);
+        assert_eq!(cal.first_active_weekday(), Some(20260714));
+    }
+
+    #[test]
+    fn a_same_stop_minimum_transfer_time_is_kept_and_honoured() {
+        // The bus from A reaches B at 08:15. One bus leaves B at 08:16 and
+        // one at 08:30; the feed says a change at B takes two minutes.
+        let feed = |name: &str, transfers: &str| {
+            let dir = write_feed(
+                name,
+                &[
+                    ("stops.txt", STOPS),
+                    (
+                        "routes.txt",
+                        "route_id,route_short_name,route_long_name,route_type\n\
+                         R1,10,East,3\nR2,20,North,3\n",
+                    ),
+                    ("calendar.txt", CALENDAR),
+                    (
+                        "trips.txt",
+                        "route_id,service_id,trip_id\nR1,WK,e1\nR2,WK,n1\nR2,WK,n2\n",
+                    ),
+                    (
+                        "stop_times.txt",
+                        "trip_id,arrival_time,departure_time,stop_id,stop_sequence\n\
+                         e1,08:00:00,08:00:00,A,1\n\
+                         e1,08:15:00,08:15:00,B,2\n\
+                         n1,08:16:00,08:16:00,B,1\n\
+                         n1,08:36:00,08:36:00,C,2\n\
+                         n2,08:30:00,08:30:00,B,1\n\
+                         n2,08:50:00,08:50:00,C,2\n",
+                    ),
+                    ("transfers.txt", transfers),
+                ],
+            );
+            let load = load_gtfs(&dir, Some(20260709)).unwrap();
+            let _ = fs::remove_dir_all(&dir);
+            load
+        };
+        const HEAD: &str = "from_stop_id,to_stop_id,transfer_type,min_transfer_time\n";
+        let arrival = |load: &GtfsLoad| plan(&load.timetable, 0, 2, 0, 8)[0].arrival;
+
+        let timed = feed("samestop_timed", &format!("{HEAD}B,B,2,120\n"));
+        assert_eq!(timed.timetable.change_secs(1), 120);
+        assert_eq!(arrival(&timed), 8 * 3600 + 50 * 60, "the 08:16 is too soon");
+        // Through a shard file and back, the same answer.
+        let back = ftt::from_bytes(&ftt::to_bytes(&timed.timetable)).unwrap();
+        assert_eq!(back.change_secs(1), 120);
+        assert_eq!(
+            plan(&back, 0, 2, 0, 8),
+            plan(&timed.timetable, 0, 2, 0, 8),
+            "the file carries the change time"
+        );
+
+        // A recommended point, or a type 2 with no time, asks for no wait:
+        // the walk default is not the feed's word.
+        for (name, row) in [("samestop_rec", "B,B,0,\n"), ("samestop_blank", "B,B,2,\n")] {
+            let load = feed(name, &format!("{HEAD}{row}"));
+            assert_eq!(load.timetable.change_secs(1), 0, "{row}");
+            assert_eq!(arrival(&load), 8 * 3600 + 36 * 60, "{row}");
+        }
     }
 
     #[test]

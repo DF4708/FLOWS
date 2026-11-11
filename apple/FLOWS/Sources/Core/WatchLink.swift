@@ -88,7 +88,12 @@ final class WatchLink: NSObject, ObservableObject {
             hapticFiredForManeuver = false
         }
         lastManeuverDistance = distanceToManeuver
-        if distanceToManeuver < 250, !hapticFiredForManeuver {
+        // The tap goes only as a live message (a stored picture never
+        // replays it), so with the Watch out of reach it is not spent: the
+        // next tick inside 250 m tries again.
+        let session = WCSession.default
+        let canTap = session.activationState == .activated && session.isReachable
+        if distanceToManeuver < 250, !hapticFiredForManeuver, canTap {
             payload["nearTurn"] = true          // the wrist tap
             hapticFiredForManeuver = true
         } else if distanceToManeuver > 400 {

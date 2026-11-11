@@ -307,10 +307,19 @@ fn triples(lats: &[f64], lons: &[f64], third: &[f64]) -> Vec<(f64, f64, f64)> {
         .map(|((&a, &b), &c)| (a, b, c))
         .collect()
 }
+/// Points with a name each. Swift joins the names, and one name that is the
+/// empty string joins to "" — the same text as no names at all, which
+/// [`split_joined`] reads as none, so that one point was dropped. The
+/// coordinates say how many there are: exactly one point and no text is one
+/// point with an empty name.
 fn named(lats: &[f64], lons: &[f64], joined: &str) -> Vec<(f64, f64, String)> {
+    let mut names = split_joined(joined);
+    if names.is_empty() && lats.len() == 1 && lons.len() == 1 {
+        names.push(String::new());
+    }
     lats.iter()
         .zip(lons)
-        .zip(split_joined(joined))
+        .zip(names)
         .map(|((&a, &b), s)| (a, b, s))
         .collect()
 }
@@ -1074,5 +1083,37 @@ impl FlowsHazardSnapshot {
     }
     pub fn spc_scores(&self) -> Vec<f64> {
         self.0.spc_zones.iter().map(|z| z.1).collect()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn one_point_with_an_empty_name_is_still_one_point() {
+        assert_eq!(
+            named(&[19.4], &[-99.1], ""),
+            vec![(19.4, -99.1, String::new())]
+        );
+        // No points and no text is still nothing, and names that were given
+        // are read as they were.
+        assert!(named(&[], &[], "").is_empty());
+        assert_eq!(
+            named(&[1.0, 2.0], &[3.0, 4.0], "a\u{1F}"),
+            vec![(1.0, 3.0, "a".to_string()), (2.0, 4.0, String::new())]
+        );
+        assert_eq!(
+            named(&[1.0], &[3.0], "watch"),
+            vec![(1.0, 3.0, "watch".to_string())]
+        );
+        // Two points and no text cannot be told from two empty names by the
+        // text alone, and are left as they were: nothing.
+        assert!(named(&[1.0, 2.0], &[3.0, 4.0], "").is_empty());
+        // The snapshot keeps the one volcano whose level is blank.
+        let mut snapshot = flows_hazard_snapshot_new();
+        snapshot.add_volcanoes(&[19.0], &[-98.6], "");
+        assert_eq!(snapshot.volcano_levels(), vec![String::new()]);
+        assert_eq!(snapshot.volcanoes_flat().len(), 2);
     }
 }

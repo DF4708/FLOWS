@@ -148,6 +148,16 @@ final class SpeechLineQueueTests: XCTestCase {
         XCTAssertEqual(said.last, "warning \(HeldWarnings.cap + 1)")
     }
 
+    /// The same warning said again takes its older line's place; it does not
+    /// push a different warning out.
+    func testARepeatedWarningReplacesItsOlderLine() {
+        var held = HeldWarnings()
+        XCTAssertTrue(held.hold("Flood ahead", topic: SpeechTopic.imminent("B")))
+        XCTAssertTrue(held.hold("Tornado in 5 miles", topic: SpeechTopic.imminent("A")))
+        XCTAssertTrue(held.hold("Tornado in 2 miles", topic: SpeechTopic.imminent("A")))
+        XCTAssertEqual(held.drain().map(\.text), ["Flood ahead", "Tornado in 2 miles"])
+    }
+
     func testTopicsNameTheirMessage() {
         XCTAssertEqual(SpeechTopic.imminent("abc"), "imminent.abc")
         XCTAssertNotEqual(SpeechTopic.trafficOffer, SpeechTopic.escalation)

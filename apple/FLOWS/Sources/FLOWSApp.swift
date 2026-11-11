@@ -3363,6 +3363,7 @@ final class AppModel: ObservableObject {
         vehicle.eraseRefuelLearning()
         BufferMemory.shared.erase()
         drivingInWindowSeconds = 0
+        drivingSeconds = 0
         UserDefaults.standard.removeObject(forKey: "flows.hos.window")
         UserDefaults.standard.removeObject(forKey: "flows.hos.windowAt")
         lastDrivingFix = nil
@@ -4165,6 +4166,8 @@ final class AppModel: ObservableObject {
     /// trip still being driven keeps scoring with its own until select()
     /// hands the chosen one's over.
     private var heldChoiceFeeds: [UUID: CorridorFeeds] = [:]
+    /// The last speed a fix really carried, for the look-ahead window.
+    private var lastRealSpeed: (mps: Double, at: Date)?
 
     /// A choice's weather score for its card. Held behind the drive screen
     /// there is no card to fill in as cells land, and the choice's feeds are
@@ -4173,7 +4176,14 @@ final class AppModel: ObservableObject {
     /// and fires.
     private func scoredChoice(_ route: PlannedRoute) async -> PlannedRoute {
         guard tripUnderway else {
-            return await scored(route, onProgress: cardProgressSink(routeID: route.id))
+            // Each card's feeds are kept for it as well: the trip used to
+            // start with those of whichever card scored LAST, another
+            // road's closures and fires; select() hands over the chosen one's.
+            let (done, feeds) = await scoredWithFeeds(
+                route, onProgress: cardProgressSink(routeID: route.id))
+            heldChoiceFeeds[route.id] = feeds
+            adoptCorridorFeeds(feeds)
+            return done
         }
         let (done, feeds) = await scoredWithFeeds(route)
         heldChoiceFeeds[route.id] = feeds
@@ -4288,7 +4298,11 @@ final class AppModel: ObservableObject {
     }
 
     private func hydrateRouteRisk() async {
-        await scoreRouteWeather(onlyUnscored: false)
+        await scoreRouteWeather(onlyUnscored: false, ladder: false)
+        // The retry ladder runs BESIDE phase 2, not before it: one route
+        // with a missing weather cell held every route's bridge, grade and
+        // flood-zone checks back for up to two and a half minutes.
+        async let ladder: Void = weatherRetryLadder()
         // PHASE 2 — physical attributes (grades / clearances / FEMA / EV
         // gaps): slow public fetches that hydrate AFTER the safety verdict.
         // Runs even if the driver already hit GO — the finished attributes
@@ -4309,11 +4323,12 @@ final class AppModel: ObservableObject {
                 group.addTask { await self.hydrateAttributes(r) }
             }
         }
+        await ladder
     }
 
     /// PHASE 1 — the weather verdict GO waits on, then the retry ladder for
     /// the routes whose fetches came back incomplete.
-    private func scoreRouteWeather(onlyUnscored: Bool) async {
+    private func scoreRouteWeather(onlyUnscored: Bool, ladder: Bool = true) async {
         weatherCheckGaveUp = []
         // The driver just asked for these routes and is watching the cards —
         // the whole phase-1 pass rides the planning-burst lane (elevated
@@ -4356,6 +4371,13 @@ final class AppModel: ObservableObject {
                 return a < b
             }
             ensureHighlightValid()
+        }
+        if ladder { await weatherRetryLadder() }
+    }
+
+    /// The retry ladder for routes whose weather came back incomplete.
+    private func weatherRetryLadder() async {
+        if choicesOnOffer {
             // Retry routes whose weather fetches came back incomplete (NWS
             // hiccup) so GO can unlock with real data instead of a false
             // green. Persistent with backoff — a single 6 s retry died inside
@@ -4627,7 +4649,7 @@ final class AppModel: ObservableObject {
         // DOT closures along the corridor (WZDx): realized blocked-road proof.
         // Whole lines: a route drives a closure only along it (closedRoads);
         // scoring and the live watch read its points (closurePoints).
-        async let closuresF = LiveHazardFeedFetcher.shared.closedRoads(
+        async let closuresF = LiveHazardFeedFetcher.shared.closedRoadsChecked(
             minLat: bbox.minLat, minLon: bbox.minLon, maxLat: bbox.maxLat, maxLon: bbox.maxLon,
             // Every state on the route, not the first three feeds: the rest
             // read as "no closures" and a closed road past them passed.
@@ -4682,7 +4704,8 @@ final class AppModel: ObservableObject {
                 .map { score.samples[$0].coordinate }
             : []
         async let waterF = LiveHazardFeedFetcher.shared.waterProximity(near: waterProbe)
-        let corridorRoads = await closuresF
+        let closureAnswer = await closuresF
+        let corridorRoads = closureAnswer.roads
         let corridorClosures = LiveHazardFeedFetcher.closurePoints(
             corridorRoads,
             minLat: bbox.minLat, minLon: bbox.minLon, maxLat: bbox.maxLat, maxLon: bbox.maxLon)
@@ -4772,6 +4795,7 @@ final class AppModel: ObservableObject {
         r.alertEvents = score.events
         r.throughClosedRoad = HazardFeedScores.routeThroughClosure(
             FasterRoutePolicy.coordinates(of: r.route.polyline), closures: corridorRoads)
+        r.closuresChecked = closureAnswer.complete
         r.alertPolygons = score.alertPolygons
         r.riskSamples = blended
 
@@ -5564,7 +5588,19 @@ final class AppModel: ObservableObject {
             imminentWarning = nil
         }
         guard let fix = effectivePosition else { return }
-        let speed = max(location.speed, 0)
+        // A fix with no speed (-1: GPS reacquiring, a tunnel mouth) is
+        // unknown, not stopped: read as 0 it shrank the look-ahead to the
+        // road just ahead at highway speed. The last real speed stands for
+        // up to a minute.
+        let speed: Double
+        if let raw = location.latest?.speed, raw >= 0 {
+            speed = raw
+            lastRealSpeed = (raw, Date())
+        } else if let held = lastRealSpeed, Date().timeIntervalSince(held.at) < 60 {
+            speed = held.mps
+        } else {
+            speed = 0
+        }
         // Nearest risky sample per alert, by distance from the vehicle. A
         // risk to life or a lookout counts whatever its severity: one sent
         // with none ("Unknown", read 0.30) sat below Green and could never
@@ -5906,6 +5942,14 @@ final class AppModel: ObservableObject {
     /// two halves of the personal ETA correction (DrivingProfile).
     private var legStartedAt: Date?
     private var legPredictedSeconds: TimeInterval = 0
+    /// Stopped time already on the trip's books when this leg began. The
+    /// stop clocks run for the whole trip, so the second leg of a trip with
+    /// a stop took the first leg's shelter wait off its own drive as well.
+    private var legStoppedBefore: TimeInterval = 0
+    /// Stopped time sat out so far this trip (shelter waits and added stops).
+    private var stoppedSoFar: TimeInterval {
+        max(0, stopDelaySeconds - (shelterSession?.remaining ?? 0)) + shelteredSecondsBanked
+    }
     /// Bumped by select() and endNavigation(). Every background replan
     /// captures it before its first await and checks it after: "mode is
     /// still .navigating" is not enough, because the driver can end one
@@ -5928,6 +5972,7 @@ final class AppModel: ObservableObject {
         }
         lastRouteRect = leg.route.polyline.boundingMapRect
         legStartedAt = Date()
+        legStoppedBefore = stoppedSoFar
         // The learner corrects the router's time; it must be trained on the
         // router's time, not on its own last correction — otherwise every
         // arrival compounds the multiplier that produced the prediction.
@@ -6703,10 +6748,12 @@ final class AppModel: ObservableObject {
         }
         let accepted = escalationState
         let started = legStartedAt, predicted = legPredictedSeconds
+        let stoppedBefore = legStoppedBefore
         startLeg(leg)
         escalationState = accepted
         legStartedAt = started
         legPredictedSeconds = predicted
+        legStoppedBefore = stoppedBefore
         let gen = tripGeneration
         // A replan to an added stop must not hand its small box's closures
         // and live feeds to the trip: the continuation leg scored them for
@@ -6956,8 +7003,7 @@ final class AppModel: ObservableObject {
             DrivingProfileStore.shared.recordArrival(
                 predicted: legPredictedSeconds,
                 actual: Date().timeIntervalSince(started),
-                stoppedSeconds: max(0, stopDelaySeconds - (shelterSession?.remaining ?? 0))
-                    + shelteredSecondsBanked)
+                stoppedSeconds: max(0, stoppedSoFar - legStoppedBefore))
         }
         legStartedAt = nil
         legPredictedSeconds = 0

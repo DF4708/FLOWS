@@ -398,7 +398,9 @@ struct RouteChoicesView: View {
         async let alightTask = station(near: ep.to)
         guard let board = await boardTask else {
             if Task.isCancelled { return }   // don't let a superseded tap clear newer state
-            model.transitItinerary = nil
+            // Only this card's own line goes: another card's (a plane, a ship)
+            // may be the one on the map.
+            if model.transitItinerary?.mode == kind { model.transitItinerary = nil }
             // Before declaring there is no service, ASK THE TIMETABLE. The
             // bundled list is rail-served stations only, so the 110 towns
             // Amtrak reaches by connecting coach — Bakersfield, Eureka,
@@ -2277,6 +2279,10 @@ struct RouteChoicesView: View {
         } else if let unchecked = route.evChargingUncheckedMiles {
             points.append((String(format: "Couldn't check for chargers near mile %.0f — check your range",
                                   unchecked), false))
+        }
+        // Closed roads that could not be read are not "no closed roads".
+        if route.weatherScored, !route.closuresChecked {
+            points.append(("Couldn't check for closed roads on part of this route", false))
         }
         let choices = ctx.choices
         let fastestETA = ctx.fastestETA

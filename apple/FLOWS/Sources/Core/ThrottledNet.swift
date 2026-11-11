@@ -87,7 +87,10 @@ enum ThrottledNet {
         cfg.timeoutIntervalForRequest = 30
         cfg.timeoutIntervalForResource = 600
         cfg.httpMaximumConnectionsPerHost = 2
-        cfg.waitsForConnectivity = true
+        // Not waiting for a connection: in Low Data Mode (refused below) or
+        // a dead zone the download sat for the full ten minutes, and its
+        // card span that long. It fails at once and the card says so.
+        cfg.waitsForConnectivity = false
         cfg.allowsConstrainedNetworkAccess = false
         cfg.urlCache = nil
         cfg.httpAdditionalHeaders = ["User-Agent": "FLOWS (wizeman555@gmail.com)"]
@@ -97,10 +100,20 @@ enum ThrottledNet {
         return URLSession(configuration: cfg)
     }()
 
+    /// Big downloads take turns on a gate of their own. On the shared one a
+    /// schedule archive held one of two to ten permits for up to ten
+    /// minutes, and route scoring ran on what was left.
+    private static let bulkGate = RequestGate(baseCeiling: { 1 }, burstCeiling: { 1 })
+
+    /// Set for work nobody is waiting on (the map's hazard sweep): its
+    /// requests take a permit only when no other request is queued, so a
+    /// route being scored is never behind them.
+    @TaskLocal static var lowPriority = false
+
     /// Download a request's body into `destination` (replacing anything
-    /// there), through the same gate and host breaker as every fetch.
+    /// there), through its own one-at-a-time gate and the host breaker.
     static func download(_ request: URLRequest, to destination: URL) async throws -> URLResponse {
-        try await fetchGuarded(host: request.url?.host) {
+        try await fetchGuarded(host: request.url?.host, gate: bulkGate) {
             let (file, response) = try await bulkSession.download(for: request)
             let fm = FileManager.default
             try? fm.removeItem(at: destination)
@@ -115,9 +128,9 @@ enum ThrottledNet {
     /// it for a full connect timeout. (EPQS outage: 300 queued elevation
     /// calls × 10 s timeouts starved every healthy feed for minutes.)
     private static func fetchGuarded<T: Sendable>(
-        host: String?, _ op: @Sendable () async throws -> T
+        host: String?, gate: RequestGate = .shared, _ op: @Sendable () async throws -> T
     ) async throws -> T {
-        try await RequestGate.shared.withPermit {
+        try await gate.withPermit(low: lowPriority) {
             let host = host ?? ""
             guard await HostBreaker.shared.admits(host) else {
                 throw URLError(.cannotConnectToHost)
@@ -239,17 +252,30 @@ final class NetworkPath: @unchecked Sendable {
     private let monitor = NWPathMonitor()
     private let lock = NSLock()
     private var up = true
+    private var lowData = false
+    /// Posted when Low Data Mode comes or goes (AdaptiveTuning listens).
+    static let lowDataChanged = Notification.Name("flows.network.lowDataChanged")
 
     private init() {
         monitor.pathUpdateHandler = { [weak self] path in
-            self?.set(path.status == .satisfied)
+            self?.set(path.status == .satisfied, lowData: path.isConstrained)
         }
         monitor.start(queue: DispatchQueue(label: "flows.network-path"))
     }
 
-    private func set(_ satisfied: Bool) {
-        lock.lock(); defer { lock.unlock() }
+    private func set(_ satisfied: Bool, lowData constrained: Bool) {
+        lock.lock()
         up = satisfied
+        let changed = lowData != constrained
+        lowData = constrained
+        lock.unlock()
+        if changed { NotificationCenter.default.post(name: Self.lowDataChanged, object: nil) }
+    }
+
+    /// The person put this connection in Low Data Mode: ask for less.
+    var isLowData: Bool {
+        lock.lock(); defer { lock.unlock() }
+        return lowData
     }
 
     /// The error is the device's, not the host's: no path now, or an
@@ -335,6 +361,9 @@ actor RequestGate {
 
     private var active = 0
     private var waiters: [CheckedContinuation<Void, Never>] = []
+    /// Low-priority callers (ThrottledNet.lowPriority), served only when
+    /// `waiters` is empty.
+    private var lowWaiters: [CheckedContinuation<Void, Never>] = []
     private var burstDepth = 0
     private var burstExpiry = Date.distantPast
     private let baseCeiling: @Sendable () -> Int
@@ -366,6 +395,10 @@ actor RequestGate {
             active += 1
             waiters.removeFirst().resume()
         }
+        while !lowWaiters.isEmpty, active < ceiling {
+            active += 1
+            lowWaiters.removeFirst().resume()
+        }
     }
 
     /// Close one planning burst. The ceiling drops when the last one closes;
@@ -387,14 +420,14 @@ actor RequestGate {
         return out
     }
 
-    private func acquire() async {
-        if active < ceiling {
+    private func acquire(low: Bool) async {
+        if active < ceiling, !low || waiters.isEmpty {
             active += 1
             return
         }
         // No slot: park until release() hands one over (the slot count stays
         // put across the handoff, so we don't double-count).
-        await withCheckedContinuation { waiters.append($0) }
+        await withCheckedContinuation { low ? lowWaiters.append($0) : waiters.append($0) }
     }
 
     private func release() {
@@ -403,6 +436,8 @@ actor RequestGate {
         // shrink to the lower ceiling before waiters run again.
         if !waiters.isEmpty, active <= ceiling {
             waiters.removeFirst().resume()   // transfer the permit directly
+        } else if !lowWaiters.isEmpty, active <= ceiling {
+            lowWaiters.removeFirst().resume()
         } else {
             active = max(0, active - 1)
         }
@@ -411,8 +446,9 @@ actor RequestGate {
     /// Run `op` while holding one permit. Reentrant-safe: the actor is only
     /// held across the cheap counter bookkeeping, not the awaited work.
     /// `throws` (not rethrows): cancellation below throws its own error.
-    func withPermit<T: Sendable>(_ op: @Sendable () async throws -> T) async throws -> T {
-        await acquire()
+    func withPermit<T: Sendable>(low: Bool = false,
+                                 _ op: @Sendable () async throws -> T) async throws -> T {
+        await acquire(low: low)
         defer { release() }
         // A cancelled caller must not spend its permit on transport work: a
         // panned-away viewport sweep can park ~40 dead waiters, and on a

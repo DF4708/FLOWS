@@ -108,6 +108,36 @@ final class PlanningBurstTests: XCTestCase {
         XCTAssertLessThanOrEqual(after, 2)
     }
 
+    /// A low-priority request (the map's hazard sweep) waits behind every
+    /// normal one, even one that queued after it.
+    func testLowPriorityWaitsBehindNormalRequests() async {
+        actor Order {
+            var seen: [String] = []
+            func add(_ s: String) { seen.append(s) }
+            func all() -> [String] { seen }
+        }
+        let gate = RequestGate(baseCeiling: { 1 }, burstCeiling: { 1 })
+        let order = Order()
+        await withTaskGroup(of: Void.self) { group in
+            group.addTask {
+                try? await gate.withPermit {
+                    try? await Task.sleep(for: .milliseconds(300))
+                    await order.add("holder")
+                }
+            }
+            try? await Task.sleep(for: .milliseconds(60))
+            group.addTask {
+                try? await gate.withPermit(low: true) { await order.add("low") }
+            }
+            try? await Task.sleep(for: .milliseconds(60))
+            group.addTask {
+                try? await gate.withPermit { await order.add("normal") }
+            }
+        }
+        let seen = await order.all()
+        XCTAssertEqual(seen, ["holder", "normal", "low"])
+    }
+
     /// Parked waiters are admitted the moment a burst opens — the queued
     /// fetches of the plan that triggered the burst must not trickle out at
     /// the background pace.

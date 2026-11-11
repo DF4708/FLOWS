@@ -60,7 +60,14 @@ final class AdaptiveTuning: @unchecked Sendable {
         baseTier = Self.baseTier(cores: info.activeProcessorCount,
                                  memoryGB: Double(info.physicalMemory) / 1_073_741_824)
         current = Self.settings(tier: baseTier, thermal: info.thermalState,
-                                lowPower: info.isLowPowerModeEnabled)
+                                lowPower: info.isLowPowerModeEnabled
+                                    || NetworkPath.shared.isLowData)
+        // Low Data Mode is the person asking for less traffic: it backs off
+        // the way Low Power Mode does (fewer requests, a smaller map sweep,
+        // longer-lived caches). It used to change nothing here.
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(recompute),
+            name: NetworkPath.lowDataChanged, object: nil)
         NotificationCenter.default.addObserver(
             self, selector: #selector(recompute),
             name: ProcessInfo.thermalStateDidChangeNotification, object: nil)
@@ -72,7 +79,8 @@ final class AdaptiveTuning: @unchecked Sendable {
     @objc private func recompute() {
         let info = ProcessInfo.processInfo
         let s = Self.settings(tier: baseTier, thermal: info.thermalState,
-                              lowPower: info.isLowPowerModeEnabled)
+                              lowPower: info.isLowPowerModeEnabled
+                                  || NetworkPath.shared.isLowData)
         lock.lock(); current = s; lock.unlock()
     }
 

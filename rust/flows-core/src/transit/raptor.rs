@@ -154,8 +154,9 @@ impl<'a> Raptor<'a> {
             let cur_row: &mut [Time] = &mut cur_rounds[0];
             cur_row.copy_from_slice(prev_row);
             let (prev_parents, cur_parents) = r.parent.split_at_mut(k);
+            let prev_parent: &[Parent] = &prev_parents[k - 1];
             let cur_parent: &mut [Parent] = &mut cur_parents[0];
-            cur_parent.copy_from_slice(&prev_parents[k - 1]);
+            cur_parent.copy_from_slice(prev_parent);
 
             // Collect the routes touching any stop marked in the previous round,
             // each at the EARLIEST pattern position we can board it from.
@@ -236,7 +237,19 @@ impl<'a> Raptor<'a> {
                     // only ever moving to a strictly earlier trip.
                     let prev = prev_row[stop_id as usize];
                     if prev != INF_TIME {
-                        if let Some(et) = tt.earliest_trip(route, pos, prev) {
+                        // Getting off one vehicle here and onto another takes
+                        // the time the feed says it takes at this stop. Only
+                        // after a ride: a walk in already carries its own
+                        // time, and the rider setting out was simply here.
+                        let change = tt.change_secs[stop_id as usize];
+                        let ready = if change != 0
+                            && matches!(prev_parent[stop_id as usize], Parent::Ride { .. })
+                        {
+                            prev.saturating_add(change)
+                        } else {
+                            prev
+                        };
+                        if let Some(et) = tt.earliest_trip(route, pos, ready) {
                             let take = match cur_trip {
                                 None => true,
                                 Some(cur) => et < cur,
@@ -364,7 +377,10 @@ impl<'a> Raptor<'a> {
             .iter()
             .filter(|l| l.kind == LegKind::Walk)
             .map(|l| l.arr.saturating_sub(l.dep))
-            .sum();
+            // Saturating: walks are the file's word, and a plain sum of them
+            // overflowed (a panic in a checked build, a small wrong number
+            // otherwise).
+            .fold(0, Time::saturating_add);
         Journey {
             arrival: self.round_arr[k][target as usize],
             n_transfers: n_rides.saturating_sub(1),
@@ -982,5 +998,84 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn a_change_at_one_stop_takes_the_time_the_feed_says() {
+        // A->B gets in at 600. From B, one bus leaves at 700 and one at 1000.
+        // B asks three minutes for a change, so the 700 cannot be made.
+        let build = |change: Option<Time>| {
+            let mut b = TimetableBuilder::new();
+            let a = b.add_stop(0, 0);
+            let bb = b.add_stop(0, 1_000_000);
+            let c = b.add_stop(0, 2_000_000);
+            b.add_route(&[a, bb], vec![vec![ev(0, 0), ev(600, 600)]], Mode::Rail);
+            b.add_route(
+                &[bb, c],
+                vec![
+                    vec![ev(700, 700), ev(1300, 1300)],
+                    vec![ev(1000, 1000), ev(1600, 1600)],
+                ],
+                Mode::Bus,
+            );
+            if let Some(secs) = change {
+                b.add_footpath(bb, bb, secs);
+            }
+            (b.build(), a, bb, c)
+        };
+        let (tt, a, _, c) = build(None);
+        assert_eq!(plan(&tt, a, c, 0, K)[0].arrival, 1300);
+        let (tt, a, bb, c) = build(Some(180));
+        let js = plan(&tt, a, c, 0, K);
+        assert_eq!(js.len(), 1);
+        assert_eq!(js[0].arrival, 1600, "the 700 leaves inside the change time");
+        assert_eq!(js[0].walk_secs, 0, "a change is not a walk");
+        assert!(js[0].legs.iter().all(|l| l.kind == LegKind::Ride));
+        // A change that just fits is made: 600 + 100 = 700.
+        let (tt, a, _, c) = build(Some(100));
+        assert_eq!(plan(&tt, a, c, 0, K)[0].arrival, 1300);
+        // Someone setting out from B changes nothing: they board the 700.
+        let (tt, _, bb2, c2) = build(Some(180));
+        assert_eq!(bb, bb2);
+        assert_eq!(plan(&tt, bb2, c2, 650, K)[0].arrival, 1300);
+    }
+
+    #[test]
+    fn walks_at_the_top_of_the_clock_saturate() {
+        // Two walks of two billion seconds, either side of a ride: their sum
+        // still fits, and is reported whole.
+        let big: Time = 2_000_000_000;
+        let mut b = TimetableBuilder::new();
+        let s = b.add_stop(0, 0);
+        let a = b.add_stop(0, 1);
+        let bb = b.add_stop(0, 2);
+        let t = b.add_stop(0, 3);
+        b.add_route(
+            &[a, bb],
+            vec![vec![ev(big, big), ev(big + 10, big + 10)]],
+            Mode::Bus,
+        );
+        b.add_footpath(s, a, big);
+        b.add_footpath(bb, t, big);
+        let tt = b.build();
+        let js = plan(&tt, s, t, 0, K);
+        assert_eq!(js.len(), 1);
+        assert_eq!(js[0].arrival, 2 * big + 10);
+        assert_eq!(js[0].walk_secs, 2 * big);
+        // A walk that would run past the end of the clock is not taken — the
+        // time saturates to "unreached" instead of wrapping round to early.
+        let mut b = TimetableBuilder::new();
+        let s = b.add_stop(0, 0);
+        let a = b.add_stop(0, 1);
+        let bb = b.add_stop(0, 2);
+        let t = b.add_stop(0, 3);
+        b.add_route(
+            &[a, bb],
+            vec![vec![ev(big, big), ev(big + 10, big + 10)]],
+            Mode::Bus,
+        );
+        b.add_footpath(s, a, big);
+        b.add_footpath(bb, t, Time::MAX - 5);
+        assert!(plan(&b.build(), s, t, 0, K).is_empty());
     }
 }

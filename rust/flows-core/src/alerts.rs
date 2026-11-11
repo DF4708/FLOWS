@@ -191,6 +191,98 @@ pub fn display_kind(event: &str) -> DisplayKind {
     if e.contains("tsunami") {
         return DisplayKind::Tsunami;
     }
+    // No English rule knew it: Mexico and Costa Rica name theirs in Spanish.
+    spanish_display_kind(&e)
+}
+
+/// Lowercase text with its Spanish accents taken off, so "Ciclón" and
+/// "CICLON" and "ciclon" are one word.
+fn fold_spanish(lowercase: &str) -> String {
+    lowercase
+        .chars()
+        .map(|c| match c {
+            'á' => 'a',
+            'é' => 'e',
+            'í' => 'i',
+            'ó' => 'o',
+            'ú' | 'ü' => 'u',
+            'ñ' => 'n',
+            other => other,
+        })
+        .collect()
+}
+
+/// [`display_kind`] for an event named in Spanish ("Aviso de lluvias",
+/// "Aviso de Frente Frío"), asked only once every English rule has passed —
+/// so no English name changes its icon. The kinds and their order are the
+/// English table's. Each word must stand alone (or in its plural): "calor"
+/// is heat, "caloric" is nothing. Rain has no English rule (US alerts name
+/// the flood, not the rain) but is what "Aviso de lluvias" is about.
+fn spanish_display_kind(lowercase: &str) -> DisplayKind {
+    let e = fold_spanish(lowercase);
+    let words: Vec<&str> = e
+        .split(|c: char| !c.is_alphanumeric())
+        .filter(|w| !w.is_empty())
+        .collect();
+    let word = |stems: &[&str]| {
+        words.iter().any(|w| {
+            stems.iter().any(|s| {
+                w.strip_prefix(s)
+                    .is_some_and(|rest| matches!(rest, "" | "s" | "es"))
+            })
+        })
+    };
+    if word(&["huracan", "ciclon", "marejada"]) {
+        return DisplayKind::Tropical;
+    }
+    if e.contains("tormenta de polvo") || e.contains("tormenta de arena") || word(&["tolvanera"]) {
+        return DisplayKind::Dust;
+    }
+    if word(&["polvo"]) {
+        return DisplayKind::Air;
+    }
+    if word(&["inundacion", "crecida", "desbordamiento"]) {
+        return DisplayKind::Flood;
+    }
+    if word(&["nevada", "nieve", "invernal"]) {
+        return DisplayKind::Snow;
+    }
+    if word(&["helada", "hielo", "congelante"]) {
+        return DisplayKind::Ice;
+    }
+    if word(&["tormenta", "severa", "severo"]) {
+        return DisplayKind::Storm;
+    }
+    if word(&["calor"]) {
+        return DisplayKind::Heat;
+    }
+    if word(&["frio"]) {
+        return DisplayKind::Cold;
+    }
+    if word(&["viento"]) {
+        return DisplayKind::Wind;
+    }
+    if word(&["incendio"]) {
+        return DisplayKind::Fire;
+    }
+    if word(&["niebla", "neblina"]) {
+        return DisplayKind::Fog;
+    }
+    if word(&["humo"]) || e.contains("calidad del aire") {
+        return DisplayKind::Air;
+    }
+    if word(&["ceniza"]) {
+        return DisplayKind::Volcanic;
+    }
+    if word(&["avalancha", "alud"]) {
+        return DisplayKind::Avalanche;
+    }
+    if word(&["maremoto"]) {
+        return DisplayKind::Tsunami;
+    }
+    if word(&["lluvia"]) {
+        return DisplayKind::Rain;
+    }
     DisplayKind::Generic
 }
 
@@ -454,6 +546,69 @@ mod tests {
             display_kind_for_family("not-a-family"),
             DisplayKind::Generic
         );
+    }
+
+    #[test]
+    fn spanish_alert_names_get_the_icon_their_english_ones_do() {
+        for (event, kind) in [
+            ("Aviso de lluvias", DisplayKind::Rain),
+            ("Aviso de Ciclón Tropical", DisplayKind::Tropical),
+            ("AVISO DE CICLON", DisplayKind::Tropical),
+            ("Aviso de Huracán", DisplayKind::Tropical),
+            ("Aviso de Frente Frío", DisplayKind::Cold),
+            ("Aviso de frente frio", DisplayKind::Cold),
+            ("Alerta por inundación", DisplayKind::Flood),
+            ("Inundaciones", DisplayKind::Flood),
+            ("Aviso de tormenta", DisplayKind::Storm),
+            ("Tormentas eléctricas", DisplayKind::Storm),
+            ("Aviso de viento", DisplayKind::Wind),
+            ("Vientos fuertes", DisplayKind::Wind),
+            ("Banco de niebla", DisplayKind::Fog),
+            ("Onda de calor", DisplayKind::Heat),
+            ("Aviso de nevada", DisplayKind::Snow),
+            ("Nevadas", DisplayKind::Snow),
+            ("Aviso de heladas", DisplayKind::Ice),
+            ("Tormenta de polvo", DisplayKind::Dust),
+            ("Incendio forestal", DisplayKind::Fire),
+            ("Caída de ceniza", DisplayKind::Volcanic),
+            // More than one word: the English order decides, as in English.
+            ("Aviso de lluvias por Ciclón", DisplayKind::Tropical),
+            ("Lluvias e inundaciones", DisplayKind::Flood),
+        ] {
+            assert_eq!(display_kind(event), kind, "{event}");
+        }
+    }
+
+    #[test]
+    fn english_names_keep_the_icons_they_had() {
+        // What each English rule answered before the Spanish words came,
+        // and names no rule knows — Spanish words inside English ones
+        // ("caloric", "humor", "frio" in "Frion") are not Spanish words.
+        for (event, kind) in [
+            ("Tornado Warning", DisplayKind::Tornado),
+            ("Tropical Storm Warning", DisplayKind::Tropical),
+            ("Storm Surge Watch", DisplayKind::Tropical),
+            ("Flash Flood Warning", DisplayKind::Flood),
+            ("Winter Storm Warning", DisplayKind::Snow),
+            ("Freezing Rain Advisory", DisplayKind::Ice),
+            ("Severe Thunderstorm Warning", DisplayKind::Storm),
+            ("Excessive Heat Warning", DisplayKind::Heat),
+            ("Wind Chill Advisory", DisplayKind::Cold),
+            ("High Wind Warning", DisplayKind::Wind),
+            ("Red Flag Warning", DisplayKind::Fire),
+            ("Dense Fog Advisory", DisplayKind::Fog),
+            ("Air Quality Alert", DisplayKind::Air),
+            ("Ashfall Warning", DisplayKind::Volcanic),
+            ("Avalanche Warning", DisplayKind::Avalanche),
+            ("Tsunami Warning", DisplayKind::Tsunami),
+            ("Heavy Rain Warning", DisplayKind::Generic),
+            ("Child Abduction Emergency", DisplayKind::Generic),
+            ("Caloric Humor Prelude Alert", DisplayKind::Generic),
+            ("Civil Emergency Message", DisplayKind::Generic),
+            ("", DisplayKind::Generic),
+        ] {
+            assert_eq!(display_kind(event), kind, "{event}");
+        }
     }
 
     #[test]

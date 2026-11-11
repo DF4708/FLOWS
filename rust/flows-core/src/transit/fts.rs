@@ -316,14 +316,27 @@ pub fn from_bytes(bytes: &[u8], ftt_body_hash: u64) -> io::Result<Labels> {
     if paired != ftt_body_hash {
         return Err(bad("fts: labels do not belong to this timetable"));
     }
-    let body_len = u64_at(bytes, 40) as usize;
+    // The header sits outside the body hash, so each field in it is checked
+    // against something the hash does cover. Reserved bytes are zero (56..60
+    // is the currency count in v2 and reserved in v1).
+    let reserved_from = if version == FTS_VERSION_FARES { 60 } else { 56 };
+    if bytes[reserved_from..FTS_HEADER_LEN].iter().any(|&b| b != 0) {
+        return Err(bad("fts: reserved header bytes are not zero"));
+    }
     let want_hash = u64_at(bytes, 48);
     // Checked: the length is the file's word, and a tampered one near the
-    // top of the range overflowed the sum (a panic, not a refusal).
+    // top of the range overflowed the sum (a panic, not a refusal). The file
+    // is its header and its body and nothing else: bytes after the body were
+    // read past, so anything could ride along behind a valid sidecar.
+    let body_len =
+        usize::try_from(u64_at(bytes, 40)).map_err(|_| bad("fts: body length overflows"))?;
     let body = FTS_HEADER_LEN
         .checked_add(body_len)
         .and_then(|end| bytes.get(FTS_HEADER_LEN..end))
         .ok_or_else(|| bad("fts: body truncated"))?;
+    if bytes.len() - FTS_HEADER_LEN != body_len {
+        return Err(bad("fts: bytes after the body"));
+    }
     if fnv1a64(body) != want_hash {
         return Err(bad("fts: body hash mismatch"));
     }
@@ -358,7 +371,11 @@ pub fn from_bytes(bytes: &[u8], ftt_body_hash: u64) -> io::Result<Labels> {
     }
     let text = &body[text_start..];
 
+    // Every string span the tables name, kept so the tables can be checked
+    // against the text they point into (at the end).
+    let spans = std::cell::RefCell::new(Vec::<(u32, u32)>::new());
     let span = |off: u32, len: u32| -> io::Result<String> {
+        spans.borrow_mut().push((off, len));
         let a = off as usize;
         let b = a
             .checked_add(len as usize)
@@ -425,13 +442,35 @@ pub fn from_bytes(bytes: &[u8], ftt_body_hash: u64) -> io::Result<Labels> {
         }
     }
 
+    let agency_zone = zone_at(agency_zone_idx)?;
+
+    // The header's counts decide where each table starts and where TEXT
+    // begins, and the hash does not cover them. What it does cover is the
+    // text, which the writer lays down string by string with nothing between
+    // and nothing left over: the distinct spans, in offset order, tile TEXT
+    // exactly. A count that was changed moves the tables, and spans read
+    // from the wrong place stop tiling it.
+    let mut spans = spans.into_inner();
+    spans.sort_unstable();
+    spans.dedup();
+    let mut cursor = 0usize;
+    for (off, len) in spans {
+        if off as usize != cursor {
+            return Err(bad("fts: header counts disagree with the tables"));
+        }
+        cursor += len as usize; // in range: every span was sliced above
+    }
+    if cursor != text.len() {
+        return Err(bad("fts: header counts disagree with the tables"));
+    }
+
     Ok(Labels {
         stop_names,
         stop_codes,
         stop_zones,
         route_names,
         route_fares,
-        agency_zone: zone_at(agency_zone_idx)?,
+        agency_zone,
         service_date,
         feed_published,
     })
@@ -441,4 +480,85 @@ pub fn from_bytes(bytes: &[u8], ftt_body_hash: u64) -> io::Result<Labels> {
 /// hashes to `ftt_body_hash`.
 pub fn read_fts(path: &Path, ftt_body_hash: u64) -> io::Result<Labels> {
     from_bytes(&fs::read(path)?, ftt_body_hash)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn labels(fares: bool) -> Labels {
+        Labels {
+            stop_names: vec!["East".into(), "".into(), "West".into()],
+            stop_codes: vec!["EAS".into(), "MID".into(), "".into()],
+            stop_zones: vec![
+                "America/New_York".into(),
+                "".into(),
+                "America/Denver".into(),
+            ],
+            route_names: vec!["Star".into(), "East".into()],
+            route_fares: if fares {
+                vec![
+                    Some(Fare {
+                        cents: 250,
+                        currency: "USD".into(),
+                        from: true,
+                    }),
+                    None,
+                ]
+            } else {
+                Vec::new()
+            },
+            agency_zone: "America/New_York".into(),
+            service_date: 20260923,
+            feed_published: 20260921,
+        }
+    }
+
+    #[test]
+    fn what_the_writer_writes_still_reads_back() {
+        for fares in [false, true] {
+            let l = labels(fares);
+            assert_eq!(from_bytes(&to_bytes(&l, 7), 7).unwrap(), l);
+        }
+        let empty = Labels::default();
+        assert_eq!(from_bytes(&to_bytes(&empty, 7), 7).unwrap(), empty);
+    }
+
+    #[test]
+    fn bytes_after_the_body_are_refused() {
+        for fares in [false, true] {
+            let mut bytes = to_bytes(&labels(fares), 7);
+            bytes.push(0);
+            assert!(from_bytes(&bytes, 7).is_err());
+        }
+    }
+
+    #[test]
+    fn a_header_count_the_tables_do_not_bear_out_is_refused() {
+        // None of these touch the body, so the body hash still passes: only
+        // the cross-check against the tables can refuse them.
+        for fares in [false, true] {
+            let good = to_bytes(&labels(fares), 7);
+            // n_stops, n_routes, n_zones — one fewer and one more of each.
+            for at in [8usize, 12, 16] {
+                let n = u32_at(&good, at);
+                for wrong in [n - 1, n + 1] {
+                    let mut bad = good.clone();
+                    bad[at..at + 4].copy_from_slice(&wrong.to_le_bytes());
+                    assert!(from_bytes(&bad, 7).is_err(), "count at {at} = {wrong}");
+                }
+            }
+            // Reserved bytes carry nothing.
+            let mut reserved = good.clone();
+            reserved[63] = 1;
+            assert!(from_bytes(&reserved, 7).is_err());
+        }
+        // The currency count is a v2 field: in v1 those bytes are reserved.
+        let mut v1 = to_bytes(&labels(false), 7);
+        v1[56] = 1;
+        assert!(from_bytes(&v1, 7).is_err());
+        let mut v2 = to_bytes(&labels(true), 7);
+        v2[56] = 2;
+        assert!(from_bytes(&v2, 7).is_err());
+    }
 }

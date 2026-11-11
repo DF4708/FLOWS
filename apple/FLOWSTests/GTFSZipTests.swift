@@ -214,6 +214,29 @@ final class GTFSZipTests: XCTestCase {
             of: try XCTUnwrap(try? entries(zip).first), localHeader: junk))
     }
 
+    /// A password-locked member is refused: its bytes would be kept and read
+    /// as a timetable of noise.
+    func testALockedMemberIsRefused() throws {
+        var zip = archive([Member(name: "stops.txt", body: stops, method: 0, extra: 0)])
+        let range = try GTFSZip.directoryRange(tail: Data(zip.suffix(1024)), totalSize: zip.count)
+        zip[range.lowerBound + 8] |= 1   // general-purpose flag bit 0
+        XCTAssertThrowsError(try entries(zip)) { error in
+            guard case GTFSZip.Failure.unsupported = error else {
+                return XCTFail("expected a locked-member refusal, got \(error)")
+            }
+        }
+    }
+
+    /// The ranges cover the member's FULL name in the archive, not the leaf.
+    func testANestedMembersRangeCoversItsWholeName() throws {
+        let long = String(repeating: "folder/", count: 60) + "stops.txt"
+        let zip = archive([Member(name: long, body: stops, method: 0, extra: 0)])
+        let entry = try XCTUnwrap(try entries(zip).first)
+        XCTAssertEqual(entry.name, "stops.txt")
+        XCTAssertGreaterThanOrEqual(entry.likelyRange.count, 30 + long.utf8.count + stops.count)
+        XCTAssertGreaterThanOrEqual(entry.safeRange.count, 30 + long.utf8.count + 65_536 + stops.count)
+    }
+
     func testAnUnknownCompressionIsRefused() throws {
         let zip = archive([Member(name: "stops.txt", body: stops, method: 99, extra: 0)])
         let entry = try XCTUnwrap(try entries(zip).first)

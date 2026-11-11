@@ -130,7 +130,12 @@ struct StopRoute {
 
 /// A walking transfer between two nearby stops: reach `to` `secs` after arriving
 /// at the from-stop. Bounded and transitively reduced offline so the set stays
-/// near-linear. Self-loops are not stored.
+/// near-linear.
+///
+/// A footpath from a stop to ITSELF is not a walk: it is the least time a
+/// change of vehicle at that stop takes (GTFS `transfers.txt`, same stop both
+/// ends, `transfer_type` 2). The `.ftt` layout carries it as any other
+/// footpath; [`Timetable::change_secs`] is where the planner reads it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Footpath {
     pub to: u32,
@@ -157,6 +162,26 @@ pub struct Timetable {
     // Stop -> outgoing footpaths, CSR by stop.
     footpath_off: Vec<u32>,
     footpaths: Vec<Footpath>,
+
+    // Stop -> least seconds between getting off one vehicle there and onto
+    // another (0 = none asked for). Not stored: read out of the self-loop
+    // footpaths when the timetable is built or decoded.
+    change_secs: Vec<Time>,
+}
+
+/// Per stop, the same-stop change time its self-loop footpaths ask for — the
+/// longest, when a feed says it twice. One pass over the footpaths.
+fn change_secs_of(n_stops: usize, footpath_off: &[u32], footpaths: &[Footpath]) -> Vec<Time> {
+    let mut out = vec![0; n_stops];
+    for (s, slot) in out.iter_mut().enumerate() {
+        let (a, b) = (footpath_off[s] as usize, footpath_off[s + 1] as usize);
+        for fp in &footpaths[a..b] {
+            if fp.to as usize == s {
+                *slot = (*slot).max(fp.secs);
+            }
+        }
+    }
+    out
 }
 
 impl Timetable {
@@ -219,6 +244,13 @@ impl Timetable {
         let a = self.stop_route_off[s as usize] as usize;
         let b = self.stop_route_off[s as usize + 1] as usize;
         &self.stop_routes[a..b]
+    }
+
+    /// The least seconds between getting off one vehicle at stop `s` and
+    /// onto another there; 0 when the feed asked for none.
+    #[inline]
+    pub fn change_secs(&self, s: u32) -> Time {
+        self.change_secs.get(s as usize).copied().unwrap_or(0)
     }
 
     /// The outgoing footpaths of stop `s`.
@@ -315,9 +347,10 @@ impl TimetableBuilder {
     }
 
     /// Add a directed walking transfer `from -> to` taking `secs`. Add both
-    /// directions if the walk is symmetric.
+    /// directions if the walk is symmetric. `from == to` is not a walk but
+    /// the least time a change of vehicle at that stop takes (see
+    /// [`Footpath`]).
     pub fn add_footpath(&mut self, from: u32, to: u32, secs: Time) {
-        assert!(from != to, "footpaths are between distinct stops");
         self.footpaths[from as usize].push(Footpath { to, secs });
     }
 
@@ -375,7 +408,9 @@ impl TimetableBuilder {
             footpath_off.push(footpaths.len() as u32);
         }
 
+        let change_secs = change_secs_of(n_stops, &footpath_off, &footpaths);
         Timetable {
+            change_secs,
             stops: self.stops,
             routes,
             route_stops,

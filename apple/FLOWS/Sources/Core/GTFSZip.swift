@@ -52,12 +52,17 @@ enum GTFSZip {
         /// The CRC-32 of the unpacked file, as the directory records it —
         /// checked when the timetable builder unpacks a packed member.
         var crc32: UInt32 = 0
+        /// How many bytes the member's full name takes in the archive. A file
+        /// nested in a folder has a longer name than the leaf kept in `name`,
+        /// and the ranges below must cover the long one.
+        var pathLength = 0
+        private var nameBytes: Int { max(name.utf8.count, pathLength) }
 
         /// A byte range certain to contain the whole member: its local header,
         /// whatever padding that header carries, and the data. 64 KiB is the
         /// most a local extra field may hold, so this cannot fall short.
         var safeRange: Range<Int> {
-            headerOffset..<(headerOffset + 30 + name.utf8.count + 65_536 + compressedSize)
+            headerOffset..<(headerOffset + 30 + nameBytes + 65_536 + compressedSize)
         }
 
         /// The range worth ASKING for first. A local header's extra field may
@@ -68,7 +73,7 @@ enum GTFSZip {
         /// ``dataRange(of:localHeader:)`` shows the data runs past what came
         /// down, the caller asks again with ``safeRange``.
         var likelyRange: Range<Int> {
-            headerOffset..<(headerOffset + 30 + name.utf8.count + 256 + compressedSize)
+            headerOffset..<(headerOffset + 30 + nameBytes + 256 + compressedSize)
         }
     }
 
@@ -124,7 +129,8 @@ enum GTFSZip {
         var i = 0
         while i + 46 <= directory.count {
             guard u32(directory, i) == 0x0201_4B50 else { break }
-            guard let method = u16(directory, i + 10),
+            guard let flags = u16(directory, i + 8),
+                  let method = u16(directory, i + 10),
                   let crc = u32(directory, i + 16),
                   let compressed = u32(directory, i + 20),
                   let uncompressed = u32(directory, i + 24),
@@ -139,9 +145,14 @@ enum GTFSZip {
             // Some publishers nest their files inside a folder.
             let leaf = name.split(separator: "/").last.map(String.init) ?? name
             if wanted.contains(leaf) {
+                // Bit 0: the member is encrypted. Its bytes would be kept and
+                // then fail to unpack, or be read as a timetable of noise.
+                guard flags & 1 == 0 else {
+                    throw Failure.unsupported("\(leaf) is locked with a password")
+                }
                 out.append(Entry(name: leaf, method: method, compressedSize: compressed,
                                  uncompressedSize: uncompressed, headerOffset: offset,
-                                 crc32: UInt32(crc)))
+                                 crc32: UInt32(crc), pathLength: nameLen))
             }
             i += 46 + nameLen + extraLen + commentLen
         }

@@ -274,9 +274,20 @@ pub struct Departure {
     pub arr: Time,
     pub n_transfers: u32,
     pub walk_secs: Time,
+    /// The part of `walk_secs` walked BEFORE the first ride: from the stop
+    /// asked about to the stop the first vehicle leaves from. The rider has
+    /// to set out this long before `dep`.
+    pub first_walk_secs: Time,
 }
 
 impl Departure {
+    /// The latest the rider can set out from the stop asked about and still
+    /// make this departure: `dep`, less the walk to where it leaves from.
+    #[must_use]
+    pub fn leave_by(&self) -> Time {
+        self.dep.saturating_sub(self.first_walk_secs)
+    }
+
     /// How good a journey is, lower being better: when it gets there, plus
     /// [`TRANSFER_PENALTY_SECS`] for each change.
     #[must_use]
@@ -469,7 +480,7 @@ impl Shard {
         count: usize,
         vehicles: u8,
     ) -> Vec<Departure> {
-        let from_time = first.dep.saturating_add(1);
+        let from_time = first.leave_by().saturating_add(1);
         self.board_more(source, target, from_time, count, vehicles, vec![first])
     }
 
@@ -489,7 +500,15 @@ impl Shard {
                 .into_iter()
                 .min_by_key(|d| (d.cost(), d.dep));
             let Some(d) = best else { break };
-            from_time = d.dep.saturating_add(1);
+            // Ask again from one second after the last moment this one can
+            // be made. That moment is when the rider sets out, not when the
+            // vehicle leaves: with a walk to the first stop, asking from one
+            // second after the vehicle left put the rider at that stop a
+            // whole walk later, and every departure in between was missed.
+            from_time = d
+                .leave_by()
+                .saturating_add(1)
+                .max(from_time.saturating_add(1));
             // A later start that gets there no later, with no more changes,
             // IS the row above, told better: the search boards the first
             // train out even when a later one makes the same connection, so
@@ -497,6 +516,10 @@ impl Shard {
             // with one train three times, the first with an hour's wait.
             match out.last_mut() {
                 Some(last) if d.arr <= last.arr && d.n_transfers <= last.n_transfers => *last = d,
+                // The same arrival by one more change is the row above again,
+                // told worse (a short ride to the stop the rider would have
+                // walked to): not a departure of its own.
+                Some(last) if d.arr == last.arr && d.n_transfers > last.n_transfers => {}
                 _ => out.push(d),
             }
         }
@@ -564,7 +587,14 @@ impl Shard {
             })
             .collect();
         let dep = legs.first()?.dep;
+        let first_walk_secs = j
+            .legs
+            .iter()
+            .take_while(|l| l.kind == raptor::LegKind::Walk)
+            .map(|l| l.arr.saturating_sub(l.dep))
+            .fold(0, Time::saturating_add);
         Some(Departure {
+            first_walk_secs,
             legs,
             dep,
             arr: j.arrival,
@@ -924,6 +954,58 @@ mod tests {
             ],
             "one row per train to the far end, each by its last shuttle"
         );
+        clean(&dir, &prefix);
+    }
+
+    #[test]
+    fn a_board_after_a_walk_to_the_first_stop_misses_no_departure() {
+        // The stop asked about is a five-minute walk from where the trains
+        // leave, at 09:00, 09:02 and 09:10. Asking again from one second
+        // after the 09:00 LEFT put the rider on the platform at 09:05, and
+        // the 09:02 was never listed.
+        let dir = write_feed("firstwalk");
+        std::fs::write(
+            dir.join("trips.txt"),
+            "route_id,service_id,trip_id\nR1,WK,t1\nR1,WK,t2\nR1,WK,t3\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join("stop_times.txt"),
+            "trip_id,arrival_time,departure_time,stop_id,stop_sequence\n\
+             t1,09:00:00,09:00:00,EAS,1\nt1,18:00:00,18:00:00,WES,2\n\
+             t2,09:02:00,09:02:00,EAS,1\nt2,18:02:00,18:02:00,WES,2\n\
+             t3,09:10:00,09:10:00,EAS,1\nt3,18:10:00,18:10:00,WES,2\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join("transfers.txt"),
+            "from_stop_id,to_stop_id,transfer_type,min_transfer_time\nGHOST,EAS,2,300\n",
+        )
+        .unwrap();
+        let mut prefix = std::env::temp_dir();
+        prefix.push(format!("flows_shard_out_firstwalk_{}", std::process::id()));
+        build(&dir, Some(20260923), &prefix).unwrap();
+        let s = open(&prefix).unwrap();
+        let at = |code: &str| s.labels.stop_codes.iter().position(|c| c == code).unwrap() as u32;
+        let board = s.board(at("GHOST"), at("WES"), 8 * 3600, 3);
+        let deps: Vec<Time> = board.iter().map(|d| d.dep).collect();
+        assert_eq!(
+            deps,
+            vec![9 * 3600, 9 * 3600 + 120, 9 * 3600 + 600],
+            "every train, each once"
+        );
+        assert!(board.iter().all(|d| d.first_walk_secs == 300));
+        assert_eq!(board[0].leave_by(), 9 * 3600 - 300);
+        // The first answer in hand, the rest asked for: the same board.
+        let first = board[0].clone();
+        assert_eq!(
+            s.board_vehicles_after(at("GHOST"), at("WES"), first, 3, ALL_VEHICLES),
+            board
+        );
+        // With no walk first, nothing changes: the board from the platform.
+        let direct = s.board(at("EAS"), at("WES"), 8 * 3600, 3);
+        assert_eq!(direct.iter().map(|d| d.dep).collect::<Vec<_>>(), deps);
+        assert!(direct.iter().all(|d| d.first_walk_secs == 0));
         clean(&dir, &prefix);
     }
 

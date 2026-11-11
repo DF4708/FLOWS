@@ -202,7 +202,21 @@ fn check_offsets(off: &[u32], total: u32, what: &str) -> io::Result<()> {
 
 /// Decode `.ftt` v1 bytes into a [`Timetable`]. Refuses wrong magic/version,
 /// truncation, hash mismatch, and any internally inconsistent counts/ids —
-/// a corrupt shard must never reach RAPTOR.
+/// a corrupt shard must never reach RAPTOR, in whole or in part.
+///
+/// Every check is one pass over a section, so the work is linear in the
+/// file's size whatever the file says about itself:
+///
+/// * the routes TILE `ROUTE_STOPS` and `STOPEVENTS` — each route's slice
+///   starts where the one before ended and the last ends at the section's
+///   end, as the writer lays them down. Slices that merely fit could overlap,
+///   and a few thousand routes all naming the whole event table made the
+///   sweep below thousands of passes over it;
+/// * within a trip times never go backwards, and across a route's trips no
+///   trip overtakes another;
+/// * `STOP_ROUTES` is exactly the inverse of the route patterns: every entry
+///   filed under a stop names a (route, position) that IS that stop, and
+///   every (route, position) is filed once.
 pub fn from_bytes(bytes: &[u8]) -> io::Result<Timetable> {
     if bytes.len() < FTT_HEADER_LEN {
         return Err(bad("ftt: shorter than the fixed header"));
@@ -215,34 +229,47 @@ pub fn from_bytes(bytes: &[u8]) -> io::Result<Timetable> {
     if version != FTT_VERSION {
         return Err(bad(format!("ftt: unsupported version {version}")));
     }
-    let n_stops = h.u32()? as usize;
-    let n_routes = h.u32()? as usize;
-    let n_route_stops = h.u32()? as usize;
-    let n_events = h.u32()? as usize;
-    let n_stop_routes = h.u32()? as usize;
-    let n_footpaths = h.u32()? as usize;
-    let body_len = u64::from_le_bytes(bytes[32..40].try_into().unwrap()) as usize;
+    let n_stops = h.u32()?;
+    let n_routes = h.u32()?;
+    let n_route_stops = h.u32()?;
+    let n_events = h.u32()?;
+    let n_stop_routes = h.u32()?;
+    let n_footpaths = h.u32()?;
+    let body_len = u64::from_le_bytes(bytes[32..40].try_into().unwrap());
     let hash = u64::from_le_bytes(bytes[40..48].try_into().unwrap());
 
     let body = &bytes[FTT_HEADER_LEN..];
-    if body.len() != body_len {
+    if body.len() as u64 != body_len {
         return Err(bad("ftt: body length does not match header"));
     }
-    // Exact size check before any decode: sections are fixed-width.
-    let expect = n_stops * 8
-        + n_routes * 20
-        + n_route_stops * 4
-        + n_events * 8
-        + (n_stops + 1) * 4
-        + n_stop_routes * 8
-        + (n_stops + 1) * 4
-        + n_footpaths * 8;
+    // Exact size check before any decode: sections are fixed-width. Summed
+    // in 64 bits, where six 32-bit counts times their widths cannot wrap; in
+    // `usize` they did on a 32-bit target (the Watch), and a file could name
+    // counts whose wrapped sum matched a body far too small for them.
+    let expect = u64::from(n_stops) * 8
+        + u64::from(n_routes) * 20
+        + u64::from(n_route_stops) * 4
+        + u64::from(n_events) * 8
+        + (u64::from(n_stops) + 1) * 4
+        + u64::from(n_stop_routes) * 8
+        + (u64::from(n_stops) + 1) * 4
+        + u64::from(n_footpaths) * 8;
     if body_len != expect {
         return Err(bad("ftt: body length does not match the header counts"));
     }
     if fnv1a64(body) != hash {
         return Err(bad("ftt: body hash mismatch (corrupt shard refused)"));
     }
+    // Each count is now known to fit the body that is in memory, so it fits
+    // `usize` and is safe to allocate for.
+    let (n_stops, n_routes, n_route_stops, n_events, n_stop_routes, n_footpaths) = (
+        n_stops as usize,
+        n_routes as usize,
+        n_route_stops as usize,
+        n_events as usize,
+        n_stop_routes as usize,
+        n_footpaths as usize,
+    );
 
     let mut c = Cur { b: body, pos: 0 };
 
@@ -255,6 +282,8 @@ pub fn from_bytes(bytes: &[u8]) -> io::Result<Timetable> {
     }
 
     let mut routes = Vec::with_capacity(n_routes);
+    // Where the next route's pattern and events must begin (see above).
+    let (mut pat_at, mut ev_at) = (0u64, 0u64);
     for _ in 0..n_routes {
         let stop_start = c.u32()?;
         let n_pat = c.u32()?;
@@ -272,14 +301,22 @@ pub fn from_bytes(bytes: &[u8]) -> io::Result<Timetable> {
         if n_pat < 2 {
             return Err(bad("ftt: a route needs at least two stops"));
         }
-        let pat_end = stop_start as u64 + n_pat as u64;
-        if pat_end > n_route_stops as u64 {
+        if u64::from(stop_start) != pat_at {
+            return Err(bad("ftt: route patterns overlap or leave a gap"));
+        }
+        pat_at += u64::from(n_pat);
+        if pat_at > n_route_stops as u64 {
             return Err(bad("ftt: route pattern out of ROUTE_STOPS bounds"));
         }
-        let ev_end = event_start as u64 + n_trips as u64 * n_pat as u64;
-        if ev_end > n_events as u64 {
-            return Err(bad("ftt: route events out of STOPEVENTS bounds"));
+        if u64::from(event_start) != ev_at {
+            return Err(bad("ftt: route events overlap or leave a gap"));
         }
+        // Checked: two 32-bit counts multiply into 64 bits without wrapping,
+        // but the running sum is the file's word too.
+        ev_at = ev_at
+            .checked_add(u64::from(n_trips) * u64::from(n_pat))
+            .filter(|&end| end <= n_events as u64)
+            .ok_or_else(|| bad("ftt: route events out of STOPEVENTS bounds"))?;
         routes.push(RouteMeta {
             stop_start,
             n_stops: n_pat,
@@ -287,6 +324,9 @@ pub fn from_bytes(bytes: &[u8]) -> io::Result<Timetable> {
             n_trips,
             mode,
         });
+    }
+    if pat_at != n_route_stops as u64 || ev_at != n_events as u64 {
+        return Err(bad("ftt: routes do not account for every stop and event"));
     }
 
     let mut route_stops = Vec::with_capacity(n_route_stops);
@@ -309,8 +349,12 @@ pub fn from_bytes(bytes: &[u8]) -> io::Result<Timetable> {
     // Non-overtaking invariant: `earliest_trip` binary-searches departures at
     // every pattern position, which requires dep (and arr) non-decreasing in
     // the trip index, and arr <= dep within each event (the converter's
-    // chain-split guarantees all three). A shard violating this decodes
-    // cleanly but yields silently wrong itineraries — refuse it here.
+    // chain-split guarantees all three). And a trip runs forwards: it reaches
+    // a stop no earlier than it left the one before (the converter floors
+    // every trip so). A shard violating either decodes cleanly but yields
+    // silently wrong itineraries — a ride that arrives before it left —
+    // so refuse it here. The routes' event slices are disjoint (checked
+    // above), so this visits each event once.
     for r in &routes {
         let base = r.event_start as usize;
         let np = r.n_stops as usize;
@@ -319,6 +363,9 @@ pub fn from_bytes(bytes: &[u8]) -> io::Result<Timetable> {
                 let e = stop_events[base + t * np + j];
                 if e.arr > e.dep {
                     return Err(bad("ftt: event arrives after it departs"));
+                }
+                if j > 0 && e.arr < stop_events[base + t * np + j - 1].dep {
+                    return Err(bad("ftt: a trip goes back in time"));
                 }
                 if t > 0 {
                     let p = stop_events[base + (t - 1) * np + j];
@@ -348,6 +395,28 @@ pub fn from_bytes(bytes: &[u8]) -> io::Result<Timetable> {
         }
         stop_routes.push(StopRoute { route, pos });
     }
+    // The memberships are the route patterns turned inside out, and nothing
+    // else: RAPTOR finds the routes to scan from them, so one filed under
+    // the wrong stop boards a vehicle where it does not call, and one left
+    // out hides a route from everyone waiting there. Each entry must name a
+    // pattern slot holding the stop it is filed under; with as many entries
+    // as slots and no slot named twice, every slot is filed exactly once.
+    if n_stop_routes != n_route_stops {
+        return Err(bad("ftt: stop->route count is not the pattern count"));
+    }
+    let mut filed = vec![false; n_route_stops];
+    for s in 0..n_stops {
+        let (a, b) = (stop_route_off[s] as usize, stop_route_off[s + 1] as usize);
+        for sr in &stop_routes[a..b] {
+            let slot = routes[sr.route as usize].stop_start as usize + sr.pos as usize;
+            if route_stops[slot] as usize != s {
+                return Err(bad("ftt: stop->route entry is not that stop's"));
+            }
+            if std::mem::replace(&mut filed[slot], true) {
+                return Err(bad("ftt: stop->route entry filed twice"));
+            }
+        }
+    }
 
     let mut footpath_off = Vec::with_capacity(n_stops + 1);
     for _ in 0..=n_stops {
@@ -366,6 +435,7 @@ pub fn from_bytes(bytes: &[u8]) -> io::Result<Timetable> {
     }
 
     debug_assert_eq!(c.pos, body.len());
+    let change_secs = super::change_secs_of(n_stops, &footpath_off, &footpaths);
     Ok(Timetable {
         stops,
         routes,
@@ -375,6 +445,7 @@ pub fn from_bytes(bytes: &[u8]) -> io::Result<Timetable> {
         stop_routes,
         footpath_off,
         footpaths,
+        change_secs,
     })
 }
 
@@ -579,6 +650,105 @@ mod tests {
 
         // The untouched bytes still decode (the sweep has no false positives).
         assert!(from_bytes(&good).is_ok());
+    }
+
+    /// Re-hash a tampered file so only the semantic checks can refuse it.
+    fn rehash(b: &mut [u8]) {
+        let h = fnv1a64(&b[FTT_HEADER_LEN..]);
+        b[40..48].copy_from_slice(&h.to_le_bytes());
+    }
+
+    #[test]
+    fn routes_sharing_or_skipping_table_rows_are_refused() {
+        let tt = rich_timetable();
+        let good = to_bytes(&tt);
+        let routes_at = FTT_HEADER_LEN + tt.n_stops() * 8;
+        // Route 1 (2 stops, 1 trip) pointed at route 0's events: in bounds,
+        // so the old bounds check let it through, and any number of routes
+        // could name the same rows — the sweep then ran once per route.
+        let mut shared_events = good.clone();
+        shared_events[routes_at + 20 + 8..routes_at + 20 + 12].copy_from_slice(&0u32.to_le_bytes());
+        rehash(&mut shared_events);
+        assert!(from_bytes(&shared_events).is_err(), "shared event rows");
+        // The same for the pattern rows.
+        let mut shared_pattern = good.clone();
+        shared_pattern[routes_at + 20..routes_at + 24].copy_from_slice(&0u32.to_le_bytes());
+        rehash(&mut shared_pattern);
+        assert!(from_bytes(&shared_pattern).is_err(), "shared pattern rows");
+        // A trip count of zero on the last route leaves its events owned by
+        // nobody: the tables no longer add up.
+        let mut orphaned = good.clone();
+        orphaned[routes_at + 40 + 12..routes_at + 40 + 16].copy_from_slice(&0u32.to_le_bytes());
+        rehash(&mut orphaned);
+        assert!(from_bytes(&orphaned).is_err(), "orphaned event rows");
+    }
+
+    #[test]
+    fn a_trip_that_goes_back_in_time_is_refused() {
+        let tt = rich_timetable();
+        let mut bytes = to_bytes(&tt);
+        let ev_at =
+            FTT_HEADER_LEN + tt.n_stops() * 8 + tt.n_routes() * 20 + tt.route_stops.len() * 4;
+        // Route 0, trip 0 leaves its first stop at 700 and reaches the next
+        // at 600. Each event alone is fine (arr <= dep) and no trip is
+        // overtaken (the next trip leaves at 900).
+        bytes[ev_at + 4..ev_at + 8].copy_from_slice(&700u32.to_le_bytes());
+        rehash(&mut bytes);
+        assert!(from_bytes(&bytes).is_err());
+    }
+
+    #[test]
+    fn stop_routes_that_are_not_the_patterns_inverse_are_refused() {
+        let tt = rich_timetable();
+        let good = to_bytes(&tt);
+        let sr_at = FTT_HEADER_LEN
+            + tt.n_stops() * 8
+            + tt.n_routes() * 20
+            + tt.route_stops.len() * 4
+            + tt.stop_events.len() * 8
+            + (tt.n_stops() + 1) * 4;
+        // Entries 1 and 2 belong to different stops: swapped, each is filed
+        // under a stop its route does not call at in that position.
+        let mut swapped = good.clone();
+        let first = swapped[sr_at + 8..sr_at + 16].to_vec();
+        swapped.copy_within(sr_at + 16..sr_at + 24, sr_at + 8);
+        swapped[sr_at + 16..sr_at + 24].copy_from_slice(&first);
+        rehash(&mut swapped);
+        assert!(from_bytes(&swapped).is_err(), "filed under the wrong stop");
+        // Entry 1 a copy of entry 0 (both under stop 0): one membership
+        // twice, another missing.
+        let mut twice = good.clone();
+        twice.copy_within(sr_at..sr_at + 8, sr_at + 8);
+        rehash(&mut twice);
+        assert!(from_bytes(&twice).is_err(), "filed twice");
+        assert!(from_bytes(&good).is_ok());
+    }
+
+    #[test]
+    fn counts_whose_sizes_wrap_32_bits_are_refused() {
+        // 2^29 stops x 8 bytes is 2^32: summed in 32 bits it wrapped to the
+        // few bytes of offsets a file this small does hold.
+        let mut bytes = vec![0u8; FTT_HEADER_LEN + 8];
+        bytes[0..4].copy_from_slice(&FTT_MAGIC);
+        bytes[4..8].copy_from_slice(&FTT_VERSION.to_le_bytes());
+        bytes[8..12].copy_from_slice(&(1u32 << 29).to_le_bytes());
+        bytes[32..40].copy_from_slice(&8u64.to_le_bytes());
+        rehash(&mut bytes);
+        assert!(from_bytes(&bytes).is_err());
+    }
+
+    #[test]
+    fn a_same_stop_change_time_rides_through_the_file() {
+        let mut b = TimetableBuilder::new();
+        let a = b.add_stop(0, 0);
+        let c = b.add_stop(1, 1);
+        b.add_route(&[a, c], vec![vec![ev(0, 0), ev(600, 600)]], Mode::Bus);
+        b.add_footpath(c, c, 180);
+        let tt = b.build();
+        let back = from_bytes(&to_bytes(&tt)).unwrap();
+        assert_eq!(back.change_secs(c), 180);
+        assert_eq!(back.change_secs(a), 0);
+        assert_eq!(to_bytes(&back), to_bytes(&tt));
     }
 
     #[test]

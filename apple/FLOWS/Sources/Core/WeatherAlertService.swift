@@ -1579,7 +1579,8 @@ private actor CAPFileCache {
     private var files: [String: WMOAlertParsing.ParsedCAP] = [:]
     func file(_ link: String) -> WMOAlertParsing.ParsedCAP? { files[link] }
     func keep(_ cap: WMOAlertParsing.ParsedCAP, for link: String) {
-        if files.count >= 400 { files.removeAll() }
+        // Half, not all: emptied whole, the next look read every file again.
+        if files.count >= 400 { CacheEviction.dropHalf(&files) }
         files[link] = cap
     }
 }

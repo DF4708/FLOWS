@@ -1396,6 +1396,9 @@ actor LiveHazardFeedFetcher {
     /// Per-state closure points, 15-min TTL. Failures cache empty so a dead
     /// feed doesn't re-fetch every sweep.
     private var closureCache: [String: (Date, [ClosedRoad])] = [:]
+    /// Feeds that have not given one real answer yet: their held list is
+    /// empty because nothing was read, not because no road is closed.
+    private var closureNeverAnswered: Set<String> = []
 
     /// Rough state bounding boxes (CONUS) — picks which feeds serve a viewport
     /// (also reused by PlacesStore to resolve a point's state shard).
@@ -1523,8 +1526,19 @@ actor LiveHazardFeedFetcher {
     func closedRoads(minLat: Double, minLon: Double, maxLat: Double, maxLon: Double,
                      budget: Int = 3)
         async -> [ClosedRoad] {
+        await closedRoadsChecked(minLat: minLat, minLon: minLon, maxLat: maxLat,
+                                 maxLon: maxLon, budget: budget).roads
+    }
+
+    /// The same, with whether every feed for the box has answered at least
+    /// once. `complete` false means some state's closures are unknown — the
+    /// list is not "no closures" there, and a route card must say so.
+    func closedRoadsChecked(minLat: Double, minLon: Double, maxLat: Double, maxLon: Double,
+                            budget: Int = 3)
+        async -> (roads: [ClosedRoad], complete: Bool) {
         await ensureWZDxRegistry()
-        guard !wzdxRegistry.isEmpty else { return [] }
+        guard !wzdxRegistry.isEmpty else { return ([], false) }
+        var complete = true
         let states = Self.stateBBoxes.filter { _, b in
             b.s < maxLat && b.n > minLat && b.w < maxLon && b.e > minLon
         }.map(\.key)
@@ -1537,12 +1551,17 @@ actor LiveHazardFeedFetcher {
             if let cached = closureCache[cacheKey],
                Date().timeIntervalSince(cached.0) < AdaptiveTuning.shared.ttl(900) {
                 out.append(contentsOf: cached.1)
+                if closureNeverAnswered.contains(cacheKey) { complete = false }
                 continue
             }
             guard fetched < budget else {
                 // Over this sweep's request budget: what the feed last said
                 // still stands. Skipping it used to read as "no closures".
-                if let cached = closureCache[cacheKey] { out.append(contentsOf: cached.1) }
+                if let cached = closureCache[cacheKey], !closureNeverAnswered.contains(cacheKey) {
+                    out.append(contentsOf: cached.1)
+                } else {
+                    complete = false
+                }
                 continue
             }
             fetched += 1
@@ -1586,24 +1605,33 @@ actor LiveHazardFeedFetcher {
             }
             // A caller cancelled mid-read (a camera move, a replan) learned
             // nothing: caching its empty answer said "no closures" for 15 min.
-            if Task.isCancelled { break }
+            if Task.isCancelled { complete = false; break }
             if answered {
                 closureCache[cacheKey] = (Date(), roads)
+                closureNeverAnswered.remove(cacheKey)
             } else {
+                if closureCache[cacheKey] == nil || closureNeverAnswered.contains(cacheKey) {
+                    closureNeverAnswered.insert(cacheKey)
+                    complete = false
+                }
                 // A feed that did not answer is not an empty feed: keep what
                 // it last said and try again soon, rather than "no closures"
                 // for the full 15 minutes.
                 roads = closureCache[cacheKey]?.1 ?? []
                 closureCache[cacheKey] = (Self.failedStamp(ttl: 900), roads)
             }
-            if closureCache.count > 100 { CacheEviction.dropOldestHalf(&closureCache) { $0.0 } }
+            if closureCache.count > 100 {
+                CacheEviction.dropOldestHalf(&closureCache) { $0.0 }
+                closureNeverAnswered.formIntersection(closureCache.keys)
+            }
             out.append(contentsOf: roads)
         }
-        return out.filter { road in
+        let inside = out.filter { road in
             road.line.contains {
                 $0.lat >= minLat && $0.lat <= maxLat && $0.lon >= minLon && $0.lon <= maxLon
             }
         }
+        return (inside, complete)
     }
 }
 

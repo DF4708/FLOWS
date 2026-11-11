@@ -79,6 +79,8 @@ struct ContentView: View {
     /// Trailing-edge debounce task for the viewport sweep (so a settle that
     /// arrives early isn't dropped and lost until the next camera move).
     @State private var viewportSweepTask: Task<Void, Never>?
+    /// A hazard sweep is out for the area on screen.
+    @State private var viewportSweeping = false
     /// Cached clustered badges — recomputed only when `viewportHazards` changes,
     /// not on every view-body render (the clustering is O(n²)).
     @State private var clusteredBadgesCache: [BadgeClustering.Item<HazardKind>] = []
@@ -568,7 +570,7 @@ struct ContentView: View {
             // under the trip pill (PlanningChrome); everywhere else it is a
             // corner of the map.
             if legendHasRoom, model.mode != .choosing {
-                LegendCard(isCompact: isCompact)
+                LegendCard(isCompact: isCompact, checking: viewportSweeping)
                     // The key is background: while a menu, card or banner
                     // would sit on it, it steps aside instead of covering or
                     // being covered, and comes back when the space is clear.
@@ -930,10 +932,19 @@ struct ContentView: View {
         let debounceWait = max(0, AdaptiveTuning.shared.debounceSeconds
                                   - Date().timeIntervalSince(lastViewportRefresh))
         viewportSweepTask?.cancel()
+        // Low priority: nobody waits on the sweep, and fitting the camera to
+        // new routes starts one just as their scoring does. Its requests
+        // queued in line with the scoring's and GO unlocked that much later.
         viewportSweepTask = Task { @MainActor in
+          await ThrottledNet.$lowPriority.withValue(true) {
             if debounceWait > 0 { try? await Task.sleep(for: .seconds(debounceWait)) }
             guard !Task.isCancelled, viewportHazardKey == key else { return }
             lastViewportRefresh = Date()
+            // The map says it is still looking: an area just panned to read
+            // as clear while its sweep was out. A superseded sweep leaves
+            // the flag to the one that replaced it.
+            viewportSweeping = true
+            defer { if viewportHazardKey == key || viewportHazardKey.isEmpty { viewportSweeping = false } }
             // Live NA-wide feeds for the families weather points can't cover:
             // satellite fire hotspots + recent quakes (viewport-wide), AQI +
             // UV per grid cell (fetched inside the loop below).
@@ -1251,22 +1262,41 @@ struct ContentView: View {
             // with circles only where there is no ZIP. Same floor as the
             // icons: striped AREAS are the map's loudest element and must not
             // paint for clear-band scores.
-            for hz in merged
+            let ranked = merged
                 .filter({ $0.realized >= model.riskDisplayFloor })
-                .sorted(by: { $0.realized > $1.realized }) {
-                if Task.isCancelled { return }   // superseded: skip remaining fetches
-                // Worst first, at most 48 lookups a sweep; past the cap, a
-                // point an earlier sweep placed keeps its ZIP rather than
-                // dropping it — the "ZIPs come and go" flicker.
-                if lookups < 48, rings[placed[hz.id] ?? ""] == nil || placed[hz.id] == nil {
+                .sorted(by: { $0.realized > $1.realized })
+            // Worst first, at most 48 lookups a sweep; past the cap, a
+            // point an earlier sweep placed keeps its ZIP rather than
+            // dropping it — the "ZIPs come and go" flicker.
+            var wanted: [(id: String, at: CLLocationCoordinate2D)] = []
+            for hz in ranked where lookups < 48 {
+                if rings[placed[hz.id] ?? ""] == nil || placed[hz.id] == nil {
                     lookups += 1
-                    if let z = await ZCTAFetcher.shared.zcta(containing: hz.coordinate) {
+                    wanted.append((hz.id, hz.coordinate))
+                }
+            }
+            // Six at a time: one after another, a storm region new to the
+            // map stayed blank for up to 48 round trips.
+            var next = 0
+            while next < wanted.count {
+                if Task.isCancelled { return }   // superseded: skip remaining fetches
+                let batch = wanted[next..<min(next + 6, wanted.count)]
+                next += 6
+                await withTaskGroup(of: (String, ZCTAFetcher.ZCTA?).self) { group in
+                    for point in batch {
+                        let id = point.id, at = point.at
+                        group.addTask { (id, await ZCTAFetcher.shared.zcta(containing: at)) }
+                    }
+                    for await (id, z) in group {
+                        guard let z else { continue }
                         rings[z.code] = z.ring
-                        placed[hz.id] = z.code
+                        placed[id] = z.code
                     }
                 }
-                // A lookup still loading (or failed) keeps what the last one
-                // found.
+            }
+            // A lookup still loading (or failed) keeps what the last one
+            // found.
+            for hz in ranked {
                 if let code = placed[hz.id], rings[code] != nil { liveCodes.insert(code) }
             }
             rings = rings.filter { liveCodes.contains($0.key) }
@@ -1278,6 +1308,7 @@ struct ContentView: View {
                 // The areas, and one icon per area from them.
                 rebuildRiskOverlays(ringsResolved: true)
             }
+          }
         }
     }
 
@@ -2589,7 +2620,8 @@ struct ContentView: View {
                            detailCards: hasDetailCards ? AnyView(detailCards) : nil,
                            showsRecenter: model.mode == .planning && !cameraFollows
                                && model.location.coordinate != nil,
-                           showsLegend: legendHasRoom && model.mode == .choosing)
+                           showsLegend: legendHasRoom && model.mode == .choosing,
+                           legendChecking: viewportSweeping)
                 .environment(\.mapKeyComesBack, legendWouldHaveRoom)
         case .navigating:
             NavigationHUD(isCompact: isCompact,
@@ -2688,6 +2720,8 @@ private struct PlanningChrome: View {
     /// The map key, on the route screen: it stands right under the trip
     /// pill, so the pill's Edit sits directly above the key.
     var showsLegend = false
+    /// A hazard sweep is out for the area on screen (the key says so).
+    var legendChecking = false
 
     /// Whether the Mac's settings panel is open in the top-right column.
     private var settingsInColumn: Bool {
@@ -2866,7 +2900,7 @@ private struct PlanningChrome: View {
                     TripSummaryPill()
                         .chromeRegion("trip-pill")
                     if showsLegend {
-                        LegendCard(isCompact: true, inStack: true)
+                        LegendCard(isCompact: true, inStack: true, checking: legendChecking)
                     }
                     FilterSlidersCard()
                         .chromeRegion("sliders")
@@ -2921,7 +2955,7 @@ private struct PlanningChrome: View {
                     TripSummaryPill()
                         .chromeRegion("trip-pill")
                     if showsLegend {
-                        LegendCard(inStack: true)
+                        LegendCard(inStack: true, checking: legendChecking)
                     }
                 }
                 .frame(width: settingsInColumn ? max(golden.sidePanel, 340) : golden.sideColumn,
@@ -4853,6 +4887,8 @@ private struct LegendCard: View {
     /// Placed by the chrome's own stack — on the route screen, right under
     /// the trip pill and its Edit — rather than snapped to a corner.
     var inStack = false
+    /// A hazard sweep is out for the area on screen.
+    var checking = false
 
     /// Which free corner the legend snaps to (planning; the route screen
     /// stacks it under the trip pill). Regular layouts keep the web app's
@@ -4953,6 +4989,13 @@ private struct LegendCard: View {
                 Text("Hazards")
                     .scaledFont(.caption2, weight: .bold)
                     .foregroundStyle(.secondary)
+                // The area on screen is still being read: quiet so far is
+                // not the same as clear.
+                if checking {
+                    Text("Checking this area…")
+                        .scaledFont(size: 9)
+                        .foregroundStyle(.secondary)
+                }
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 72), spacing: 4)],
                           alignment: .leading, spacing: 3) {
                     ForEach(HazardStyle.legendKinds, id: \.self) { kind in

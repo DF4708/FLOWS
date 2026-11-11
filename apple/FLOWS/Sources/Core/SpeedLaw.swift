@@ -185,7 +185,8 @@ enum CompassReading {
 
     /// "312° NW" — the whole reading, ready to draw.
     static func label(_ degrees: Double) -> String {
-        let d = normalized(degrees)
+        // 359.5 and up rounds to north: "0° N", never "360° N".
+        let d = normalized(degrees).rounded().truncatingRemainder(dividingBy: 360)
         return String(format: "%.0f° %@", d, cardinal(d))
     }
 }

@@ -161,6 +161,10 @@ struct HeldWarnings {
     mutating func hold(_ text: String, topic: String?) -> Bool {
         guard let topic, SpeechTopic.isUrgent(topic), !text.isEmpty,
               !lines.contains(where: { $0.topic == topic && $0.text == text }) else { return false }
+        // The same warning said again (nearer now) takes its older line's
+        // place, so the cap drops a different warning only when four
+        // different ones wait.
+        lines.removeAll { $0.topic == topic }
         if lines.count >= Self.cap { lines.removeFirst() }
         lines.append((text, topic))
         return true
