@@ -53,6 +53,8 @@ struct NavigationHUD: View {
     @State private var shelterTick = Date()
     /// The banner compass's needle angle, unwrapped (turnCompass).
     @State private var compassTurn: Double = 0
+    /// Whether a real course has arrived yet; until then the reading is a dash.
+    @State private var compassKnown = false
     /// Held, not built in `body`: inline, a new timer was made on every
     /// redraw (about once a GPS fix), so the countdown skipped or froze —
     /// the failure ContentView's redAlertTimer records.
@@ -233,6 +235,15 @@ struct NavigationHUD: View {
                          ? DynamicTypeSize.xSmall...DynamicTypeSize.accessibility1
                          : DynamicTypeSize.xSmall...DynamicTypeSize.accessibility5)
         .onReceive(shelterTimer) { now in
+            // Fixes that stop coming altogether (a long tunnel) left the
+            // last speed on the bar for good: the check above only runs when
+            // a fix arrives. Ten seconds with none is no reading. One write,
+            // so the idle HUD still does not redraw each second.
+            if liveMph != 0, let at = lastGoodSpeedAt, now.timeIntervalSince(at) > 10 {
+                liveMph = 0
+                accelMphPerSec = 0
+                lastFixTime = nil
+            }
             // Only while sheltering — a per-second tick on an idle HUD would
             // redraw the whole thing for nothing.
             guard model.shelterSession != nil else { return }
@@ -240,7 +251,10 @@ struct NavigationHUD: View {
             model.clearFinishedShelter()
             if model.shelterSession == nil { showShelterSheet = false }
         }
-        .onChange(of: model.shelterSession == nil) { _, _ in
+        .onChange(of: model.shelterSession == nil) { _, over in
+            // A wait the app ended itself (Head back) left the card's flag
+            // up, and the next wait opened "Stop timer and drive on" unasked.
+            if over { showShelterSheet = false }
             // The countdown reads from the last tick, which stood still
             // while not sheltering: two hours in, a 40-minute wait first
             // read "2 h 40 min".
@@ -1304,8 +1318,13 @@ struct NavigationHUD: View {
         guard kind == .gas || kind == .hotel else { return nil }
         if model.costCountry == .mexico, kind == .gas,
            ranked.isLivePrice, let mx = ranked.pricePerUnit {
-            // CRE feed: this station's real posted price, MXN/L.
-            return (String(format: "MX$%.2f", mx), "/L · official (CRE)", true, true)
+            // The price is kept in US dollars a gallon so stations rank
+            // like with like (livePriceProvider); shown as that under a
+            // pesos-a-litre label, 23.80 a litre read "MX$5.02 /L". Back to
+            // pesos a litre for the driver. It may be the CRE's posted
+            // price or TomTom's, so the label claims neither.
+            let pesosPerLitre = mx * FuelPrices.mxnPerUSD / FuelPrices.litersPerGallon
+            return (String(format: "MX$%.2f", pesosPerLitre), "/L · posted", true, true)
         }
         if kind == .gas, !ranked.isLivePrice {
             return (ranked.pricePerUnit.map { String(format: "~$%.2f est.", $0) } ?? "$ —",
@@ -1967,7 +1986,8 @@ struct NavigationHUD: View {
             .frame(width: golden.iconCircle * 0.82, height: golden.iconCircle * 0.82)
             // The reading in words and degrees — the part a driver can use
             // without interpreting a needle.
-            Text(CompassReading.label(heading))
+            // No course yet (parked, or no fix): a dash, not "0° N".
+            Text(compassKnown ? CompassReading.label(heading) : "—")
                 .scaledFont(size: 10, weight: .bold)
                 .monospacedDigit()
                 .foregroundStyle(.white.opacity(0.9))
@@ -1986,6 +2006,7 @@ struct NavigationHUD: View {
     /// of swinging to north.
     private func turnCompass(to course: CLLocationDirection) {
         guard course >= 0 else { return }
+        compassKnown = true
         var step = (course - compassTurn).truncatingRemainder(dividingBy: 360)
         if step > 180 { step -= 360 } else if step < -180 { step += 360 }
         compassTurn += step
@@ -2858,7 +2879,10 @@ struct NavigationHUD: View {
     /// Whether the weather radio itself is on the air — not any station:
     /// with an AM/FM station playing, its button showed Stop too.
     private var weatherRadioPlaying: Bool {
-        guard let playing = model.radio.playingChannelID else { return false }
+        // Paused is not on the air: the row kept its pause button, and the
+        // first press stopped a silent radio instead of starting it.
+        guard !model.radio.isPaused,
+              let playing = model.radio.playingChannelID else { return false }
         return model.radio.channels.contains { $0.id == playing }
     }
 
@@ -2913,7 +2937,14 @@ struct NavigationHUD: View {
             // thing — the alerts on a relay two states over are for two
             // states over.
             if let miles = nearestStationMiles {
-                Text(miles < 60
+                // A relay picked by hand is not "closest", and the reason a
+                // far one is the best on offer does not apply to it.
+                let closest = model.nearestStationID == nil
+                    || radioChannelID == model.nearestStationID
+                Text(!closest
+                     ? String(format: "This relay — %.0f mi away. It covers "
+                              + "its own area, not yours.", miles)
+                     : miles < 60
                      ? String(format: "Closest relay — %.0f mi away", miles)
                      : String(format: "Closest relay — %.0f mi away. It covers "
                               + "its own area, not yours; your local "
@@ -2949,7 +2980,8 @@ struct NavigationHUD: View {
             }, id: \.0) { channel, what in
                 if let stream = model.radio.cabStream(for: channel) {
                     stationRow(channel, detail: what,
-                               playing: model.radio.playingChannelID == stream.id,
+                               playing: model.radio.playingChannelID == stream.id
+                                   && !model.radio.isPaused,
                                play: { model.radio.play(stream) },
                                pause: { model.radio.stop() })
                 }

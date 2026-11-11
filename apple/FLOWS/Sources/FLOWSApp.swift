@@ -4040,6 +4040,11 @@ final class AppModel: ObservableObject {
 
     func present(routes: [PlannedRoute]) {
         FlowsDiag.log(.info, "plan", "presenting \(routes.count) route(s)")
+        // A stop picked on the last plan's choices is not this plan's. Only
+        // the planner cleared it, so a trip planned by Siri, CarPlay or a
+        // favourite showed the old stop and GO drove there first. (The same
+        // trip replanned on foot or by car puts it back: replanForMode.)
+        plannedStop = nil
         // Apply the driver's learned pace to every ETA before anything reads
         // them — so the correction reaches the cards, the cost estimates
         // derived from ETA, the ranking, AND the arrival-time reasoning that

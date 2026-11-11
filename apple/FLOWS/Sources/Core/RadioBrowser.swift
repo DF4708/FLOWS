@@ -79,10 +79,19 @@ final class RadioBrowser: ObservableObject {
     /// means every result carries a position, so nearest-first is exact
     /// rather than a guess. The state list stays as the fallback for when
     /// there is no fix, or the geo index has nothing here.
+    /// The newest search asked for. Searches answer in any order, and an
+    /// older one that ends last put its list under the newer one's name:
+    /// Rock lit and playing over a list of jazz, whose rows and queue were
+    /// then jazz. Only the newest search writes the list.
+    private var asked = 0
+
     func searchNearby(near position: CLLocationCoordinate2D?,
                       stateCode: String?) async {
+        asked += 1
+        let mine = asked
         status = "Finding stations…"
         guard let host = await ensureHost() else {
+            guard mine == asked else { return }
             status = "Station list didn't load. Check the connection and try again."
             return
         }
@@ -90,11 +99,12 @@ final class RadioBrowser: ObservableObject {
            let found = await fetchStations(
                Self.searchURL(host: host, state: nil, name: nil,
                               near: position)), !found.isEmpty {
+            guard mine == asked else { return }
             stations = Self.rankedNearest(found, near: position)
             status = nil
             return
         }
-        await run(state: stateCode.flatMap { Self.stateName($0) }, name: nil)
+        await run(state: stateCode.flatMap { Self.stateName($0) }, name: nil, ticket: mine)
     }
 
     /// Stations of one KIND, nearest first.
@@ -107,8 +117,11 @@ final class RadioBrowser: ObservableObject {
     /// dropped. Asking for Rock gets rock.
     func searchGenre(_ kind: BroadcastRadio.Kind,
                      near position: CLLocationCoordinate2D?) async {
+        asked += 1
+        let mine = asked
         status = "Finding stations…"
         guard let host = await ensureHost() else {
+            guard mine == asked else { return }
             status = "Station list didn't load. Check the connection and try again."
             return
         }
@@ -123,6 +136,7 @@ final class RadioBrowser: ObservableObject {
         let filed = found.filter {
             BroadcastRadio.kind(forTags: $0.genre) == kind && seen.insert($0.id).inserted
         }
+        guard mine == asked else { return }
         stations = position.map { Self.rankedNearest(filed, near: $0) } ?? filed
         status = stations.isEmpty
             ? "No \(kind.title.lowercased()) stations near you right now." : nil
@@ -168,8 +182,11 @@ final class RadioBrowser: ObservableObject {
     func search(text: String) async {
         let query = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !query.isEmpty else { return }
+        asked += 1
+        let mine = asked
         status = "Finding stations…"
         guard let host = await ensureHost() else {
+            guard mine == asked else { return }
             stations = []   // an old search's list must not answer this one
             status = "Station list didn't load. Check the connection and try again."
             return
@@ -179,6 +196,7 @@ final class RadioBrowser: ObservableObject {
         let byGenre = await fetchStations(
             Self.searchURL(host: host, state: nil, name: nil,
                            tag: query.lowercased()))
+        guard mine == asked else { return }
         guard let merged = Self.merged(nameHits: byName, tagHits: byGenre) else {
             stations = []   // (the failed search played the LAST one's top hit)
             status = "Station list didn't load. Check the connection and try again."
@@ -188,15 +206,17 @@ final class RadioBrowser: ObservableObject {
         status = stations.isEmpty ? "No stations found. Try another word." : nil
     }
 
-    private func run(state: String?, name: String?) async {
+    private func run(state: String?, name: String?, ticket: Int) async {
         status = "Finding stations…"
         guard let host = await ensureHost(),
               let found = await fetchStations(
                 Self.searchURL(host: host, state: state, name: name)) else {
+            guard ticket == asked else { return }
             stations = []
             status = "Station list didn't load. Check the connection and try again."
             return
         }
+        guard ticket == asked else { return }
         stations = found
         status = stations.isEmpty ? "No stations found. Try another word." : nil
     }

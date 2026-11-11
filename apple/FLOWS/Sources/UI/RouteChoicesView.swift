@@ -45,6 +45,10 @@ struct RouteChoicesView: View {
         // below clears the option cards and walk+ride offer too.
         model.transitTasks.values.forEach { $0.cancel() }
         model.transitTasks = [:]
+        // The way of travel this plan is for. A second tap made while this
+        // plan runs has already set the switch again: a blind flip back on
+        // failure then left Walk lit over car routes.
+        let wanted = model.walkingMode
         let planned: [PlannedRoute]?
         do {
             planned = try await model.plan(from: ep.from, fromName: ep.fromName,
@@ -54,7 +58,8 @@ struct RouteChoicesView: View {
             // The new way of travel could not be planned (no signal). The
             // routes on screen are the old way's: put the switch back, or GO
             // started a car route as a walk with the driving checks off.
-            if !(error is CancellationError), !Task.isCancelled, model.mode == .choosing {
+            if !(error is CancellationError), !Task.isCancelled, model.mode == .choosing,
+               model.walkingMode == wanted {
                 model.walkingMode.toggle()
                 model.plannerNotice = "Couldn't plan that right now. Check the connection and try again."
             }
@@ -65,7 +70,10 @@ struct RouteChoicesView: View {
             // whichever order it was made in, and present() — built for a
             // new destination — turned them all off when Walk came last.
             let chosen = model.activeTransitModes
+            // And the stop picked on this screen is still this trip's stop.
+            let stop = model.plannedStop
             model.present(routes: planned)
+            if model.mode == .choosing { model.plannedStop = stop }
             // (Behind a trip being driven, present() leaves the transit state
             // to that trip, and so does this.)
             guard model.mode == .choosing else { return }
@@ -111,7 +119,11 @@ struct RouteChoicesView: View {
     /// the mode it leads with; a toggle folded into another card's trip (the
     /// bus to the airport) has no card of its own.
     private func launchCards(_ shape: TripShape, active: Set<TransitMode>) {
+        // A card launched twice (the plane fell through and the ground
+        // cards start again) must not leave the first run writing the same
+        // card after the second.
         if shape.shows(TripShape.cardMain), let key = shape.mainMode {
+            model.transitTasks[key]?.cancel()
             model.transitTasks[key] = Task {
                 switch shape.main {
                 case .plane:
@@ -132,12 +144,15 @@ struct RouteChoicesView: View {
         }
         if shape.shows(TripShape.cardLocal) {
             let key = TripShape.localMode(active)
+            model.transitTasks[key]?.cancel()
             model.transitTasks[key] = Task { await computeCityTrip(key, shape: shape) }
         }
         if shape.shows(TripShape.cardRental) {
+            model.transitTasks[.rental]?.cancel()
             model.transitTasks[.rental] = Task { await computeRentalTrip(shape) }
         }
         if shape.shows(TripShape.cardPlaneNote) {
+            model.transitTasks[.plane]?.cancel()
             model.transitTasks[.plane] = Task { _ = await computeAirTransit(nil) }
         }
     }
@@ -1786,7 +1801,9 @@ struct RouteChoicesView: View {
     private func safestID(in choices: [PlannedRoute]) -> UUID? {
         let scored = choices.filter(\.weatherScored)
         guard scored.count == choices.count, scored.count > 1,
-              let best = scored.min(by: { $0.weatherRisk < $1.weatherRisk })
+              let best = scored.min(by: { $0.weatherRisk < $1.weatherRisk }),
+              // All the same (a clear day, every route 0): none is safest.
+              scored.contains(where: { $0.weatherRisk > best.weatherRisk })
         else { return nil }
         return best.id
     }
@@ -2006,7 +2023,9 @@ struct RouteChoicesView: View {
                                     keyPoints: keyPoints(for: closest, ctx: ctx),
                                     // Against every route: its own ETA made
                                     // it "Fastest" even when it was slowest.
-                                    fastestETA: model.routeChoices.map(\.eta).min() ?? closest.eta,
+                                    // (every route on offer: one through a
+                                    // closed road is not).
+                                    fastestETA: model.passableChoices.map(\.eta).min() ?? closest.eta,
                                     isSafest: false,
                                     isCheapest: false,
                                     isEfficient: false,
@@ -2286,7 +2305,7 @@ struct RouteChoicesView: View {
         }
         if let shortest = choices.map(\.distanceMeters).min(),
            route.distanceMeters <= shortest {
-            points.append((String(format: "Shortest — %.0f mi", route.distanceMeters / 1609.344), true))
+            points.append(("Shortest — " + RouteCard.milesText(route.distanceMeters), true))
         }
         if route.weatherScored, choices.allSatisfy(\.weatherScored) {
             if route.id == ctx.safestID {
@@ -3068,12 +3087,18 @@ private struct RouteCard: View {
     }
 
     private var deltaText: String {
-        let delta = Int(((route.eta - fastestETA) / 60).rounded())
-        return delta <= 0 ? "Fastest" : "+\(delta) min"
+        // Only the route that is fastest says so: rounded first, a route 29
+        // seconds slower said "Fastest" too.
+        guard route.eta > fastestETA else { return "Fastest" }
+        return "+\(max(1, Int(((route.eta - fastestETA) / 60).rounded()))) min"
     }
 
-    private var milesText: String {
-        String(format: "%.0f mi", route.distanceMeters / 1609.344)
+    private var milesText: String { Self.milesText(route.distanceMeters) }
+
+    /// Whole miles from ten up, tenths below: a half-mile walk read "0 mi".
+    static func milesText(_ meters: Double) -> String {
+        let miles = meters / 1609.344
+        return String(format: miles < 9.95 ? "%.1f mi" : "%.0f mi", miles)
     }
 
     /// Review finding: this used `color == .blue` as a "clear band" sentinel —
@@ -3093,7 +3118,11 @@ private struct RouteCard: View {
                 HStack(spacing: 5) {
                     // No spinner once the check has given up.
                     if !weatherCheckGaveUp { ProgressView().controlSize(.mini) }
-                    Text(band == .clear ? "Clear so far" : "\(band.rawValue) so far")
+                    // Given up part-way: "Clear so far" with nothing still
+                    // looking is a claim. Unknown, like a route with no
+                    // cells in at all.
+                    Text(band != .clear ? "\(band.rawValue) so far"
+                         : weatherCheckGaveUp ? "Weather unknown" : "Clear so far")
                 }
                 .scaledFont(.caption, weight: .semibold)
                 .padding(.horizontal, 10)

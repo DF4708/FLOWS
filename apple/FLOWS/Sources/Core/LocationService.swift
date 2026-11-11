@@ -24,7 +24,8 @@ final class LocationService: NSObject, ObservableObject, CLLocationManagerDelega
     /// Speed in m/s, clamped to >= 0 (CoreLocation reports -1 when unknown).
     var speed: Double { max(latest?.speed ?? 0, 0) }
     var coordinate: CLLocationCoordinate2D? { latest?.coordinate }
-    var course: Double { latest?.course ?? 0 }
+    /// -1 with no fix, as CoreLocation says "no course": 0 read as due north.
+    var course: Double { latest?.course ?? -1 }
 
     private let manager = CLLocationManager()
 

@@ -126,6 +126,8 @@ struct WatchNavView: View {
     /// How much of the face the instruction card covers, measured, so the
     /// camera keeps the vehicle in the middle of the map left below it.
     @State private var cardCover: Double = 0
+    /// Which way is up on the map right now, in degrees from north.
+    @State private var mapHeading: Double = 0
 
     var body: some View {
         GeometryReader { face in
@@ -140,10 +142,14 @@ struct WatchNavView: View {
                             Image(systemName: "location.north.circle.fill")
                                 .font(.system(size: 18))
                                 .foregroundStyle(.white, .blue)
-                                .rotationEffect(.degrees(link.heading))
+                                // Against the map, which already turns to
+                                // the way of travel: turned by the heading
+                                // again, the arrow pointed twice as far round.
+                                .rotationEffect(.degrees(link.heading - mapHeading))
                         }
                     }
                 }
+                .onMapCameraChange(frequency: .continuous) { mapHeading = $0.camera.heading }
                 .ignoresSafeArea()
                 // Next turn + countdown, Apple-Maps-on-watch style.
                 VStack(spacing: 1) {

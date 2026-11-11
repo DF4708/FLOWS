@@ -46,9 +46,12 @@ final class WatchLink: NSObject, ObservableObject {
     /// New leg: ship the (simplified) route geometry.
     func sendRoute(_ route: PlannedRoute) {
         let pts = RouteService.samplePoints(of: route.route.polyline, everyMeters: 400)
-        let capped = pts.count > 120
+        var capped = pts.count > 120
             ? stride(from: 0, to: pts.count, by: pts.count / 120 + 1).map { pts[$0] }
             : pts
+        // Every Nth point seldom lands on the last one: the line on the
+        // Watch stopped short of the destination, by miles on a long trip.
+        if pts.count > 120, let end = pts.last { capped.append(end) }
         // A new trip, not a reroute: nothing of the last one carries over
         // (its "Trip ended", its position and heading).
         if shown["navigating"] as? Bool != true { shown = [:] }

@@ -493,7 +493,9 @@ struct PlannerPanel: View {
     /// One truth for "can Plan fire": the button's disabled state and its
     /// click-swallow fallback gesture must always agree.
     private var planEnabled: Bool {
-        !isWorking && !model.plannerDestination.isEmpty
+        !isWorking
+            // Spaces only is no destination: Plan fired and failed on it.
+            && !model.plannerDestination.trimmingCharacters(in: .whitespaces).isEmpty
             // GPS switched off with no start typed is no start: Plan fired and
             // failed on an empty place name.
             && (usingGPSSource || usingFallbackStart
@@ -565,6 +567,7 @@ struct PlannerPanel: View {
                 guard !isWorking else { return }
                 isWorking = true
                 defer { isWorking = false }
+                errorMessage = nil   // the last plan's failure is not this one's
                 // The highlighted route, which the filters may have moved
                 // off the first.
                 if let planned = await model.planToFavorite(fav),
