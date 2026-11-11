@@ -858,6 +858,12 @@ final class WMOAlertTests: XCTestCase {
         XCTAssertEqual(rain("Acumulados de 75 a 150 milímetros."), "Flood Advisory")
         XCTAssertEqual(rain("Rainfall of 60-80 mm expected."), "Flood Advisory")
         XCTAssertEqual(rain("Vientos de 60 km/h y lluvias de 10 mm."), "Rain Advisory")
+        // The class word has to be said of the rain, not of the wind.
+        XCTAssertEqual(rain("Lluvias fuertes y vientos muy fuertes en la costa."), "Rain Advisory")
+        XCTAssertEqual(rain("Vientos muy fuertes, lluvias aisladas."), "Rain Advisory")
+        XCTAssertEqual(rain("Lluvias de fuertes a muy fuertes en Tabasco."), "Flood Advisory")
+        XCTAssertEqual(rain("Se esperan torrenciales lluvias en Guerrero."), "Flood Advisory")
+        XCTAssertEqual(rain("Precipitaciones intensas en la sierra."), "Flood Advisory")
         // A notice that names the flood is one at any level.
         XCTAssertEqual(words("Lluvias e inundaciones", "Minor"), "Flood Advisory")
         XCTAssertEqual(words("Riverine Flood", "Moderate"), "Riverine Flood")

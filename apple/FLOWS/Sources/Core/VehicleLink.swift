@@ -64,22 +64,45 @@ final class VehicleLink: NSObject, ObservableObject {
 
     /// One sensor as heard: its position label and reading, when it was
     /// last heard, and how it has kept up with this vehicle.
-    private struct Sensor {
+    struct Sensor {
         var position: String
         var psi: Double
         var lastHeard: Date
-        var firstHeardMoving: Date?
         var lastHeardMoving: Date?
         var heardMoving = 0
-        /// Heard while moving across two minutes — the moving hears alone:
-        /// ten seconds alongside a car and a long red light beside it,
-        /// counted by its last hear at all, passed.
-        var keptUp: Bool {
-            guard let firstHeardMoving, let lastHeardMoving else { return false }
-            return heardMoving >= 10 && lastHeardMoving.timeIntervalSince(firstHeardMoving) >= 120
+        /// Seconds of driving this sensor stayed in earshot: the time
+        /// between two hears while moving, when the vehicle did not stop in
+        /// between. The first hear to the last used to be counted whole, so
+        /// a car alongside for ten seconds, then beside this one at a long
+        /// red light, then heard once more as both pulled away, was taken
+        /// as this vehicle's tires.
+        var company: TimeInterval = 0
+
+        /// A gap longer than this between two hears is not company: the
+        /// sensor was out of earshot for some of it.
+        static let longestGap: TimeInterval = 180
+
+        /// Fold in one hear while moving. `lastStill` is when the vehicle
+        /// was last known to be standing.
+        mutating func heardWhileMoving(at now: Date, lastStill: Date?) {
+            if let last = lastHeardMoving {
+                let gap = now.timeIntervalSince(last)
+                let stoppedBetween = lastStill.map { $0 > last } ?? false
+                if gap > 0, gap <= Self.longestGap, !stoppedBetween { company += gap }
+            }
+            lastHeardMoving = now
+            heardMoving += 1
         }
+
+        /// Kept up with the vehicle: two minutes of driving in earshot.
+        var keptUp: Bool { heardMoving >= 10 && company >= 120 }
     }
     private var sensors: [UUID: Sensor] = [:]
+    /// When the vehicle was last seen standing (see `Sensor.company`).
+    /// Many valve caps only speak while rolling, so hears alone cannot
+    /// tell a stop: `stillWatch` looks every few seconds while listening.
+    private var lastStill: Date?
+    private var stillWatch: Task<Void, Never>?
 
     /// Devices connected as a car plug-in that had no serial service.
     private var notAdapters: Set<UUID> = []
@@ -109,9 +132,9 @@ final class VehicleLink: NSObject, ObservableObject {
         sensor.psi = psi
         sensor.lastHeard = now
         if isMoving() {
-            sensor.firstHeardMoving = sensor.firstHeardMoving ?? now
-            sensor.lastHeardMoving = now
-            sensor.heardMoving += 1
+            sensor.heardWhileMoving(at: now, lastStill: lastStill)
+        } else {
+            lastStill = now
         }
         sensors[id] = sensor
         republishTires(now: now)
@@ -191,6 +214,16 @@ final class VehicleLink: NSObject, ObservableObject {
         failedDiscoveries = [:]
         central = CBCentralManager(delegate: self, queue: .main)
         startMFiIfAvailable()
+        watchForWiredReader()
+        lastStill = isMoving() ? nil : Date()
+        stillWatch?.cancel()
+        stillWatch = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(5))
+                guard let self, !Task.isCancelled else { return }
+                if !self.isMoving() { self.lastStill = Date() }
+            }
+        }
     }
 
     // MARK: MFi (Apple ExternalAccessory) — wired/licensed adapters
@@ -239,6 +272,49 @@ final class VehicleLink: NSObject, ObservableObject {
         }
     }
 
+    private var mfiWatchers: [NSObjectProtocol] = []
+
+    /// A wired reader was only looked for when listening began: one plugged
+    /// in after that (the usual order: start the app, then the car) was
+    /// never found, and one pulled out left its last fuel level standing.
+    /// The system says when an accessory comes or goes; look again then.
+    private func watchForWiredReader() {
+        guard mfiWatchers.isEmpty else { return }
+        let manager = EAAccessoryManager.shared()
+        manager.registerForLocalNotifications()
+        let center = NotificationCenter.default
+        mfiWatchers.append(center.addObserver(
+            forName: .EAAccessoryDidConnect, object: nil, queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in
+                guard let self, self.scanning else { return }
+                self.startMFiIfAvailable()
+            }
+        })
+        mfiWatchers.append(center.addObserver(
+            forName: .EAAccessoryDidDisconnect, object: nil, queue: .main
+        ) { [weak self] note in
+            let gone = (note.userInfo?[EAAccessoryKey] as? EAAccessory)?.connectionID
+            Task { @MainActor in
+                guard let self, let held = self.mfiSession?.accessory?.connectionID,
+                      gone == nil || gone == held else { return }
+                self.stopMFi()
+                self.obdFuelFraction = nil
+                self.obdFuelReadAt = nil
+                if self.scanning { self.status = "Car plug-in disconnected — listening again" }
+                // Another wired reader may still be in.
+                if self.scanning { self.startMFiIfAvailable() }
+            }
+        })
+    }
+
+    private func stopWatchingForWiredReader() {
+        guard !mfiWatchers.isEmpty else { return }
+        mfiWatchers.forEach(NotificationCenter.default.removeObserver)
+        mfiWatchers = []
+        EAAccessoryManager.shared().unregisterForLocalNotifications()
+    }
+
     private func stopMFi() {
         mfiPollTask?.cancel()
         mfiPollTask = nil
@@ -273,12 +349,18 @@ final class VehicleLink: NSObject, ObservableObject {
     #else
     private func startMFiIfAvailable() {}
     private func stopMFi() {}
+    private func watchForWiredReader() {}
+    private func stopWatchingForWiredReader() {}
     #endif
 
     private func stop() {
         obdPollTask?.cancel()
         obdPollTask = nil
         stopMFi()
+        stopWatchingForWiredReader()
+        stillWatch?.cancel()
+        stillWatch = nil
+        lastStill = nil
         central?.stopScan()
         if let p = obdPeripheral { central?.cancelPeripheralConnection(p) }
         obdPeripheral = nil

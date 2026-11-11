@@ -17,6 +17,9 @@ import SwiftUI
 /// mode flip still feels like one app.
 struct NavigationHUD: View {
     @EnvironmentObject private var model: AppModel
+    /// Position, speed and the distance left move on every fix of a drive;
+    /// this screen shows them, so it alone is redrawn for them.
+    @ObservedObject private var tick = DriveTick.shared
     @Environment(\.golden) private var golden
     @Environment(\.mapKeyComesBack) private var mapKeyComesBack
     let isCompact: Bool

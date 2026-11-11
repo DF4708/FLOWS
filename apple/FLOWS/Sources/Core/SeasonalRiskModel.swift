@@ -462,6 +462,45 @@ final class SeasonalRiskModel: ObservableObject {
     private let url: URL           // the seasonal store
     private let exportURL: URL     // flat training rows the worker reads
     private let headURL: URL       // the trained MLP the worker drops in
+    /// A store that opened but could not be decoded (see `keepAside`).
+    private let asideURL: URL
+
+    /// How long an undecodable store is kept for a later build to try.
+    nonisolated static let asideKeptSeconds: TimeInterval = 90 * 86_400
+
+    /// Put a store that opened but would not decode to one side, in place
+    /// of leaving it where the next arrival writes a one-trip store over
+    /// it: years of trips went for good on one bad field. It stays sealed
+    /// as it was, one copy only, and the erase button shreds it with the
+    /// rest. Stamped now, so `asideKeptSeconds` runs from today.
+    nonisolated static func keepAside(_ store: URL, at aside: URL, now: Date = Date()) {
+        let files = FileManager.default
+        guard files.fileExists(atPath: store.path) else { return }
+        SecureBehaviorStore.shred(aside)
+        guard (try? files.moveItem(at: store, to: aside)) != nil else { return }
+        try? files.setAttributes([.modificationDate: now], ofItemAtPath: aside.path)
+        var values = URLResourceValues()
+        values.isExcludedFromBackup = true
+        var kept = aside
+        try? kept.setResourceValues(values)
+        FlowsDiag.log(.warn, "privacy",
+                      "the learned-trips file would not decode and was put aside")
+    }
+
+    /// The store put aside earlier, if this build can decode it and it is
+    /// not past its time. A copy past its time is shredded.
+    nonisolated static func openAside(_ aside: URL, now: Date = Date()) -> SeasonalStore? {
+        let files = FileManager.default
+        guard files.fileExists(atPath: aside.path) else { return nil }
+        let stamped = (try? files.attributesOfItem(atPath: aside.path)[.modificationDate] as? Date) ?? nil
+        guard let stamped, now.timeIntervalSince(stamped) < asideKeptSeconds else {
+            SecureBehaviorStore.shred(aside)
+            return nil
+        }
+        return SecureBehaviorStore.read(aside).flatMap {
+            try? JSONDecoder().decode(SeasonalStore.self, from: $0)
+        }
+    }
     private var head: LearnedHead? // nil until the worker has produced one
     /// SERIAL writer for persistence: snapshots are enqueued in call order
     /// and drain FIFO, so a later trip's write can never be clobbered by an
@@ -490,14 +529,30 @@ final class SeasonalRiskModel: ObservableObject {
         url = dir.appendingPathComponent("flows_seasonal_model.json")
         exportURL = dir.appendingPathComponent("flows_training_export.csv")
         headURL = dir.appendingPathComponent("flows_route_head.json")
+        asideURL = dir.appendingPathComponent("flows_seasonal_model.aside")
         let storeURL = url
         let headFileURL = headURL
+        let asideFileURL = asideURL
         diskLoad = Task.detached(priority: .utility) { [weak self] in
             // Sealed store, upgrading in place from any plaintext file an
             // earlier build left at this path.
-            let loadedStore = SecureBehaviorStore.readMigrating(storeURL).flatMap {
+            let opened = SecureBehaviorStore.readMigrating(storeURL)
+            var decoded = opened.flatMap {
                 try? JSONDecoder().decode(SeasonalStore.self, from: $0)
             }
+            var fromAside = false
+            if decoded == nil {
+                if opened != nil {
+                    // Opened but not decodable: out of the next save's way.
+                    Self.keepAside(storeURL, at: asideFileURL)
+                } else if let kept = Self.openAside(asideFileURL) {
+                    // One put aside by an earlier build decodes in this one.
+                    decoded = kept
+                    fromAside = true
+                }
+            }
+            let loadedStore = decoded
+            let cameFromAside = fromAside
             let local = Self.decodeHead(SecureBehaviorStore.readMigrating(headFileURL))
             let bundled = Self.decodeHead(Bundle.main.url(
                 forResource: "baseline_route_head", withExtension: "json")
@@ -514,10 +569,20 @@ final class SeasonalRiskModel: ObservableObject {
                     SecureBehaviorStore.persistQueue.async {
                         SecureBehaviorStore.shred(storeURL)
                         SecureBehaviorStore.shred(headFileURL)
+                        SecureBehaviorStore.shred(asideFileURL)
                     }
                     return
                 }
                 if let loadedStore { self.store = loadedStore }
+                if cameFromAside, let loadedStore {
+                    // Back where it belongs; the copy to one side goes.
+                    SecureBehaviorStore.persistQueue.async {
+                        SecureBehaviorStore.save(loadedStore, to: storeURL)
+                        if FileManager.default.fileExists(atPath: storeURL.path) {
+                            SecureBehaviorStore.shred(asideFileURL)
+                        }
+                    }
+                }
                 self.applyHead(local: local, bundled: bundled)
             }
         }
@@ -673,6 +738,7 @@ final class SeasonalRiskModel: ObservableObject {
         SecureBehaviorStore.shred(url)
         SecureBehaviorStore.shred(exportURL)
         SecureBehaviorStore.shred(headURL)
+        SecureBehaviorStore.shred(asideURL)
         head = baselineHead   // back to the shipped national model
     }
 

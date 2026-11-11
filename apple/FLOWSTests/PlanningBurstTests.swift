@@ -791,4 +791,94 @@ func testACancelledAlertIsNotALiveWarning() {
         XCTAssertEqual(PlannedRoute.walkingEstimateSeconds(meters: 1_390), 1_100, accuracy: 1e-9)
         XCTAssertEqual(PlannedRoute.walkingEstimateSeconds(meters: 0), 0)
     }
+
+    /// A plan that is still asking keeps the burst open past the safety
+    /// window: the window used to run from the burst's start alone, and a
+    /// long plan dropped to the background pace partway through.
+    func testRequestsInsideTheBurstRenewTheWindow() async {
+        let gate = RequestGate(baseCeiling: { 2 }, burstCeiling: { 6 },
+                               burstSafetyWindow: 0.2)
+        let peak = Peak()
+        let late = await gate.withPlanningBurst {
+            // Longer than the window in all, a request every 100 ms.
+            for _ in 0..<5 {
+                try? await gate.withPermit { try? await Task.sleep(for: .milliseconds(100)) }
+            }
+            return await self.drive(gate, count: 18, peak: peak)
+        }
+        XCTAssertGreaterThan(late, 2, "the burst ran out though the plan was still working")
+        XCTAssertLessThanOrEqual(late, 6)
+    }
+
+    /// Requests from OUTSIDE the plan do not hold a leaked burst open.
+    func testOutsideRequestsDoNotRenewALeakedBurst() async {
+        let gate = RequestGate(baseCeiling: { 2 }, burstCeiling: { 6 },
+                               burstSafetyWindow: 0.2)
+        let peak = Peak()
+        await gate.beginPlanningBurst()
+        for _ in 0..<4 {
+            try? await gate.withPermit { try? await Task.sleep(for: .milliseconds(100)) }
+        }
+        let after = await drive(gate, count: 10, peak: peak)
+        XCTAssertLessThanOrEqual(after, 2)
+    }
+
+    // MARK: Tire sensors that keep up with the vehicle
+
+    /// A car alongside, then beside this one at a red light, then heard once
+    /// more as both pull away, is not this vehicle's tires: the stop between
+    /// two hears is not company.
+    func testANeighbourAtARedLightIsNotOurTire() {
+        let t0 = Date(timeIntervalSince1970: 1_000_000)
+        var s = VehicleLink.Sensor(position: "FL", psi: 33, lastHeard: t0)
+        for i in 0..<10 { s.heardWhileMoving(at: t0.addingTimeInterval(Double(i)), lastStill: nil) }
+        XCTAssertFalse(s.keptUp)   // nine seconds alongside
+        // Two and a half minutes at the light, then heard again.
+        let stood = t0.addingTimeInterval(60)
+        s.heardWhileMoving(at: t0.addingTimeInterval(160), lastStill: stood)
+        XCTAssertFalse(s.keptUp)
+        XCTAssertEqual(s.company, 9, accuracy: 1e-9)
+    }
+
+    /// Two minutes of driving in earshot is this vehicle's sensor; a gap
+    /// longer than `longestGap` counts for nothing.
+    func testSteadyCompanyIsOurTire() {
+        let t0 = Date(timeIntervalSince1970: 1_000_000)
+        var s = VehicleLink.Sensor(position: "FL", psi: 33, lastHeard: t0)
+        for i in 0...12 { s.heardWhileMoving(at: t0.addingTimeInterval(Double(i) * 10), lastStill: nil) }
+        XCTAssertEqual(s.company, 120, accuracy: 1e-9)
+        XCTAssertTrue(s.keptUp)
+        var gappy = VehicleLink.Sensor(position: "FR", psi: 33, lastHeard: t0)
+        for i in 0..<12 {
+            gappy.heardWhileMoving(at: t0.addingTimeInterval(Double(i) * (VehicleLink.Sensor.longestGap + 1)),
+                                   lastStill: nil)
+        }
+        XCTAssertEqual(gappy.company, 0, accuracy: 1e-9)
+        XCTAssertFalse(gappy.keptUp)
+    }
+
+    // MARK: A learned-trips file that will not decode
+
+    /// It is moved to one side (not written over), read back by a build
+    /// that can decode it, and shredded once past its time.
+    func testAnUndecodableStoreIsKeptAsideThenAgesOut() throws {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("flows-aside-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let store = dir.appendingPathComponent("store"), aside = dir.appendingPathComponent("aside")
+        let now = Date()
+
+        SecureBehaviorStore.save(SeasonalStore(), to: store)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: store.path))
+        SeasonalRiskModel.keepAside(store, at: aside, now: now)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: store.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: aside.path))
+        XCTAssertNotNil(SeasonalRiskModel.openAside(aside, now: now.addingTimeInterval(86_400)))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: aside.path))
+
+        let late = now.addingTimeInterval(SeasonalRiskModel.asideKeptSeconds + 1)
+        XCTAssertNil(SeasonalRiskModel.openAside(aside, now: late))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: aside.path))
+    }
 }

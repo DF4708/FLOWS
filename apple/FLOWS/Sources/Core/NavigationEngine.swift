@@ -372,3 +372,23 @@ final class NavigationEngine: ObservableObject {
         stepInstructions.firstIndex { $0 != "Continue" } ?? 0
     }
 }
+
+/// What changes on every fix of a drive: position, speed, the distance and
+/// time left. Views that show those numbers watch this; the rest of the
+/// screen watches the model and is left alone between real changes
+/// (AppModel.init forwards to one or the other).
+@MainActor
+final class DriveTick: ObservableObject {
+    static let shared = DriveTick()
+
+    /// Whether going from `old` to `new` moved only the running numbers:
+    /// the same step, the same words, still on (or off) the route. Anything
+    /// else is a change the whole screen may show.
+    nonisolated static func onlyNumbersMoved(from old: NavigationEngine.Guidance?,
+                                             to new: NavigationEngine.Guidance?) -> Bool {
+        guard let old, let new else { return false }
+        return old.stepIndex == new.stepIndex
+            && old.instruction == new.instruction
+            && old.isOffRoute == new.isOffRoute
+    }
+}

@@ -575,9 +575,11 @@ pub const USUAL_EVENT_HOURS: &[(&[&str], f64)] = &[
     (&["flash flood"], 3.0),        // 3.1 h, 12,457
     // Coastal 12.8 h (268), lakeshore 12.0 h (21).
     (&["coastal flood", "lakeshore flood"], 13.0),
-    // Set by hand, on the long side: only 14 warnings since 2008, half
-    // under 2.2 h and three of weeks.
-    (&["tsunami"], 12.0),
+    // Warnings, watches and advisories together, 2008-2024: 48 events, half
+    // under 2.6 h, a quarter over 17.6 h. The three-quarter mark is used and
+    // not the middle: waves keep coming for hours, and dropping a tsunami
+    // alert early is the mistake that costs lives.
+    (&["tsunami"], 18.0),
     (&["flood advisory"], 3.0), // 2.9 h, 27,311
     (&["flood watch"], 17.0),   // 16.6 h, 2,288
     // River flood warnings: 41.8 h, 8,805 (a tenth ran past 19 days). A
@@ -623,7 +625,9 @@ pub const USUAL_EVENT_HOURS: &[(&[&str], f64)] = &[
     (&["fog"], 7.0),             // 6.9 h, 5,096
     (&["high surf"], 30.0),      // 30.1 h, 977
     (&["air stagnation"], 96.0), // 96.5 h, 55
-    (&["air quality"], 24.0),    // set by hand: one event on record
+    // Not in the warnings archive (no event code): read from the messages
+    // themselves, 25 offices, 2023-2024: 24.2 h, 1,685 (fetch_air.sh).
+    (&["air quality"], 24.0),
     // High wind warnings 14.0 h (1,859), wind advisories 12.0 h (5,778).
     (&["wind"], 13.0),
 ];

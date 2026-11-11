@@ -2818,16 +2818,19 @@ final class AppModel: ObservableObject {
             return ShelterPolicy.Kind.anyBuilding.searchQueries
         }
         navigation.onReroute = { [weak self] leg in self?.startRerouteLeg(leg) ?? false }
-        // `location` publishes once a second and is forwarded to the whole
-        // model. Reviewed and KEPT: 34 view sites across ContentView,
-        // PlannerPanel, the HUD, the banners and CarPlay read position,
-        // speed and course through `model`, and would each need their own
-        // observation of LocationService to drop it here. The per-fix
-        // publishes that used to ride along with it (camera warning, text
-        // scale, posted limit, wind, work zones) now publish only on change,
-        // which is where the wasted invalidation actually was.
+        // On a drive `location` and `navigation` publish on every fix, about
+        // once a second, and both used to be forwarded to the whole model:
+        // every view that reads the model was worked out again each second,
+        // moving or standing at a light. A fix on a drive, and guidance in
+        // which only the running numbers moved, now go to `DriveTick`, which
+        // the drive screen alone watches (NavigationHUD). The map follows
+        // the fix through `$latest` itself. Off a drive fixes are 100 m
+        // apart and the planner reads position, so those still reach the
+        // model, as does anything that changes what is on screen: location
+        // allowed or not, the first fix, a new step or instruction, off
+        // route, a new road, a reroute.
         let children: [any ObservableObject] = [
-            location, router, poi, alerts, riskField, navigation, favorites,
+            router, poi, alerts, riskField, favorites,
             vehicle, radio, radioBrowser, scanner, openDispatch, vehicleLink, smartcar, crash,
             breadcrumbs, corridors, trafficModel, roadEfficiency,
         ]
@@ -2836,6 +2839,42 @@ final class AppModel: ObservableObject {
                 .sink { [weak self] _ in self?.objectWillChange.send() }
                 .store(in: &serviceSubscriptions)
         }
+        location.$authorized.removeDuplicates().dropFirst()
+            .sink { [weak self] _ in self?.objectWillChange.send() }
+            .store(in: &serviceSubscriptions)
+        location.$denied.removeDuplicates().dropFirst()
+            .sink { [weak self] _ in self?.objectWillChange.send() }
+            .store(in: &serviceSubscriptions)
+        location.$latest.dropFirst()
+            .sink { [weak self] fix in
+                guard let self else { return }
+                let hadFix = self.location.latest != nil
+                if self.mode == .navigating, hadFix, fix != nil {
+                    DriveTick.shared.objectWillChange.send()
+                } else {
+                    self.objectWillChange.send()
+                }
+            }
+            .store(in: &serviceSubscriptions)
+        navigation.$guidance.dropFirst()
+            .sink { [weak self] next in
+                guard let self else { return }
+                if DriveTick.onlyNumbersMoved(from: self.navigation.guidance, to: next) {
+                    DriveTick.shared.objectWillChange.send()
+                } else {
+                    self.objectWillChange.send()
+                }
+            }
+            .store(in: &serviceSubscriptions)
+        navigation.$route.dropFirst()
+            .sink { [weak self] _ in self?.objectWillChange.send() }
+            .store(in: &serviceSubscriptions)
+        navigation.$isRerouting.removeDuplicates().dropFirst()
+            .sink { [weak self] _ in self?.objectWillChange.send() }
+            .store(in: &serviceSubscriptions)
+        navigation.$metersFromCorridor.dropFirst()
+            .sink { _ in DriveTick.shared.objectWillChange.send() }
+            .store(in: &serviceSubscriptions)
         poi.truckerMode = truckerUI   // didSet doesn't fire for the initial value
         scanner.listen(near: location.coordinate)   // don't wait for the first fix
         // City 911 lists ride the scanner's switch ("Show calls heard

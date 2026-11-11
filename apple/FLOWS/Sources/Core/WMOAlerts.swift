@@ -231,8 +231,22 @@ enum WMOAlertParsing {
     static func namesHeavyRain(_ text: String) -> Bool {
         let t = text.folding(options: [.diacriticInsensitive, .caseInsensitive], locale: nil)
             .lowercased()
-        if ["muy fuerte", "intensa", "torrencial", "extraordinaria",
-            "very heavy rain", "torrential", "extreme rain"].contains(where: t.contains) {
+        if ["very heavy rain", "torrential", "extreme rain"].contains(where: t.contains) {
+            return true
+        }
+        // The class has to be said of the rain. "Lluvias fuertes y vientos
+        // muy fuertes" is 25 to 50 mm with strong wind: the bare words used
+        // to make that a flood notice. Up to four words may sit between
+        // ("lluvias puntuales intensas", "lluvias de fuertes a muy fuertes"),
+        // none of them the wind or the sea, and no comma.
+        let heavy = #"(?:muy fuertes?|intensas?|torrencial(?:es)?|extraordinarias?)"#
+        let rainWord = #"(?:lluvias?|precipitacion(?:es)?|chubascos?|aguaceros?)"#
+        let other = #"(?!vientos?\b|rachas?\b|oleaje\b|olas\b|mar\b)[a-z]+"#
+        let said = [
+            rainWord + #"(?:\s+"# + other + #"){0,4}?\s+"# + heavy + #"\b"#,
+            #"\b"# + heavy + #"\s+"# + rainWord,
+        ]
+        if said.contains(where: { t.range(of: $0, options: .regularExpression) != nil }) {
             return true
         }
         // "75 a 150 mm", "50-75 mm", "de 150 mm": the first figure of each.

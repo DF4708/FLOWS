@@ -324,6 +324,9 @@ struct ContentView: View {
     }
     /// How often the planning sweep re-samples a map left where it is.
     private static let viewportResweepSeconds: Double = 300
+    /// How long the grid waits for the slow feeds before it draws a first
+    /// pass without them, in tenths of a second.
+    private static let viewportFeedWaitTenths = 15
     /// Tapped risk symbol → summary card state.
     struct HazardTapInfo: Identifiable {
         let id = UUID()
@@ -952,363 +955,414 @@ struct ContentView: View {
             let maxLat = region.center.latitude + region.span.latitudeDelta / 2
             let minLon = region.center.longitude - region.span.longitudeDelta / 2
             let maxLon = region.center.longitude + region.span.longitudeDelta / 2
-            async let hotspotsTask = LiveHazardFeedFetcher.shared.hotspots()
-            async let quakesTask = LiveHazardFeedFetcher.shared.recentQuakes()
-            // New primary feeds (all keyless, probed live): interagency active
-            // fire perimeters, NWS river-gauge flood categories, NOAA space
-            // weather. Each blends into an existing family below.
-            async let perimTask = LiveHazardFeedFetcher.shared.firePerimeters(
-                minLat: minLat, minLon: minLon, maxLat: maxLat, maxLon: maxLon)
-            async let floodTask = LiveHazardFeedFetcher.shared.floodGauges(
-                minLat: minLat, minLon: minLon, maxLat: maxLat, maxLon: maxLon)
-            async let spaceTask = LiveHazardFeedFetcher.shared.spaceWeather()
-            // New acute families (national feeds, probed live): volcanoes,
-            // avalanche zones, tropical storms, tsunami alerts.
-            async let volcanoTask = LiveHazardFeedFetcher.shared.elevatedVolcanoes()
-            async let avalancheTask = LiveHazardFeedFetcher.shared.avalanche()
-            async let stormTask = LiveHazardFeedFetcher.shared.tropicalStorms()
-            async let tsunamiTask = LiveHazardFeedFetcher.shared.tsunamiEvents()
-            async let spcTask = LiveHazardFeedFetcher.shared.convectiveOutlook()
-            // DOT road closures (WZDx open feeds) — realized blocked-road proof.
-            async let closureTask = LiveHazardFeedFetcher.shared.roadClosures(
-                minLat: region.center.latitude - region.span.latitudeDelta / 2,
-                minLon: region.center.longitude - region.span.longitudeDelta / 2,
-                maxLat: region.center.latitude + region.span.latitudeDelta / 2,
-                maxLon: region.center.longitude + region.span.longitudeDelta / 2)
-            let hotspots = await hotspotsTask
-            let quakes = await quakesTask
-            let perimeters = await perimTask
-            let floodGauges = await floodTask
-            let space = await spaceTask
-            let volcanoes = await volcanoTask
-            let avalancheZones = await avalancheTask
-            let storms = await stormTask
-            let tsunamis = await tsunamiTask
-            let spcZones = await spcTask
-            let closures = await closureTask
-            // One snapshot, scored per point by HazardFeedScores.live — the
-            // same function the route scorer uses, so map and route agree.
-            let liveSnapshot = LiveHazardSnapshot(
-                hotspots: hotspots, perimeters: perimeters, quakes: quakes, space: space,
-                volcanoes: volcanoes, avalancheZones: avalancheZones, storms: storms,
-                tsunamis: tsunamis, spcZones: spcZones)
-            // Laid out once for every grid point below, not once per point.
-            let preparedGauges = HazardFeedScores.PreparedGauges(floodGauges)
-            let preparedClosures = HazardFeedScores.PreparedPoints(closures)
-            var found: [ViewportHazard] = []
-            // Every grid point whose conditions came back, quiet or not: a
-            // re-sampled point replaces what was there, so a hazard that has
-            // cleared leaves the map.
-            var sampled: [CLLocationCoordinate2D] = []
-            // N×N grid (5×5 on capable devices, 4×4 / 3×3 on weaker, hot, or
-            // Low-Power ones) — fewer sample points is fewer requests AND less
-            // CPU per sweep. Floor is BELOW the green cut so the driver SEES
-            // weather across North America, not only what already scores.
-            // Deep zoom (span < 1° ≈ city scale) earns one extra grid step —
-            // local conditions resolve finer exactly where the driver is
-            // looking, without raising the wide-view request budget.
-            let base = AdaptiveTuning.shared.viewportGridSpan
-            let n = region.span.latitudeDelta < 1.0 ? min(base + 1, 6) : base
-            // Points fixed to the MAP, edge to edge (RiskAreaFallback.lattice):
-            // a grid centred on the camera slid with every pan, read new
-            // spots each sweep, and risk areas came and went though the
-            // weather had not changed.
-            let gridPts = RiskAreaFallback.lattice(
-                centerLatitude: region.center.latitude, centerLongitude: region.center.longitude,
-                spanLatitude: region.span.latitudeDelta, spanLongitude: region.span.longitudeDelta,
-                perSide: n)
-            // REALIZED NWS alerts across the viewport (one sweep, zero arrival
-            // offsets = active right now): a grid point inside a Tornado /
-            // Flash-Flood / Tsunami WARNING carries that realized primary into
-            // its band input — the map can band Red on proof, not just routes.
-            let alertSweep = await model.alerts.corridorRisk(
-                at: gridPts,
-                arrivalOffsets: RiskTiming.arrivalOffsets(
-                    sampleCount: gridPts.count, totalTravelSeconds: 0))
-            // Each task reports its point once the conditions fetch succeeds
-            // (nil when it failed), with the hazard there if one registers.
-            await withTaskGroup(of: (CLLocationCoordinate2D, ViewportHazard?)?.self) { group in
-                for (idx, gridPt) in gridPts.enumerated() {
-                    let alertEvent = idx < alertSweep.samples.count
-                        ? alertSweep.samples[idx].worstEvent : nil
-                    let alertSeverity = idx < alertSweep.samples.count
-                        ? alertSweep.samples[idx].risk : 0
-                    do {
-                        let lat = gridPt.latitude
-                        let lon = gridPt.longitude
-                        group.addTask {
-                            let pt = CLLocationCoordinate2D(latitude: lat, longitude: lon)
-                            guard let c = await NWSForecastFetcher.shared.conditions(at: pt)
-                            else { return nil }
-                            let score = c.forecastScore(latitude: lat, longitude: lon, elevationMeters: nil)
-                            var families = Self.familyScores(c, latitude: lat, longitude: lon)
-                            // No answer from the live scorer: the point is unknown, not clear.
-                            guard let live = HazardFeedScores.liveChecked(at: pt, snapshot: liveSnapshot)
-                            else { return nil }
-                            families["fire"] = live.fire
-                            families["seismic"] = live.seismic
-                            let floodRealized = HazardFeedScores.floodGaugeScore(
-                                prepared: preparedGauges, at: pt)
-                            families["qpf_flood"] = max(families["qpf_flood"] ?? 0, floodRealized)
-                            let (aqi, uv) = await LiveHazardFeedFetcher.shared.airAndUV(at: pt)
-                            if let aqi { families["air"] = HazardFeedScores.airScore(usAQI: aqi) }
-                            // Space weather from the snapshot; UV is per point.
-                            let uvRad = uv.map { HazardFeedScores.uvScore(index: $0) } ?? 0
-                            let radiation = max(live.spaceRadiation, uvRad)
-                            if radiation > 0 { families["radiation"] = radiation }
-                            if live.volcanic > 0 { families["volcanic"] = live.volcanic }
-                            if live.avalanche > 0 { families["avalanche"] = live.avalanche }
-                            if live.tropical > 0 { families["tropical"] = live.tropical }
-                            if live.tsunami > 0 { families["tsunami"] = live.tsunami }
-                            let spc = live.convective
-                            if spc > 0 {
-                                families["convective"] = max(families["convective"] ?? 0, spc)
-                            }
-                            // Keep the point if ANY family registers — the
-                            // family overlay needs it even when the blended
-                            // environmental score is quiet.
-                            guard score >= 0.25 || families.values.contains(where: { $0 >= 0.25 })
-                            else { return (pt, nil) }
-                            // Label the tappable symbol: a specific ACUTE hazard
-                            // (fire, tsunami, volcanic…) takes the icon at yellow+
-                            // over the blended forecast, since it's the distinct
-                            // danger a driver most needs named. Otherwise use the
-                            // forecast-dominant kind.
-                            // The WORST hazard here names the area, comparing
-                            // every family on the same footing — see
-                            // HazardStyle.dominantFamily. Storms and flooding
-                            // used to be excluded from naming entirely, so a
-                            // middling fire reading labelled a ZIP surrounded
-                            // by severe storms FIRE.
-                            // The blended "environmental" composite is not a
-                            // hazard: winning, it drew the generic triangle
-                            // on an ordinary day. The forecast fall-through
-                            // below names that case (heat, cold, wind, rain).
-                            var kind: HazardKind
-                            var iconFamily: String? = nil
-                            if let top = HazardStyle.dominantFamily(
-                                families.filter { $0.key != "environmental" }) {
-                                kind = HazardStyle.kind(forFamily: top)
-                                iconFamily = top
-                                // The qpf_flood family carries BOTH the gauge
-                                // reading and plain rain probability. With no
-                                // gauge near flood stage the score is only
-                                // "it may rain", and calling that Flood puts a
-                                // blue water badge over a dry ZIP.
-                                if top == "qpf_flood", floodRealized < 0.45 {
-                                    kind = HazardStyle.rain
+            // These feeds can take many seconds on a slow link, and the grid
+            // used to wait for the last of them: an area just panned to
+            // stayed blank though its forecast and warnings were in hand.
+            // They now run to one side. If they are not all in shortly, a
+            // first pass draws what the forecast and the warnings alone
+            // show, and the full pass follows. The first pass only ADDS: a
+            // point that looks quiet without the feeds is left as it was,
+            // never cleared, and the legend keeps saying "Checking this
+            // area…" until the full pass lands.
+            let feeds = Task { @MainActor in
+                async let hotspotsTask = LiveHazardFeedFetcher.shared.hotspots()
+                async let quakesTask = LiveHazardFeedFetcher.shared.recentQuakes()
+                // New primary feeds (all keyless, probed live): interagency active
+                // fire perimeters, NWS river-gauge flood categories, NOAA space
+                // weather. Each blends into an existing family below.
+                async let perimTask = LiveHazardFeedFetcher.shared.firePerimeters(
+                    minLat: minLat, minLon: minLon, maxLat: maxLat, maxLon: maxLon)
+                async let floodTask = LiveHazardFeedFetcher.shared.floodGauges(
+                    minLat: minLat, minLon: minLon, maxLat: maxLat, maxLon: maxLon)
+                async let spaceTask = LiveHazardFeedFetcher.shared.spaceWeather()
+                // New acute families (national feeds, probed live): volcanoes,
+                // avalanche zones, tropical storms, tsunami alerts.
+                async let volcanoTask = LiveHazardFeedFetcher.shared.elevatedVolcanoes()
+                async let avalancheTask = LiveHazardFeedFetcher.shared.avalanche()
+                async let stormTask = LiveHazardFeedFetcher.shared.tropicalStorms()
+                async let tsunamiTask = LiveHazardFeedFetcher.shared.tsunamiEvents()
+                async let spcTask = LiveHazardFeedFetcher.shared.convectiveOutlook()
+                // DOT road closures (WZDx open feeds) — realized blocked-road proof.
+                async let closureTask = LiveHazardFeedFetcher.shared.roadClosures(
+                    minLat: region.center.latitude - region.span.latitudeDelta / 2,
+                    minLon: region.center.longitude - region.span.longitudeDelta / 2,
+                    maxLat: region.center.latitude + region.span.latitudeDelta / 2,
+                    maxLon: region.center.longitude + region.span.longitudeDelta / 2)
+                return (hotspots: await hotspotsTask, quakes: await quakesTask,
+                        perimeters: await perimTask, floodGauges: await floodTask,
+                        space: await spaceTask, volcanoes: await volcanoTask,
+                        avalancheZones: await avalancheTask, storms: await stormTask,
+                        tsunamis: await tsunamiTask, spcZones: await spcTask,
+                        closures: await closureTask)
+            }
+            let feedsIn = SweepFlag()
+            Task { @MainActor in
+                _ = await feeds.value
+                feedsIn.done = true
+            }
+            var waited = 0
+            while !feedsIn.done, waited < Self.viewportFeedWaitTenths, !Task.isCancelled {
+                try? await Task.sleep(for: .milliseconds(100))
+                waited += 1
+            }
+            if Task.isCancelled { feeds.cancel(); return }
+            for early in (feedsIn.done ? [false] : [true, false]) {
+                // One snapshot, scored per point by HazardFeedScores.live — the
+                // same function the route scorer uses, so map and route agree.
+                let liveSnapshot: LiveHazardSnapshot
+                // Laid out once for every grid point below, not once per point.
+                let preparedGauges: HazardFeedScores.PreparedGauges
+                let preparedClosures: HazardFeedScores.PreparedPoints
+                if early {
+                    liveSnapshot = LiveHazardSnapshot(
+                        hotspots: [], perimeters: [], quakes: [], space: (r: 0, s: 0, g: 0),
+                        volcanoes: [], avalancheZones: [], storms: [],
+                        tsunamis: [], spcZones: [])
+                    preparedGauges = HazardFeedScores.PreparedGauges([])
+                    preparedClosures = HazardFeedScores.PreparedPoints([(lat: Double, lon: Double)]())
+                } else {
+                    let all = await withTaskCancellationHandler {
+                        await feeds.value
+                    } onCancel: {
+                        feeds.cancel()
+                    }
+                    if Task.isCancelled { return }
+                    liveSnapshot = LiveHazardSnapshot(
+                        hotspots: all.hotspots, perimeters: all.perimeters, quakes: all.quakes,
+                        space: all.space, volcanoes: all.volcanoes,
+                        avalancheZones: all.avalancheZones, storms: all.storms,
+                        tsunamis: all.tsunamis, spcZones: all.spcZones)
+                    preparedGauges = HazardFeedScores.PreparedGauges(all.floodGauges)
+                    preparedClosures = HazardFeedScores.PreparedPoints(all.closures)
+                }
+                var found: [ViewportHazard] = []
+                // Every grid point whose conditions came back, quiet or not: a
+                // re-sampled point replaces what was there, so a hazard that has
+                // cleared leaves the map.
+                var sampled: [CLLocationCoordinate2D] = []
+                // N×N grid (5×5 on capable devices, 4×4 / 3×3 on weaker, hot, or
+                // Low-Power ones) — fewer sample points is fewer requests AND less
+                // CPU per sweep. Floor is BELOW the green cut so the driver SEES
+                // weather across North America, not only what already scores.
+                // Deep zoom (span < 1° ≈ city scale) earns one extra grid step —
+                // local conditions resolve finer exactly where the driver is
+                // looking, without raising the wide-view request budget.
+                let base = AdaptiveTuning.shared.viewportGridSpan
+                let n = region.span.latitudeDelta < 1.0 ? min(base + 1, 6) : base
+                // Points fixed to the MAP, edge to edge (RiskAreaFallback.lattice):
+                // a grid centred on the camera slid with every pan, read new
+                // spots each sweep, and risk areas came and went though the
+                // weather had not changed.
+                let gridPts = RiskAreaFallback.lattice(
+                    centerLatitude: region.center.latitude, centerLongitude: region.center.longitude,
+                    spanLatitude: region.span.latitudeDelta, spanLongitude: region.span.longitudeDelta,
+                    perSide: n)
+                // REALIZED NWS alerts across the viewport (one sweep, zero arrival
+                // offsets = active right now): a grid point inside a Tornado /
+                // Flash-Flood / Tsunami WARNING carries that realized primary into
+                // its band input — the map can band Red on proof, not just routes.
+                let alertSweep = await model.alerts.corridorRisk(
+                    at: gridPts,
+                    arrivalOffsets: RiskTiming.arrivalOffsets(
+                        sampleCount: gridPts.count, totalTravelSeconds: 0))
+                // Each task reports its point once the conditions fetch succeeds
+                // (nil when it failed), with the hazard there if one registers.
+                await withTaskGroup(of: (CLLocationCoordinate2D, ViewportHazard?)?.self) { group in
+                    for (idx, gridPt) in gridPts.enumerated() {
+                        let alertEvent = idx < alertSweep.samples.count
+                            ? alertSweep.samples[idx].worstEvent : nil
+                        let alertSeverity = idx < alertSweep.samples.count
+                            ? alertSweep.samples[idx].risk : 0
+                        do {
+                            let lat = gridPt.latitude
+                            let lon = gridPt.longitude
+                            group.addTask {
+                                let pt = CLLocationCoordinate2D(latitude: lat, longitude: lon)
+                                guard let c = await NWSForecastFetcher.shared.conditions(at: pt)
+                                else { return nil }
+                                let score = c.forecastScore(latitude: lat, longitude: lon, elevationMeters: nil)
+                                var families = Self.familyScores(c, latitude: lat, longitude: lon)
+                                // No answer from the live scorer: the point is unknown, not clear.
+                                guard let live = HazardFeedScores.liveChecked(at: pt, snapshot: liveSnapshot)
+                                else { return nil }
+                                families["fire"] = live.fire
+                                families["seismic"] = live.seismic
+                                let floodRealized = HazardFeedScores.floodGaugeScore(
+                                    prepared: preparedGauges, at: pt)
+                                families["qpf_flood"] = max(families["qpf_flood"] ?? 0, floodRealized)
+                                let (aqi, uv) = await LiveHazardFeedFetcher.shared.airAndUV(at: pt)
+                                if let aqi { families["air"] = HazardFeedScores.airScore(usAQI: aqi) }
+                                // Space weather from the snapshot; UV is per point.
+                                let uvRad = uv.map { HazardFeedScores.uvScore(index: $0) } ?? 0
+                                let radiation = max(live.spaceRadiation, uvRad)
+                                if radiation > 0 { families["radiation"] = radiation }
+                                if live.volcanic > 0 { families["volcanic"] = live.volcanic }
+                                if live.avalanche > 0 { families["avalanche"] = live.avalanche }
+                                if live.tropical > 0 { families["tropical"] = live.tropical }
+                                if live.tsunami > 0 { families["tsunami"] = live.tsunami }
+                                let spc = live.convective
+                                if spc > 0 {
+                                    families["convective"] = max(families["convective"] ?? 0, spc)
                                 }
-                            } else {
-                                kind = Self.dominantKind(c, latitude: lat, longitude: lon)
+                                // Keep the point if ANY family registers — the
+                                // family overlay needs it even when the blended
+                                // environmental score is quiet.
+                                guard score >= 0.25 || families.values.contains(where: { $0 >= 0.25 })
+                                else { return (pt, nil) }
+                                // Label the tappable symbol: a specific ACUTE hazard
+                                // (fire, tsunami, volcanic…) takes the icon at yellow+
+                                // over the blended forecast, since it's the distinct
+                                // danger a driver most needs named. Otherwise use the
+                                // forecast-dominant kind.
+                                // The WORST hazard here names the area, comparing
+                                // every family on the same footing — see
+                                // HazardStyle.dominantFamily. Storms and flooding
+                                // used to be excluded from naming entirely, so a
+                                // middling fire reading labelled a ZIP surrounded
+                                // by severe storms FIRE.
+                                // The blended "environmental" composite is not a
+                                // hazard: winning, it drew the generic triangle
+                                // on an ordinary day. The forecast fall-through
+                                // below names that case (heat, cold, wind, rain).
+                                var kind: HazardKind
+                                var iconFamily: String? = nil
+                                if let top = HazardStyle.dominantFamily(
+                                    families.filter { $0.key != "environmental" }) {
+                                    kind = HazardStyle.kind(forFamily: top)
+                                    iconFamily = top
+                                    // The qpf_flood family carries BOTH the gauge
+                                    // reading and plain rain probability. With no
+                                    // gauge near flood stage the score is only
+                                    // "it may rain", and calling that Flood puts a
+                                    // blue water badge over a dry ZIP.
+                                    if top == "qpf_flood", floodRealized < 0.45 {
+                                        kind = HazardStyle.rain
+                                    }
+                                } else {
+                                    kind = Self.dominantKind(c, latitude: lat, longitude: lon)
+                                }
+                                // A realized in-progress-danger WARNING here (Tornado,
+                                // Flash Flood…) names the icon — it's the danger.
+                                var iconNamedByAlert = false
+                                if let ev = alertEvent, alertSeverity >= 0.6,
+                                   let fam = RiskEquations.alertFamily(ev),
+                                   RiskEquations.primaryFamilies.contains(fam) {
+                                    kind = HazardStyle.kind(forEvent: ev)
+                                    iconNamedByAlert = true
+                                }
+                                // The BAND's driving-safety realized/predictor split,
+                                // separate from `families` (which merges rain
+                                // PROBABILITY into the Flood/Storm map filters):
+                                //   • realized primaries = the road is impassable or
+                                //     the driver is in direct danger (fire perimeter,
+                                //     gauge flood over the road, SPC severe storm,
+                                //     quake, tsunami…);
+                                //   • predictors = precip probability, FORECAST winter
+                                //     (snow prediction, not a blocked road), wind,
+                                //     heat, cold, haze, UV — amplify a realized
+                                //     primary, capped advisory alone.
+                                var bandInput: [String: Double] = [
+                                    "fire": families["fire"] ?? 0,
+                                    "qpf_flood": floodRealized,
+                                    "convective": spc,
+                                    "seismic": families["seismic"] ?? 0,
+                                    "tropical": families["tropical"] ?? 0,
+                                    "tsunami": families["tsunami"] ?? 0,
+                                    "volcanic": families["volcanic"] ?? 0,
+                                    "avalanche": families["avalanche"] ?? 0,
+                                    "wind": families["wind"] ?? 0,
+                                    "heat": families["heat"] ?? 0,
+                                    "cold": families["cold"] ?? 0,
+                                    "air": families["air"] ?? 0,
+                                    "radiation": families["radiation"] ?? 0,
+                                    "precip": c.popPercent.map(RiskEquations.popRisk(pct:)) ?? 0,
+                                    "winter": families["winter"] ?? 0,
+                                ]
+                                // Realized NWS alert at this point: an in-progress-
+                                // danger WARNING is a realized primary (Red-capable);
+                                // a watch/advisory classifies to a predictor.
+                                if let ev = alertEvent, let fam = RiskEquations.alertFamily(ev) {
+                                    bandInput[fam] = max(bandInput[fam] ?? 0, alertSeverity)
+                                }
+                                // DOT-reported closure = PROOF the road is blocked.
+                                let closed = HazardFeedScores.closureScore(prepared: preparedClosures, at: pt)
+                                if closed > 0 {
+                                    bandInput["closure"] = closed
+                                    families["closure"] = closed
+                                    // A closure is proof the road is blocked, but a Tornado Warning at
+                                    // the same point is the greater danger — the alert keeps the icon.
+                                    if closed >= 0.8, !iconNamedByAlert { kind = HazardStyle.closure }
+                                }
+                                // The icon came from the DISPLAY families, which merge
+                                // rain probability and forecast wind in with the real
+                                // hazards. When a realized primary (fire perimeter,
+                                // gauge flood, quake) is what makes this area serious,
+                                // it names the badge — not the predictor that happened
+                                // to score highest on the map-filter side.
+                                let iconIsPrimary = iconFamily.map {
+                                    RiskEquations.primaryFamilies.contains($0) } ?? false
+                                let worstPrimary = bandInput
+                                    .filter { RiskEquations.primaryFamilies.contains($0.key) }
+                                    .max { $0.value < $1.value }
+                                if !iconNamedByAlert, closed < 0.8, !iconIsPrimary,
+                                   let worst = worstPrimary,
+                                   worst.value >= FlowsCore.riskYellowMin {
+                                    kind = HazardStyle.kind(forFamily: worst.key)
+                                }
+                                return (pt, ViewportHazard(coordinate: pt,
+                                                           kind: kind,
+                                                           score: score,
+                                                           familyScores: families,
+                                                           bandInput: bandInput,
+                                                           alertEvent: alertEvent))
                             }
-                            // A realized in-progress-danger WARNING here (Tornado,
-                            // Flash Flood…) names the icon — it's the danger.
-                            var iconNamedByAlert = false
-                            if let ev = alertEvent, alertSeverity >= 0.6,
-                               let fam = RiskEquations.alertFamily(ev),
-                               RiskEquations.primaryFamilies.contains(fam) {
-                                kind = HazardStyle.kind(forEvent: ev)
-                                iconNamedByAlert = true
-                            }
-                            // The BAND's driving-safety realized/predictor split,
-                            // separate from `families` (which merges rain
-                            // PROBABILITY into the Flood/Storm map filters):
-                            //   • realized primaries = the road is impassable or
-                            //     the driver is in direct danger (fire perimeter,
-                            //     gauge flood over the road, SPC severe storm,
-                            //     quake, tsunami…);
-                            //   • predictors = precip probability, FORECAST winter
-                            //     (snow prediction, not a blocked road), wind,
-                            //     heat, cold, haze, UV — amplify a realized
-                            //     primary, capped advisory alone.
-                            var bandInput: [String: Double] = [
-                                "fire": families["fire"] ?? 0,
-                                "qpf_flood": floodRealized,
-                                "convective": spc,
-                                "seismic": families["seismic"] ?? 0,
-                                "tropical": families["tropical"] ?? 0,
-                                "tsunami": families["tsunami"] ?? 0,
-                                "volcanic": families["volcanic"] ?? 0,
-                                "avalanche": families["avalanche"] ?? 0,
-                                "wind": families["wind"] ?? 0,
-                                "heat": families["heat"] ?? 0,
-                                "cold": families["cold"] ?? 0,
-                                "air": families["air"] ?? 0,
-                                "radiation": families["radiation"] ?? 0,
-                                "precip": c.popPercent.map(RiskEquations.popRisk(pct:)) ?? 0,
-                                "winter": families["winter"] ?? 0,
-                            ]
-                            // Realized NWS alert at this point: an in-progress-
-                            // danger WARNING is a realized primary (Red-capable);
-                            // a watch/advisory classifies to a predictor.
-                            if let ev = alertEvent, let fam = RiskEquations.alertFamily(ev) {
-                                bandInput[fam] = max(bandInput[fam] ?? 0, alertSeverity)
-                            }
-                            // DOT-reported closure = PROOF the road is blocked.
-                            let closed = HazardFeedScores.closureScore(prepared: preparedClosures, at: pt)
-                            if closed > 0 {
-                                bandInput["closure"] = closed
-                                families["closure"] = closed
-                                // A closure is proof the road is blocked, but a Tornado Warning at
-                                // the same point is the greater danger — the alert keeps the icon.
-                                if closed >= 0.8, !iconNamedByAlert { kind = HazardStyle.closure }
-                            }
-                            // The icon came from the DISPLAY families, which merge
-                            // rain probability and forecast wind in with the real
-                            // hazards. When a realized primary (fire perimeter,
-                            // gauge flood, quake) is what makes this area serious,
-                            // it names the badge — not the predictor that happened
-                            // to score highest on the map-filter side.
-                            let iconIsPrimary = iconFamily.map {
-                                RiskEquations.primaryFamilies.contains($0) } ?? false
-                            let worstPrimary = bandInput
-                                .filter { RiskEquations.primaryFamilies.contains($0.key) }
-                                .max { $0.value < $1.value }
-                            if !iconNamedByAlert, closed < 0.8, !iconIsPrimary,
-                               let worst = worstPrimary,
-                               worst.value >= FlowsCore.riskYellowMin {
-                                kind = HazardStyle.kind(forFamily: worst.key)
-                            }
-                            return (pt, ViewportHazard(coordinate: pt,
-                                                       kind: kind,
-                                                       score: score,
-                                                       familyScores: families,
-                                                       bandInput: bandInput,
-                                                       alertEvent: alertEvent))
+                        }
+                    }
+                    let shownNow: [String: Double] = early
+                        ? Dictionary(viewportHazards.map {
+                            ("\(Int($0.coordinate.latitude * 50))|\(Int($0.coordinate.longitude * 50))", $0.realized)
+                        }, uniquingKeysWith: max)
+                        : [:]
+                    for await result in group {
+                        guard let (pt, hz) = result else { continue }
+                        // The first pass only adds (see above), and never puts a
+                        // lower reading over one the full feeds gave last time.
+                        if early {
+                            guard let hz else { continue }
+                            let spot = "\(Int(pt.latitude * 50))|\(Int(pt.longitude * 50))"
+                            if let shown = shownNow[spot], shown >= hz.realized { continue }
+                        }
+                        sampled.append(pt)
+                        if let hz { found.append(hz) }
+                    }
+                }
+                if Task.isCancelled { return }   // superseded sweep: stop before committing
+                // The alert lookup failed: its zeros are "not known", not "no
+                // warning". A point shown under a warning keeps that reading
+                // (until it ages out) instead of dropping to the forecast alone.
+                if !alertSweep.complete {
+                    func spot(_ c: CLLocationCoordinate2D) -> String {
+                        "\(Int(c.latitude * 50))|\(Int(c.longitude * 50))"
+                    }
+                    let warned = Set(viewportHazards.filter { $0.alertEvent != nil }
+                        .map { spot($0.coordinate) })
+                    if !warned.isEmpty {
+                        sampled.removeAll { warned.contains(spot($0)) }
+                        found.removeAll { warned.contains(spot($0.coordinate)) }
+                    }
+                }
+                // No conditions at all means the fetches failed (offline, NWS
+                // outage) — un-pin the debounce key so the next camera settle
+                // retries instead of showing stale/empty hazards forever. A sweep
+                // that came back all quiet goes on, and clears the map.
+                if sampled.isEmpty {
+                    if early { continue }
+                    viewportHazardKey = ""
+                    ageOutViewportHazards()
+                    return
+                }
+                // Ring fetching below walks this — found PLUS the kept carryover
+                // points, so a rain point surviving from the last sweep keeps its
+                // ZIP ring (and its centered badge) instead of aging out.
+                var merged = found
+                if viewportHazardKey == key {
+                    // Merge, don't replace: the new sweep's box is offset from
+                    // the old one, and wholesale replacement blinked away icons
+                    // (rain) that were still inside the visible region.
+                    // A point this sweep read replaces the old one even when it
+                    // came back quiet — keyed on `found` alone, a cleared hazard
+                    // stayed for as long as the view did. A point it tried and
+                    // failed keeps its old reading; one the grid no longer covers
+                    // (after a pan) keeps it until a re-sweep would have renewed it.
+                    func gridKey(_ c: CLLocationCoordinate2D) -> String {
+                        "\(Int(c.latitude * 50))|\(Int(c.longitude * 50))"
+                    }
+                    let readKeys = Set(sampled.map(gridKey))
+                    let triedKeys = Set(gridPts.map(gridKey))
+                    let now = Date()
+                    let kept = viewportHazards.filter { hz in
+                        let key = gridKey(hz.coordinate)
+                        guard !readKeys.contains(key) else { return false }
+                        guard triedKeys.contains(key)
+                            || now.timeIntervalSince(hz.sampledAt) < Self.viewportResweepSeconds
+                        else { return false }
+                        let r = region
+                        return abs(hz.coordinate.latitude - r.center.latitude) < r.span.latitudeDelta / 2
+                            && abs(hz.coordinate.longitude - r.center.longitude) < r.span.longitudeDelta / 2
+                    }
+                    viewportHazards = found + kept
+                    merged = viewportHazards
+                    // Once per sweep, not per render: the areas and their icons
+                    // (one per area, from the areas themselves). This sweep's ZIP
+                    // outlines are looked up below, so no placeholder circles yet
+                    // for US points new to the map.
+                    let sp = flowsSignposter.beginInterval("badge-sweep")
+                    rebuildRiskOverlays(ringsResolved: false)
+                    flowsSignposter.endInterval("badge-sweep", sp)
+                }
+                // Real ZIP borders for elevated US points (Census TIGERweb) —
+                // the overlay outlines the actual affected ZCTA, sized by the
+                // risk's true footprint, not a synthetic shape.
+                // MERGE rather than replace: ZCTA rings stay pinned to their
+                // ZIPs across grid refreshes instead of shifting with resampling
+                // (the "cold areas keep moving" complaint). Rings whose ZIP no
+                // longer has any elevated point age out.
+                var rings = zctaRings
+                var liveCodes = Set<String>()
+                var placed = zipOfPoint
+                var lookups = 0
+                // Every elevated point gets a real ZIP boundary (ZCTAFetcher caches
+                // by cell, and the lattice re-reads the same points, so repeat
+                // sweeps are nearly free) — risk areas draw as actual ZIP shapes,
+                // with circles only where there is no ZIP. Same floor as the
+                // icons: striped AREAS are the map's loudest element and must not
+                // paint for clear-band scores.
+                let ranked = merged
+                    .filter({ $0.realized >= model.riskDisplayFloor })
+                    .sorted(by: { $0.realized > $1.realized })
+                // Worst first, at most 48 lookups a sweep; past the cap, a
+                // point an earlier sweep placed keeps its ZIP rather than
+                // dropping it — the "ZIPs come and go" flicker.
+                var wanted: [(id: String, at: CLLocationCoordinate2D)] = []
+                for hz in ranked where lookups < 48 {
+                    if rings[placed[hz.id] ?? ""] == nil || placed[hz.id] == nil {
+                        lookups += 1
+                        wanted.append((hz.id, hz.coordinate))
+                    }
+                }
+                // Six at a time: one after another, a storm region new to the
+                // map stayed blank for up to 48 round trips.
+                var next = 0
+                while next < wanted.count {
+                    if Task.isCancelled { return }   // superseded: skip remaining fetches
+                    let batch = wanted[next..<min(next + 6, wanted.count)]
+                    next += 6
+                    await withTaskGroup(of: (String, ZCTAFetcher.ZCTA?).self) { group in
+                        for point in batch {
+                            let id = point.id, at = point.at
+                            group.addTask { (id, await ZCTAFetcher.shared.zcta(containing: at)) }
+                        }
+                        for await (id, z) in group {
+                            guard let z else { continue }
+                            rings[z.code] = z.ring
+                            placed[id] = z.code
                         }
                     }
                 }
-                for await result in group {
-                    guard let (pt, hz) = result else { continue }
-                    sampled.append(pt)
-                    if let hz { found.append(hz) }
+                // A lookup still loading (or failed) keeps what the last one
+                // found.
+                for hz in ranked {
+                    if let code = placed[hz.id], rings[code] != nil { liveCodes.insert(code) }
                 }
-            }
-            if Task.isCancelled { return }   // superseded sweep: stop before committing
-            // The alert lookup failed: its zeros are "not known", not "no
-            // warning". A point shown under a warning keeps that reading
-            // (until it ages out) instead of dropping to the forecast alone.
-            if !alertSweep.complete {
-                func spot(_ c: CLLocationCoordinate2D) -> String {
-                    "\(Int(c.latitude * 50))|\(Int(c.longitude * 50))"
+                rings = rings.filter { liveCodes.contains($0.key) }
+                if viewportHazardKey == key {
+                    zctaRings = rings
+                    // Only points still on the map are remembered.
+                    let onMap = Set(merged.map(\.id))
+                    zipOfPoint = placed.filter { onMap.contains($0.key) }
+                    // The areas, and one icon per area from them.
+                    rebuildRiskOverlays(ringsResolved: true)
                 }
-                let warned = Set(viewportHazards.filter { $0.alertEvent != nil }
-                    .map { spot($0.coordinate) })
-                if !warned.isEmpty {
-                    sampled.removeAll { warned.contains(spot($0)) }
-                    found.removeAll { warned.contains(spot($0.coordinate)) }
-                }
-            }
-            // No conditions at all means the fetches failed (offline, NWS
-            // outage) — un-pin the debounce key so the next camera settle
-            // retries instead of showing stale/empty hazards forever. A sweep
-            // that came back all quiet goes on, and clears the map.
-            if sampled.isEmpty {
-                viewportHazardKey = ""
-                ageOutViewportHazards()
-                return
-            }
-            // Ring fetching below walks this — found PLUS the kept carryover
-            // points, so a rain point surviving from the last sweep keeps its
-            // ZIP ring (and its centered badge) instead of aging out.
-            var merged = found
-            if viewportHazardKey == key {
-                // Merge, don't replace: the new sweep's box is offset from
-                // the old one, and wholesale replacement blinked away icons
-                // (rain) that were still inside the visible region.
-                // A point this sweep read replaces the old one even when it
-                // came back quiet — keyed on `found` alone, a cleared hazard
-                // stayed for as long as the view did. A point it tried and
-                // failed keeps its old reading; one the grid no longer covers
-                // (after a pan) keeps it until a re-sweep would have renewed it.
-                func gridKey(_ c: CLLocationCoordinate2D) -> String {
-                    "\(Int(c.latitude * 50))|\(Int(c.longitude * 50))"
-                }
-                let readKeys = Set(sampled.map(gridKey))
-                let triedKeys = Set(gridPts.map(gridKey))
-                let now = Date()
-                let kept = viewportHazards.filter { hz in
-                    let key = gridKey(hz.coordinate)
-                    guard !readKeys.contains(key) else { return false }
-                    guard triedKeys.contains(key)
-                        || now.timeIntervalSince(hz.sampledAt) < Self.viewportResweepSeconds
-                    else { return false }
-                    let r = region
-                    return abs(hz.coordinate.latitude - r.center.latitude) < r.span.latitudeDelta / 2
-                        && abs(hz.coordinate.longitude - r.center.longitude) < r.span.longitudeDelta / 2
-                }
-                viewportHazards = found + kept
-                merged = viewportHazards
-                // Once per sweep, not per render: the areas and their icons
-                // (one per area, from the areas themselves). This sweep's ZIP
-                // outlines are looked up below, so no placeholder circles yet
-                // for US points new to the map.
-                let sp = flowsSignposter.beginInterval("badge-sweep")
-                rebuildRiskOverlays(ringsResolved: false)
-                flowsSignposter.endInterval("badge-sweep", sp)
-            }
-            // Real ZIP borders for elevated US points (Census TIGERweb) —
-            // the overlay outlines the actual affected ZCTA, sized by the
-            // risk's true footprint, not a synthetic shape.
-            // MERGE rather than replace: ZCTA rings stay pinned to their
-            // ZIPs across grid refreshes instead of shifting with resampling
-            // (the "cold areas keep moving" complaint). Rings whose ZIP no
-            // longer has any elevated point age out.
-            var rings = zctaRings
-            var liveCodes = Set<String>()
-            var placed = zipOfPoint
-            var lookups = 0
-            // Every elevated point gets a real ZIP boundary (ZCTAFetcher caches
-            // by cell, and the lattice re-reads the same points, so repeat
-            // sweeps are nearly free) — risk areas draw as actual ZIP shapes,
-            // with circles only where there is no ZIP. Same floor as the
-            // icons: striped AREAS are the map's loudest element and must not
-            // paint for clear-band scores.
-            let ranked = merged
-                .filter({ $0.realized >= model.riskDisplayFloor })
-                .sorted(by: { $0.realized > $1.realized })
-            // Worst first, at most 48 lookups a sweep; past the cap, a
-            // point an earlier sweep placed keeps its ZIP rather than
-            // dropping it — the "ZIPs come and go" flicker.
-            var wanted: [(id: String, at: CLLocationCoordinate2D)] = []
-            for hz in ranked where lookups < 48 {
-                if rings[placed[hz.id] ?? ""] == nil || placed[hz.id] == nil {
-                    lookups += 1
-                    wanted.append((hz.id, hz.coordinate))
-                }
-            }
-            // Six at a time: one after another, a storm region new to the
-            // map stayed blank for up to 48 round trips.
-            var next = 0
-            while next < wanted.count {
-                if Task.isCancelled { return }   // superseded: skip remaining fetches
-                let batch = wanted[next..<min(next + 6, wanted.count)]
-                next += 6
-                await withTaskGroup(of: (String, ZCTAFetcher.ZCTA?).self) { group in
-                    for point in batch {
-                        let id = point.id, at = point.at
-                        group.addTask { (id, await ZCTAFetcher.shared.zcta(containing: at)) }
-                    }
-                    for await (id, z) in group {
-                        guard let z else { continue }
-                        rings[z.code] = z.ring
-                        placed[id] = z.code
-                    }
-                }
-            }
-            // A lookup still loading (or failed) keeps what the last one
-            // found.
-            for hz in ranked {
-                if let code = placed[hz.id], rings[code] != nil { liveCodes.insert(code) }
-            }
-            rings = rings.filter { liveCodes.contains($0.key) }
-            if viewportHazardKey == key {
-                zctaRings = rings
-                // Only points still on the map are remembered.
-                let onMap = Set(merged.map(\.id))
-                zipOfPoint = placed.filter { onMap.contains($0.key) }
-                // The areas, and one icon per area from them.
-                rebuildRiskOverlays(ringsResolved: true)
             }
           }
         }
@@ -1950,17 +2004,26 @@ struct ContentView: View {
             let reported = VehicleTrack.heading(courseDegrees: fix.course,
                                                 speedMps: max(fix.speed, 0),
                                                 previous: drawnHeading)
+            // Written only when they move: a write redraws the map's layers,
+            // and standing at a light sends the same fix each second.
+            let heading: Double?
             if let reported, let current = drawnHeading {
-                drawnHeading = VehicleTrack.easedHeading(from: current,
-                                                         to: reported,
-                                                         fraction: 0.45)
+                heading = VehicleTrack.easedHeading(from: current,
+                                                    to: reported,
+                                                    fraction: 0.45)
             } else {
-                drawnHeading = reported
+                heading = reported
+            }
+            if heading.map({ h in drawnHeading.map { abs($0 - h) > 0.05 } ?? true })
+                ?? (drawnHeading != nil) {
+                drawnHeading = heading
             }
             guard let previous = drawnFix else {
                 drawnFix = fix.coordinate
                 return
             }
+            if CLLocation(latitude: previous.latitude, longitude: previous.longitude)
+                .distance(from: fix) < 0.3 { return }
             if VehicleTrack.shouldAnimate(from: previous, to: fix.coordinate) {
                 withAnimation(.linear(duration: VehicleTrack.slideSeconds(gap: gap))) {
                     drawnFix = fix.coordinate
@@ -3081,6 +3144,12 @@ struct SettingsPanelCard: View {
     }
 }
 #endif
+
+/// Set on the main actor when the sweep's slow feeds have all come in.
+@MainActor
+final class SweepFlag {
+    var done = false
+}
 
 /// Reference box for the measured chrome cover: the camera reads it when a
 /// guidance update arrives, and writing it must not redraw the map.

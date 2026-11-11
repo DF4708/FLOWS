@@ -450,12 +450,24 @@ actor RequestGate {
     /// and safety window still backstop the shared instance.
     nonisolated func withPlanningBurst<T>(_ op: @MainActor () async -> T) async -> T {
         await beginPlanningBurst()
-        let out = await op()
+        let out = await Self.$insidePlanningBurst.withValue(true) { await op() }
         await endPlanningBurst()
         return out
     }
 
+    /// True in the task that runs a planning burst, and in the tasks it
+    /// starts. The safety window used to run from the burst's start alone,
+    /// so a plan longer than the window (a long corridor on a slow link)
+    /// fell back to the background pace partway through, with the driver
+    /// still watching the spinner. A request made from inside the burst
+    /// now moves the window on: it is proof the plan is still working. A
+    /// leaked burst makes no such request, so it still runs out.
+    @TaskLocal static var insidePlanningBurst = false
+
     private func acquire(low: Bool) async {
+        if Self.insidePlanningBurst, burstDepth > 0 {
+            burstExpiry = max(burstExpiry, Date().addingTimeInterval(burstSafetyWindow))
+        }
         if active < ceiling, !low || waiters.isEmpty {
             active += 1
             return
