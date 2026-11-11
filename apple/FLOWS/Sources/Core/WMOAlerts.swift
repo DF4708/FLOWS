@@ -241,7 +241,7 @@ enum WMOAlertParsing {
         // none of them the wind or the sea, and no comma.
         let heavy = #"(?:muy fuertes?|intensas?|torrencial(?:es)?|extraordinarias?)"#
         let rainWord = #"(?:lluvias?|precipitacion(?:es)?|chubascos?|aguaceros?)"#
-        let other = #"(?!vientos?\b|rachas?\b|oleaje\b|olas\b|mar\b)[a-z]+"#
+        let other = #"(?!sin\b|vientos?\b|rachas?\b|oleaje\b|olas\b|mar\b)[a-z]+"#
         // "Sin lluvias intensas" says there is none: only that one plain
         // "sin" right before the phrase is read as a no. Anything less
         // plain ("no solo lluvias intensas") still counts as heavy.
