@@ -748,31 +748,11 @@ final class RouteService: ObservableObject {
     nonisolated static func steepMarkers(
         of polyline: MKPolyline, profile: [GradeSegment]
     ) -> [(coordinate: CLLocationCoordinate2D, gradePercent: Double)] {
-        let n = polyline.pointCount
-        guard n > 1, !profile.isEmpty else { return [] }
+        guard polyline.pointCount > 1, !profile.isEmpty else { return [] }
         let coords = polyline.coordinateList
-        var prefix = [Double](repeating: 0, count: n)
-        for i in 1..<n { prefix[i] = prefix[i - 1] + POIRanking.meters(coords[i - 1], coords[i]) }
-
-        // First vertex index whose cumulative distance reaches `target`.
-        func firstIndex(atOrAbove target: Double) -> Int {
-            var lo = 0
-            var hi = n
-            while lo < hi {
-                let mid = (lo + hi) / 2
-                if prefix[mid] >= target { hi = mid } else { lo = mid + 1 }
-            }
-            return lo
+        return LegGeometry.steepMarkerIndices(coords, profile: profile).map {
+            (coords[$0.index], $0.gradePercent)
         }
-
-        var markers: [(coordinate: CLLocationCoordinate2D, gradePercent: Double)] = []
-        for seg in profile where abs(seg.gradePercent) >= 6 {
-            if markers.count >= 12 { break }
-            let target = (seg.startMile + seg.endMile) / 2 * 1609.344
-            let i = min(max(firstIndex(atOrAbove: target), 1), n - 1)
-            markers.append((coords[i], seg.gradePercent))
-        }
-        return markers
     }
 
     /// Sample coordinates along a polyline roughly every `everyMeters`.
@@ -786,27 +766,16 @@ final class RouteService: ObservableObject {
     nonisolated static func halves(_ coords: [CLLocationCoordinate2D])
         -> (first: [CLLocationCoordinate2D], second: [CLLocationCoordinate2D])
     {
-        guard coords.count >= 2 else { return (coords, coords) }
-        var total = 0.0
-        for i in 1..<coords.count { total += POIRanking.meters(coords[i - 1], coords[i]) }
-        let half = total / 2
-        var walked = 0.0
-        for i in 1..<coords.count {
-            let hop = POIRanking.meters(coords[i - 1], coords[i])
-            if walked + hop >= half {
-                let t = hop > 0 ? (half - walked) / hop : 0
-                let mid = CLLocationCoordinate2D(
-                    latitude: coords[i - 1].latitude
-                        + (coords[i].latitude - coords[i - 1].latitude) * t,
-                    longitude: coords[i - 1].longitude
-                        + (coords[i].longitude - coords[i - 1].longitude) * t)
-                return (Array(coords[0..<i]) + [mid], [mid] + Array(coords[i...]))
-            }
-            walked += hop
+        switch LegGeometry.cut(coords) {
+        case .whole:
+            return (coords, coords)
+        case .between(let before, let midLatitude, let midLongitude):
+            let mid = CLLocationCoordinate2D(latitude: midLatitude, longitude: midLongitude)
+            return (Array(coords[0..<before]) + [mid], [mid] + Array(coords[before...]))
+        case .at(let cut):
+            // Every hop was zero length (a path standing still): halve the points.
+            return (Array(coords[0...cut]), Array(coords[cut...]))
         }
-        // Every hop was zero length (a path standing still): halve the points.
-        let cut = coords.count / 2
-        return (Array(coords[0...cut]), Array(coords[cut...]))
     }
 
     nonisolated static func samplePoints(
@@ -827,31 +796,17 @@ final class RouteService: ObservableObject {
         let n = polyline.pointCount
         guard n > 0 else { return ([], []) }
         let coords = polyline.coordinateList
+        guard let last = coords.last else { return ([], []) }
         var samples: [CLLocationCoordinate2D] = [coords[0]]
         var segments: [[CLLocationCoordinate2D]] = []
-        var current: [CLLocationCoordinate2D] = [coords[0]]
-        var sinceLast: CLLocationDistance = 0
-        for i in 1..<n {
-            // POIRanking.meters, not CLLocation.distance: this loop walks
-            // every vertex of the polyline (~30k on a long route) and is run
-            // several times per route — the CLLocation pair here was two heap
-            // objects per vertex. The equirectangular error (<0.1% at vertex
-            // hop lengths) only shifts a sample boundary against the 40 km
-            // threshold by at most one vertex.
-            sinceLast += POIRanking.meters(coords[i - 1], coords[i])
-            current.append(coords[i])
-            if sinceLast >= everyMeters {
-                samples.append(coords[i])
-                segments.append(current)
-                current = [coords[i]]
-                sinceLast = 0
-            }
+        var from = 0
+        for cut in LegGeometry.checkPointIndices(coords, everyMeters: everyMeters) {
+            samples.append(coords[cut])
+            segments.append(Array(coords[from...cut]))
+            from = cut
         }
-        if let last = coords.last {
-            samples.append(last)  // preserved duplicate-tail semantics
-            current.append(last)
-            segments.append(current)
-        }
+        samples.append(last)  // preserved duplicate-tail semantics
+        segments.append(Array(coords[from...]) + [last])
         return (samples, segments)
     }
 }

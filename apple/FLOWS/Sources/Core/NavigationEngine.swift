@@ -67,9 +67,8 @@ final class NavigationEngine: ObservableObject {
     private var cancellable: AnyCancellable?
 
     // Route geometry, flattened once at start (not per fix).
-    private var points: [CLLocationCoordinate2D] = []
-    private var cumulative: [CLLocationDistance] = []  // meters from origin to points[i]
-    private var stepEndIndex: [Int] = []  // index into points at each step's end
+    // Points, meters to each and step ends, with the rules that read them.
+    private var leg = LegGeometry(steps: [])
     private var stepInstructions: [String] = []
     private var currentStep = 0
     private var offRouteFixes = 0
@@ -140,12 +139,7 @@ final class NavigationEngine: ObservableObject {
     /// the far end of the local window a walking-estimate refresh routes to.
     /// Uses the cached nearest-index so it's O(window), not a full scan.
     func coordinateAhead(meters: CLLocationDistance) -> CLLocationCoordinate2D? {
-        guard !points.isEmpty, lastNearestIndex < cumulative.count else { return nil }
-        let target = cumulative[lastNearestIndex] + meters
-        for i in lastNearestIndex..<cumulative.count where cumulative[i] >= target {
-            return points[i]
-        }
-        return points.last
+        leg.ahead(from: lastNearestIndex, meters: meters).map { leg.points[$0] }
     }
 
     // MARK: per-fix update — the time-sensitive loop
@@ -157,31 +151,12 @@ final class NavigationEngine: ObservableObject {
     private var lastNearestIndex = 0
 
     private func advance(with fix: CLLocation) {
-        guard route != nil, !points.isEmpty else { return }
-
         // Windowed nearest-point match (allocation-free equirectangular math);
         // full rescan only when the window loses the vehicle (rejoin, jump).
-        func scan(_ range: Range<Int>) -> (idx: Int, dist: CLLocationDistance) {
-            var bestI = range.lowerBound
-            var bestD = CLLocationDistance.greatestFiniteMagnitude
-            for i in range {
-                let d = POIRanking.meters(points[i], fix.coordinate)
-                if d < bestD {
-                    bestD = d
-                    bestI = i
-                }
-            }
-            return (bestI, bestD)
-        }
-        // Clamp lo so lo <= hi always holds — defense in depth against a
-        // stale index outliving a route swap (forming lo..<hi with lo > hi
-        // traps). The reroute path resets the index, this guards the rest.
-        let hi = min(lastNearestIndex + 80, points.count)
-        let lo = min(max(lastNearestIndex - 12, 0), hi)
-        var (nearest, nearestDist) = scan(lo..<hi)
-        if nearestDist > 250 {  // window lost the vehicle → one full rescan
-            (nearest, nearestDist) = scan(0..<points.count)
-        }
+        guard route != nil,
+            let (nearest, nearestDist) = leg.match(last: lastNearestIndex, fix: fix.coordinate),
+            let progress = leg.progress(nearest: nearest, step: currentStep)
+        else { return }
         lastNearestIndex = nearest
         metersFromCorridor = nearestDist
 
@@ -194,24 +169,19 @@ final class NavigationEngine: ObservableObject {
         }
 
         // Advance instruction step when we pass its end point.
-        while currentStep < stepEndIndex.count - 1 && nearest >= stepEndIndex[currentStep] {
-            currentStep += 1
-        }
-
-        let maneuverIdx = stepEndIndex[min(currentStep, stepEndIndex.count - 1)]
-        let distToManeuver = max(cumulative[maneuverIdx] - cumulative[nearest], 0)
-        let remaining = max(cumulative.last! - cumulative[nearest], 0)
-        let fraction = cumulative.last! > 0 ? remaining / cumulative.last! : 0
+        currentStep = progress.step
+        let distToManeuver = progress.toManeuver
+        let remaining = progress.remaining
 
         guidance = Guidance(
             instruction: stepInstructions[min(currentStep, stepInstructions.count - 1)],
             distanceToManeuver: distToManeuver,
             stepIndex: currentStep,
-            alongMeters: cumulative[nearest],
+            alongMeters: progress.along,
             remainingDistance: remaining,
-            remainingTime: (route?.eta ?? 0) * fraction,
+            remainingTime: (route?.eta ?? 0) * progress.fractionLeft,
             cameraAltitude: cameraAltitude(
-                nearestIndex: nearest,
+                stepSpacing: progress.stepSpacing,
                 distToManeuver: distToManeuver,
                 speed: location.speed),
             isOffRoute: offRouteFixes >= 3
@@ -224,7 +194,7 @@ final class NavigationEngine: ObservableObject {
             // not merely when the along-route `remaining` (from a possibly-wrong
             // `nearest`) says so — otherwise the multi-leg onArrival chain could
             // fire while the driver is still far out.
-            let dest = points.last!
+            guard let dest = leg.points.last else { return }
             let destDist = fix.distance(
                 from: CLLocation(
                     latitude: dest.latitude, longitude: dest.longitude))
@@ -241,14 +211,11 @@ final class NavigationEngine: ObservableObject {
     /// City blocks read close, highway stretches read far, walking pins to
     /// the close-in view.
     private func cameraAltitude(
-        nearestIndex: Int, distToManeuver: CLLocationDistance, speed: Double
+        stepSpacing: CLLocationDistance, distToManeuver: CLLocationDistance, speed: Double
     ) -> Double {
         if isWalkingRoute { return CameraZoom.walkingAltitude }
-        let stepIdx = min(currentStep, stepEndIndex.count - 1)
-        let stepStart = stepIdx == 0 ? 0 : stepEndIndex[stepIdx - 1]
-        let spacing = cumulative[stepEndIndex[stepIdx]] - cumulative[stepStart]
         return CameraZoom.drivingAltitude(
-            intersectionSpacingMeters: spacing,
+            intersectionSpacingMeters: stepSpacing,
             distanceToManeuverMeters: distToManeuver,
             speedMps: speed)
     }
@@ -265,7 +232,7 @@ final class NavigationEngine: ObservableObject {
 
     private func rerouteFailed() {
         rerouteFailures += 1
-        let wait = min(15 * pow(2, Double(rerouteFailures - 1)), 120)
+        let wait = LegGeometry.rerouteWait(failures: rerouteFailures)
         nextRerouteAt = Date().addingTimeInterval(wait)
     }
 
@@ -273,7 +240,7 @@ final class NavigationEngine: ObservableObject {
         // Not after arrival: circling the lot or GPS drift indoors would
         // start a fresh leg and fire arrival a second time.
         guard !isRerouting, !arrivalFired, let current = route,
-            let destination = points.last,
+            let destination = leg.points.last,
             Date() >= nextRerouteAt
         else { return }
         isRerouting = true
@@ -348,29 +315,16 @@ final class NavigationEngine: ObservableObject {
     // MARK: geometry prep
 
     private func flatten(route: MKRoute) {
-        points = []
-        cumulative = []
-        stepEndIndex = []
         stepInstructions = []
-
-        var running: CLLocationDistance = 0
-        var prev: CLLocationCoordinate2D?
+        var steps: [[CLLocationCoordinate2D]] = []
         for step in route.steps {
             let poly = step.polyline
-            let n = poly.pointCount
-            guard n > 0 else { continue }
             let coords = poly.coordinateList
-            for c in coords {
-                // Allocation-free hop distance — this walks every vertex of
-                // the whole route at leg start.
-                if let p = prev { running += POIRanking.meters(p, c) }
-                points.append(c)
-                cumulative.append(running)
-                prev = c
-            }
-            stepEndIndex.append(points.count - 1)
+            guard !coords.isEmpty else { continue }
+            steps.append(coords)
             stepInstructions.append(step.instructions.isEmpty ? "Continue" : step.instructions)
         }
+        leg = LegGeometry(steps: steps)
     }
 
     /// MKRoute's first step is often an empty-instruction "depart" stub.
