@@ -937,7 +937,8 @@ final class WeatherAlertService: ObservableObject {
         }
         // Route pace for time-aware scoring while driving: window sample i
         // is ~i*spacing ahead of the vehicle.
-        let secondsPerMeter = route.eta / max(route.distanceMeters, 1)
+        let secondsPerMeter = CorridorWatchRules.secondsPerMeter(
+            eta: route.eta, distanceMeters: route.distanceMeters)
         watchTask = Task { [weak self] in
             while !Task.isCancelled {
                 guard let self else { return }
@@ -947,26 +948,17 @@ final class WeatherAlertService: ObservableObject {
                         cadence: 240
                     )
                 // Sample i sits ~i*spacing along the route; slice the window.
-                // Clamp in Double first — review finding: Int(4.5e303)
-                // traps when lookahead is .greatestFiniteMagnitude.
-                let maxIdx = Double(allSamples.count - 1)
-                let lo = Int(min(max(w.along / spacing, 0), maxIdx))
-                let hi = Int(min(max((w.along + w.lookahead) / spacing + 1, 0), maxIdx))
-                let windowed = lo <= hi ? Array(allSamples[lo...hi]) : allSamples
+                let slice = CorridorWatchRules.slice(
+                    count: allSamples.count, spacing: spacing, along: w.along,
+                    lookahead: w.lookahead, secondsPerMeter: secondsPerMeter)
+                let (lo, hi) = (slice.lo, slice.hi)
+                let windowed = slice.ranged ? Array(allSamples[lo...hi]) : allSamples
                 // Gap g runs from sample g to g+1, so the window keeps lo..<hi.
                 let windowedBetween: [[CLLocationCoordinate2D]]? = allBetween.map {
-                    lo <= hi && hi <= $0.count ? Array($0[lo..<hi]) : $0
+                    slice.ranged && hi <= $0.count ? Array($0[lo..<hi]) : $0
                 }
-                // Offsets are time-to-reach from the VEHICLE, not the window
-                // start: windowed[i] is at (lo+i)*spacing along the route while
-                // the vehicle is at w.along. Measuring from windowed[0]
-                // overstated every offset by up to a full lookahead (~25 min),
-                // discounting alerts that expire in that window as if the
-                // driver arrived far later than they will.
-                let base = lo <= hi ? Double(lo) * spacing : 0
-                let offsets = (0..<windowed.count).map {
-                    max(0, (base + Double($0) * spacing - w.along) * secondsPerMeter)
-                }
+                // Time-to-reach from the VEHICLE, one per windowed sample.
+                let offsets = slice.offsets
                 let score = await self.corridorRisk(
                     at: windowed, arrivalOffsets: offsets, between: windowedBetween)
                 // A leg swap cancels this task, but the awaited cell fetches

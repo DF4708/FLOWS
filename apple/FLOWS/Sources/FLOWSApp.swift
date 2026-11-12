@@ -1909,10 +1909,8 @@ final class AppModel: ObservableObject {
     /// processed while navigating.
     private func watchWindow() -> (along: Double, lookahead: Double, cadence: Double) {
         let along = navigation.guidance?.alongMeters ?? 0
-        let speed = location.speed
-        let lookahead = min(max(speed * 1800, 5_000), 150_000)
-        let cadence: Double = speed > 20 ? 120 : (speed > 3 ? 180 : 300)
-        return (along, lookahead, cadence)
+        let w = CorridorWatchRules.window(speed: location.speed)
+        return (along, w.lookahead, w.cadence)
     }
 
     /// Escalating-risk prompt during navigation, awaiting driver approval.
@@ -2314,9 +2312,7 @@ final class AppModel: ObservableObject {
         // Judge the route by the roads it's actually made of: a highway run
         // reads the pooled highway learning, a cross-town errand reads this
         // neighbourhood's own.
-        let avgMph =
-            route.eta > 0
-            ? (route.distanceMeters / 1609.344) / (route.eta / 3600) : 30
+        let avgMph = CorridorWatchRules.averageMph(distanceMeters: route.distanceMeters, eta: route.eta)
         return route.eta
             * trafficModel.factor(
                 area: location.coordinate.map(TrafficArea.init) ?? .pooled,
@@ -5603,7 +5599,8 @@ final class AppModel: ObservableObject {
             closures: HazardFeedScores.PreparedPoints(tripClosures), live: tripLive)
         let liveUnchecked = watch.liveUnchecked
         let sampleRisks = watch.risks
-        let peakR = sampleRisks.max() ?? 0
+        let reading = CorridorWatchRules.reading(sampleRisks)
+        let peakR = reading.peak
         // The DRIVEN route's samples, segments and alert shapes used to be
         // fixed at plan time: a tornado warning issued an hour into the trip
         // escalated and bannered, but the route line stayed the colour it
@@ -5623,26 +5620,25 @@ final class AppModel: ObservableObject {
             if !live.riskSamples.isEmpty {
                 var samples = live.riskSamples
                 var repainted = false
-                for (w, r) in zip(score.samples, sampleRisks) {
-                    var bi = -1
-                    var bd = 600.0  // a window sample belongs to the route sample within 600 m
-                    for (i, s) in samples.enumerated() {
-                        let d = POIRanking.meters(s.coordinate, w.coordinate)
-                        if d < bd {
-                            bd = d
-                            bi = i
-                        }
-                    }
-                    guard bi >= 0 else { continue }
-                    let old = samples[bi]
-                    if abs(old.risk - r) > 0.02 || old.worstEvent != w.worstEvent
-                        || old.alertID != w.alertID
-                    {
-                        samples[bi] = RiskSample(
-                            coordinate: old.coordinate, risk: r,
-                            worstEvent: w.worstEvent, alertID: w.alertID)
-                        repainted = true
-                    }
+                // A window check point repaints the route check point it
+                // sits on (within 600 m) when its risk or its alert moved.
+                let window = zip(score.samples, sampleRisks).map { w, r in
+                    CorridorWatchRules.Mark(
+                        coordinate: w.coordinate, risk: r, worstEvent: w.worstEvent, alertID: w.alertID)
+                }
+                let sources = CorridorWatchRules.fold(
+                    route: samples.map {
+                        CorridorWatchRules.Mark(
+                            coordinate: $0.coordinate, risk: $0.risk, worstEvent: $0.worstEvent,
+                            alertID: $0.alertID)
+                    }, window: window)
+                for (i, source) in sources.enumerated() {
+                    guard let source, i < samples.count, source < window.count else { continue }
+                    let w = window[source]
+                    samples[i] = RiskSample(
+                        coordinate: samples[i].coordinate, risk: w.risk,
+                        worstEvent: w.worstEvent, alertID: w.alertID)
+                    repainted = true
                 }
                 if repainted {
                     live.riskSamples = samples
@@ -5670,9 +5666,10 @@ final class AppModel: ObservableObject {
                 routeMetadataVersion &+= 1
             }
         }
-        let peakAlertID = zip(score.samples, sampleRisks)
-            .max { $0.1 < $1.1 }?.0.alertID
-        let risk = sampleRisks.isEmpty ? 0 : sampleRisks.reduce(0, +) / Double(sampleRisks.count)
+        let peakAlertID = reading.peakIndex.flatMap {
+            $0 < score.samples.count ? score.samples[$0].alertID : nil
+        }
+        let risk = reading.mean
         // The worst actually ENCOUNTERED is the peak sample, not the blend —
         // it feeds the seasonal model's predicted-vs-observed record.
         tripObservedPeak = max(tripObservedPeak, peakR)

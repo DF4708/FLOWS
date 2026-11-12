@@ -332,6 +332,7 @@ targets:
       - path: FLOWS/Sources/Core/InternationalWeather.swift
       - path: FLOWS/Sources/Core/NWSForecastService.swift
       - path: FLOWS/Sources/Core/TripNeeds.swift
+      - path: FLOWS/Sources/Core/CorridorWatchRules.swift
       - path: FLOWS/Sources/Core/ImminentAlerts.swift
       - path: FLOWS/Sources/Core/Favorites.swift
       - path: FLOWS/Sources/Core/FilterLimits.swift
