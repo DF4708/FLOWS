@@ -40,6 +40,8 @@
 //!              feet and miles, minutes and hours, alert share, grade
 //!   viewport_point — the map sweep at one point: the families that show,
 //!              the band input and what names the badge
+//!   leg_geometry — one leg of road as numbers: matching a fix, the turn and
+//!              the road left, the point ahead, halving, check points, steep signs
 //!   hazard_feeds — live feed scores, the alert service's geometry and
 //!              severity rules, the CRE fuel scan
 //!   long_trips — the fuel warning, the long-trip share and the saved road
@@ -92,6 +94,7 @@ pub mod forecast;
 pub mod geo;
 pub mod hazard_feeds;
 pub mod learning;
+pub mod leg_geometry;
 pub mod long_trips;
 pub mod media_policy;
 pub mod places;

@@ -7,14 +7,19 @@
 // -----------------------------------------------------------------------------
 
 import CoreLocation
+import FlowsBridge
 import Foundation
 
 /// The road of one leg as numbers: its points, the meters to each, where
 /// each step ends, and the rules that read them. Which point a fix is at,
 /// how far the turn and the end are, the point a way ahead, where a path is
-/// cut in half or into check points and where the steep signs stand. They
-/// sat inside NavigationEngine and RouteService, where no test could reach
-/// the driving ones.
+/// cut in half or into check points and where the steep signs stand.
+///
+/// The rules run in Rust (`flows_core::leg_geometry`); this is the Swift
+/// face of them. A leg is built once in Rust and held by handle, which is
+/// read-only after it is built and so safe to hand between tasks
+/// (`RustShared`). An answer Rust cannot give is never guessed at: the
+/// drive stands where it was, or the path is cut the plain way.
 struct LegGeometry: Sendable {
     /// Every point of the leg, step after step.
     let points: [CLLocationCoordinate2D]
@@ -22,35 +27,45 @@ struct LegGeometry: Sendable {
     let cumulative: [CLLocationDistance]
     /// The index into `points` where each step ends.
     let stepEnd: [Int]
-
-    /// How far the window looks behind and ahead of the last matched point,
-    /// and how far off the window's best may be before the whole leg is read.
-    static let windowBehind = 12
-    static let windowAhead = 80
-    static let windowLostMeters = 250.0
+    private let shared: RustShared<FlowsLegGeometry>
 
     /// The leg from its steps' points. A step with no points is left out
     /// (the caller leaves its words out too).
     init(steps: [[CLLocationCoordinate2D]]) {
-        var points: [CLLocationCoordinate2D] = []
-        var cumulative: [CLLocationDistance] = []
-        var stepEnd: [Int] = []
-        var running: CLLocationDistance = 0
-        var prev: CLLocationCoordinate2D?
-        for step in steps where !step.isEmpty {
-            for c in step {
-                // Allocation-free hop distance: this walks every vertex of
-                // the whole route at leg start.
-                if let p = prev { running += POIRanking.meters(p, c) }
-                points.append(c)
-                cumulative.append(running)
-                prev = c
+        let held = steps.filter { !$0.isEmpty }
+        let points = held.flatMap { $0 }
+        guard !points.isEmpty else {
+            self.points = []
+            cumulative = []
+            stepEnd = []
+            shared = RustShared(flows_leg_geometry_empty())
+            return
+        }
+        let lats = points.map(\.latitude)
+        let lons = points.map(\.longitude)
+        let counts = held.map { Int64($0.count) }
+        let made = lats.lent { la in
+            lons.lent { lo in
+                counts.lent { c in flows_leg_geometry(la, lo, c) }
             }
-            stepEnd.append(points.count - 1)
+        }
+        let cumulative = Array(made.cumulative())
+        let stepEnd = Array(made.step_ends()).map { Int($0) }
+        // A leg Rust could not build, or one that does not fit the points,
+        // is a leg with no road: nothing is matched against it.
+        guard cumulative.count == points.count, stepEnd.count == held.count,
+            stepEnd.allSatisfy({ points.indices.contains($0) })
+        else {
+            self.points = []
+            self.cumulative = []
+            self.stepEnd = []
+            shared = RustShared(flows_leg_geometry_empty())
+            return
         }
         self.points = points
         self.cumulative = cumulative
         self.stepEnd = stepEnd
+        shared = RustShared(made)
     }
 
     /// The point of the leg nearest a fix and how far off it is: read in a
@@ -59,29 +74,10 @@ struct LegGeometry: Sendable {
     /// points.
     func match(last: Int, fix: CLLocationCoordinate2D) -> (index: Int, meters: CLLocationDistance)? {
         guard !points.isEmpty else { return nil }
-        func scan(_ range: Range<Int>) -> (idx: Int, dist: CLLocationDistance) {
-            var bestI = range.lowerBound
-            var bestD = CLLocationDistance.greatestFiniteMagnitude
-            for i in range {
-                let d = POIRanking.meters(points[i], fix)
-                if d < bestD {
-                    bestD = d
-                    bestI = i
-                }
-            }
-            return (bestI, bestD)
-        }
-        // Clamp lo so lo <= hi always holds: defense in depth against a
-        // stale index outliving a route swap (forming lo..<hi with lo > hi
-        // traps). The reroute path resets the index, this guards the rest.
-        let last = max(last, 0)
-        let hi = min(last + Self.windowAhead, points.count)
-        let lo = min(max(last - Self.windowBehind, 0), hi)
-        var (nearest, nearestDist) = scan(lo..<hi)
-        if nearestDist > Self.windowLostMeters {  // window lost the vehicle: one full rescan
-            (nearest, nearestDist) = scan(0..<points.count)
-        }
-        return (nearest, nearestDist)
+        let hit = shared.handle.match_fix(Int64(last), fix.latitude, fix.longitude)
+        guard hit.count == 2, let index = Int(exactly: hit[0]), points.indices.contains(index)
+        else { return nil }
+        return (index, hit[1])
     }
 
     /// Where the drive stands at a matched point.
@@ -102,25 +98,12 @@ struct LegGeometry: Sendable {
 
     /// nil on a leg with no points, or for a point the leg does not hold.
     func progress(nearest: Int, step: Int) -> Progress? {
-        guard !stepEnd.isEmpty, cumulative.indices.contains(nearest), let total = cumulative.last
-        else { return nil }
-        var current = max(step, 0)
-        // Advance instruction step when we pass its end point.
-        while current < stepEnd.count - 1 && nearest >= stepEnd[current] {
-            current += 1
-        }
-        let stepIdx = min(current, stepEnd.count - 1)
-        let maneuverIdx = stepEnd[stepIdx]
-        let toManeuver = max(cumulative[maneuverIdx] - cumulative[nearest], 0)
-        let remaining = max(total - cumulative[nearest], 0)
-        let stepStart = stepIdx == 0 ? 0 : stepEnd[stepIdx - 1]
+        guard !stepEnd.isEmpty, cumulative.indices.contains(nearest) else { return nil }
+        let p = shared.handle.progress(Int64(nearest), Int64(step))
+        guard p.count == 6, let current = Int(exactly: p[0]), current >= 0 else { return nil }
         return Progress(
-            step: current,
-            toManeuver: toManeuver,
-            along: cumulative[nearest],
-            remaining: remaining,
-            fractionLeft: total > 0 ? remaining / total : 0,
-            stepSpacing: cumulative[maneuverIdx] - cumulative[stepStart])
+            step: current, toManeuver: p[1], along: p[2], remaining: p[3], fractionLeft: p[4],
+            stepSpacing: p[5])
     }
 
     /// The index of the first point `meters` or more ahead of a matched
@@ -128,20 +111,22 @@ struct LegGeometry: Sendable {
     /// a leg with no points or for a point it does not hold.
     func ahead(from index: Int, meters: CLLocationDistance) -> Int? {
         guard !points.isEmpty, cumulative.indices.contains(index) else { return nil }
-        let target = cumulative[index] + meters
-        for i in index..<cumulative.count where cumulative[i] >= target {
-            return i
-        }
-        return points.count - 1
+        let found = Int(shared.handle.ahead(Int64(index), meters))
+        return points.indices.contains(found) ? found : nil
     }
 
     /// Seconds to wait before asking for a new road again after `failures`
     /// searches in a row found none: 15, 30, 60, then 120 at most.
     static func rerouteWait(failures: Int) -> TimeInterval {
-        min(15 * pow(2, Double(failures - 1)), 120)
+        flows_leg_reroute_wait(Int64(failures))
     }
 
     // MARK: a path with no steps
+
+    /// A path as the two columns Rust reads.
+    private static func columns(_ coords: [CLLocationCoordinate2D]) -> (lats: [Double], lons: [Double]) {
+        (coords.map(\.latitude), coords.map(\.longitude))
+    }
 
     /// The index of the point a steep-grade sign stands at, for each stretch
     /// of the profile at 6% or steeper (the first 12): the first point at or
@@ -149,28 +134,25 @@ struct LegGeometry: Sendable {
     static func steepMarkerIndices(
         _ coords: [CLLocationCoordinate2D], profile: [GradeSegment]
     ) -> [(index: Int, gradePercent: Double)] {
-        let n = coords.count
-        guard n > 1, !profile.isEmpty else { return [] }
-        var prefix = [Double](repeating: 0, count: n)
-        for i in 1..<n { prefix[i] = prefix[i - 1] + POIRanking.meters(coords[i - 1], coords[i]) }
-
-        // First vertex index whose cumulative distance reaches `target`.
-        func firstIndex(atOrAbove target: Double) -> Int {
-            var lo = 0
-            var hi = n
-            while lo < hi {
-                let mid = (lo + hi) / 2
-                if prefix[mid] >= target { hi = mid } else { lo = mid + 1 }
+        guard coords.count > 1, !profile.isEmpty else { return [] }
+        let (lats, lons) = columns(coords)
+        let starts = profile.map(\.startMile)
+        let ends = profile.map(\.endMile)
+        let grades = profile.map(\.gradePercent)
+        let flat = lats.lent { la in
+            lons.lent { lo in
+                starts.lent { s in
+                    ends.lent { e in
+                        grades.lent { g in Array(flows_leg_steep_markers(la, lo, s, e, g)) }
+                    }
+                }
             }
-            return lo
         }
-
+        guard flat.count.isMultiple(of: 2) else { return [] }
         var markers: [(index: Int, gradePercent: Double)] = []
-        for seg in profile where abs(seg.gradePercent) >= 6 {
-            if markers.count >= 12 { break }
-            let target = (seg.startMile + seg.endMile) / 2 * 1609.344
-            let i = min(max(firstIndex(atOrAbove: target), 1), n - 1)
-            markers.append((i, seg.gradePercent))
+        for at in stride(from: 0, to: flat.count, by: 2) {
+            guard let index = Int(exactly: flat[at]), coords.indices.contains(index) else { return [] }
+            markers.append((index, flat[at + 1]))
         }
         return markers
     }
@@ -182,7 +164,8 @@ struct LegGeometry: Sendable {
         /// midpoint, the second is the midpoint and then the points from
         /// `before` on.
         case between(before: Int, midLatitude: Double, midLongitude: Double)
-        /// At a point both halves carry (a path standing still).
+        /// At a point both halves carry (a path whose meters are not
+        /// numbers).
         case at(Int)
         /// A path of fewer than two points: both halves are the path.
         case whole
@@ -190,48 +173,54 @@ struct LegGeometry: Sendable {
 
     static func cut(_ coords: [CLLocationCoordinate2D]) -> Cut {
         guard coords.count >= 2 else { return .whole }
-        var total = 0.0
-        for i in 1..<coords.count { total += POIRanking.meters(coords[i - 1], coords[i]) }
-        let half = total / 2
-        var walked = 0.0
-        for i in 1..<coords.count {
-            let hop = POIRanking.meters(coords[i - 1], coords[i])
-            if walked + hop >= half {
-                let t = hop > 0 ? (half - walked) / hop : 0
-                return .between(
-                    before: i,
-                    midLatitude: coords[i - 1].latitude
-                        + (coords[i].latitude - coords[i - 1].latitude) * t,
-                    midLongitude: coords[i - 1].longitude
-                        + (coords[i].longitude - coords[i - 1].longitude) * t)
-            }
-            walked += hop
+        let (lats, lons) = columns(coords)
+        let answer = lats.lent { la in lons.lent { lo in Array(flows_leg_cut(la, lo)) } }
+        // An answer Rust could not give halves the points: both halves
+        // still cover the whole path.
+        let plain = Cut.at(coords.count / 2)
+        guard answer.count == 4, let index = Int(exactly: answer[1]) else { return plain }
+        switch answer[0] {
+        case 2 where index >= 1 && index < coords.count:
+            return .between(before: index, midLatitude: answer[2], midLongitude: answer[3])
+        case 1 where coords.indices.contains(index):
+            return .at(index)
+        default:
+            return plain
         }
-        // Every hop was zero length (a path standing still): halve the points.
-        return .at(coords.count / 2)
     }
+
+    /// The most pieces the plain cut makes when Rust cannot answer.
+    private static let plainPieces = 64
 
     /// The indices where a path is cut into check points about
     /// `everyMeters` apart: each point where the meters since the last cut
-    /// reach `everyMeters`. The path's first and last points are check
-    /// points too and are not in the list.
+    /// reach `everyMeters`. The path's first point is a check point too
+    /// and is not in the list; the last is in it only when the meters
+    /// reach `everyMeters` there.
     static func checkPointIndices(
         _ coords: [CLLocationCoordinate2D], everyMeters: CLLocationDistance
     ) -> [Int] {
+        guard coords.count >= 2 else { return [] }
+        let (lats, lons) = columns(coords)
+        let answer = lats.lent { la in
+            lons.lent { lo in Array(flows_leg_check_points(la, lo, everyMeters)) }
+        }
         var cuts: [Int] = []
-        var sinceLast: CLLocationDistance = 0
-        for i in coords.indices.dropFirst() {
-            // POIRanking.meters, not CLLocation.distance: this loop walks
-            // every vertex of the polyline (~30k on a long route) and is run
-            // several times per route. The equirectangular error (<0.1% at
-            // vertex hop lengths) only shifts a sample boundary against the
-            // 40 km threshold by at most one vertex.
-            sinceLast += POIRanking.meters(coords[i - 1], coords[i])
-            if sinceLast >= everyMeters {
-                cuts.append(i)
-                sinceLast = 0
+        var good = answer.first == 1
+        var floor = 0
+        for value in answer.dropFirst() where good {
+            // Each cut is a later point than the one before.
+            if let index = Int(exactly: value), index > floor, index < coords.count {
+                cuts.append(index)
+                floor = index
+            } else {
+                good = false
             }
         }
-        return cuts
+        if good { return cuts }
+        // An answer Rust could not give must not leave a long road with no
+        // check points: cut it evenly by its points instead.
+        let step = max(1, coords.count / plainPieces)
+        return Array(stride(from: step, to: coords.count - 1, by: step))
     }
 }

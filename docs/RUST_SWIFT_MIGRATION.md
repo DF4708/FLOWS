@@ -1751,12 +1751,41 @@ Families cross as U+001F-joined names beside a column of scores. If the
 call ever fails, the point is shown on the forecast and the band is fed
 everything on show: the careful side.
 
+## Wave 3, sixth landing: the geometry of one leg (2026-11-12)
+
+The numbers the driving screen reads off the road of one leg: which point
+of the leg a fix is at, the meters to the turn and to the end, the share
+of the leg left, when the next step begins, the point a way ahead, how long
+to wait before asking for a new road again, where a path is cut in half or
+into check points, and where the steep signs stand. They sat inside
+`NavigationEngine` and `RouteService`. 231ef58 moved them, unchanged, into
+`Core/LegGeometry.swift`; this landing computes them in
+`flows_core::leg_geometry`. The engine still holds the drive's state and
+the service still builds the shapes; both only ask.
+
+A leg is built once in Rust from two coordinate columns and the count of
+points in each step, and Swift holds it by handle (`RustShared`), as the
+route path already is. Swift keeps the points, so the hot calls (a fix
+every second) send two numbers and get two or six back. The handle is
+read-only after it is built, so it is safe to hand between tasks.
+
+The oracle is 4,815 records frozen at 231ef58
+(`swift_leg_geometry_oracle.tsv`); the Rust matched all of them on its
+first run, and the facade prints the same bytes. Fifty-eight mutants were
+run before the freeze; fifty break records and the other eight cannot
+change an answer (harness README).
+
+Nothing changes on purpose. Where an answer from Rust does not fit the leg,
+Swift does not guess: a fix is not matched and the drive stands where it
+was, the wait is the longest one (two minutes), and a path is cut evenly
+by its points, so a long road still gets its check points.
+
 ### Wave 3 remaining
 
 | item | state |
 |---|---|
 | AppModel's route scoring as one batched call off the main actor | LANDED (first landing) |
-| RouteService and NavigationEngine over one opaque per-leg geometry | open |
+| RouteService and NavigationEngine over one opaque per-leg geometry | LANDED (sixth landing) |
 | Live corridor updates and learned ETA | LANDED (second landing) |
 | The compute leaked into views: the ContentView sweep, RouteChoicesView's route designations, NavigationHUD | route designations LANDED (third landing); NavigationHUD and the readouts LANDED (fourth landing); the ContentView sweep LANDED (fifth landing) |
 | The geo facade itself | open, last |

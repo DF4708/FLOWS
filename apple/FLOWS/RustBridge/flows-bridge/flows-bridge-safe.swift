@@ -204,6 +204,22 @@ public func flows_learning_destination_rank(_ context_hits: Span<Int64>, _ time_
     _flowsLend(context_hits) { (context_hits: UnsafeBufferPointer<Int64>) -> RustVec<Double> in _flowsLend(time_hits) { (time_hits: UnsafeBufferPointer<Int64>) -> RustVec<Double> in _flowsLend(total_hits) { (total_hits: UnsafeBufferPointer<Int64>) -> RustVec<Double> in _flowsLend(last_used) { (last_used: UnsafeBufferPointer<Double>) -> RustVec<Double> in flows_learning_destination_rank(context_hits, time_hits, total_hits, last_used, now, limit) } } } }
 }
 
+public func flows_leg_geometry(_ lats: Span<Double>, _ lons: Span<Double>, _ step_counts: Span<Int64>) -> FlowsLegGeometry {
+    _flowsLend(lats) { (lats: UnsafeBufferPointer<Double>) -> FlowsLegGeometry in _flowsLend(lons) { (lons: UnsafeBufferPointer<Double>) -> FlowsLegGeometry in _flowsLend(step_counts) { (step_counts: UnsafeBufferPointer<Int64>) -> FlowsLegGeometry in flows_leg_geometry(lats, lons, step_counts) } } }
+}
+
+public func flows_leg_steep_markers(_ lats: Span<Double>, _ lons: Span<Double>, _ start_miles: Span<Double>, _ end_miles: Span<Double>, _ grades: Span<Double>) -> RustVec<Double> {
+    _flowsLend(lats) { (lats: UnsafeBufferPointer<Double>) -> RustVec<Double> in _flowsLend(lons) { (lons: UnsafeBufferPointer<Double>) -> RustVec<Double> in _flowsLend(start_miles) { (start_miles: UnsafeBufferPointer<Double>) -> RustVec<Double> in _flowsLend(end_miles) { (end_miles: UnsafeBufferPointer<Double>) -> RustVec<Double> in _flowsLend(grades) { (grades: UnsafeBufferPointer<Double>) -> RustVec<Double> in flows_leg_steep_markers(lats, lons, start_miles, end_miles, grades) } } } } }
+}
+
+public func flows_leg_cut(_ lats: Span<Double>, _ lons: Span<Double>) -> RustVec<Double> {
+    _flowsLend(lats) { (lats: UnsafeBufferPointer<Double>) -> RustVec<Double> in _flowsLend(lons) { (lons: UnsafeBufferPointer<Double>) -> RustVec<Double> in flows_leg_cut(lats, lons) } }
+}
+
+public func flows_leg_check_points(_ lats: Span<Double>, _ lons: Span<Double>, _ every_meters: Double) -> RustVec<Double> {
+    _flowsLend(lats) { (lats: UnsafeBufferPointer<Double>) -> RustVec<Double> in _flowsLend(lons) { (lons: UnsafeBufferPointer<Double>) -> RustVec<Double> in flows_leg_check_points(lats, lons, every_meters) } }
+}
+
 public func flows_long_trips_reachable_stations(_ miles: Span<Double>, _ prices: Span<Double>, _ priced: Span<UInt8>, _ count: Int64, _ range_miles: Double, _ reserve_miles: Double) -> RustVec<Int64> {
     _flowsLend(miles) { (miles: UnsafeBufferPointer<Double>) -> RustVec<Int64> in _flowsLend(prices) { (prices: UnsafeBufferPointer<Double>) -> RustVec<Int64> in _flowsLend(priced) { (priced: UnsafeBufferPointer<UInt8>) -> RustVec<Int64> in flows_long_trips_reachable_stations(miles, prices, priced, count, range_miles, reserve_miles) } } }
 }

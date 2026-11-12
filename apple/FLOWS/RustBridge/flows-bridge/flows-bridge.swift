@@ -1695,6 +1695,122 @@ extension __swift_bridge__$Option$FlowsLearningEta {
 }
 
 
+public func flows_leg_geometry(_ lats: UnsafeBufferPointer<Double>, _ lons: UnsafeBufferPointer<Double>, _ step_counts: UnsafeBufferPointer<Int64>) -> FlowsLegGeometry {
+    FlowsLegGeometry(ptr: __swift_bridge__$flows_leg_geometry(lats.toFfiSlice(), lons.toFfiSlice(), step_counts.toFfiSlice()))
+}
+public func flows_leg_geometry_empty() -> FlowsLegGeometry {
+    FlowsLegGeometry(ptr: __swift_bridge__$flows_leg_geometry_empty())
+}
+public func flows_leg_reroute_wait(_ failures: Int64) -> Double {
+    __swift_bridge__$flows_leg_reroute_wait(failures)
+}
+public func flows_leg_steep_markers(_ lats: UnsafeBufferPointer<Double>, _ lons: UnsafeBufferPointer<Double>, _ start_miles: UnsafeBufferPointer<Double>, _ end_miles: UnsafeBufferPointer<Double>, _ grades: UnsafeBufferPointer<Double>) -> RustVec<Double> {
+    RustVec(ptr: __swift_bridge__$flows_leg_steep_markers(lats.toFfiSlice(), lons.toFfiSlice(), start_miles.toFfiSlice(), end_miles.toFfiSlice(), grades.toFfiSlice()))
+}
+public func flows_leg_cut(_ lats: UnsafeBufferPointer<Double>, _ lons: UnsafeBufferPointer<Double>) -> RustVec<Double> {
+    RustVec(ptr: __swift_bridge__$flows_leg_cut(lats.toFfiSlice(), lons.toFfiSlice()))
+}
+public func flows_leg_check_points(_ lats: UnsafeBufferPointer<Double>, _ lons: UnsafeBufferPointer<Double>, _ every_meters: Double) -> RustVec<Double> {
+    RustVec(ptr: __swift_bridge__$flows_leg_check_points(lats.toFfiSlice(), lons.toFfiSlice(), every_meters))
+}
+
+public class FlowsLegGeometry: FlowsLegGeometryRefMut {
+    var isOwned: Bool = true
+
+    public override init(ptr: UnsafeMutableRawPointer) {
+        super.init(ptr: ptr)
+    }
+
+    deinit {
+        if isOwned {
+            __swift_bridge__$FlowsLegGeometry$_free(ptr)
+        }
+    }
+}
+public class FlowsLegGeometryRefMut: FlowsLegGeometryRef {
+    public override init(ptr: UnsafeMutableRawPointer) {
+        super.init(ptr: ptr)
+    }
+}
+public class FlowsLegGeometryRef {
+    var ptr: UnsafeMutableRawPointer
+
+    public init(ptr: UnsafeMutableRawPointer) {
+        self.ptr = ptr
+    }
+}
+extension FlowsLegGeometryRef {
+    public func cumulative() -> RustVec<Double> {
+        RustVec(ptr: __swift_bridge__$FlowsLegGeometry$cumulative(ptr))
+    }
+
+    public func step_ends() -> RustVec<Int64> {
+        RustVec(ptr: __swift_bridge__$FlowsLegGeometry$step_ends(ptr))
+    }
+
+    public func match_fix(_ last: Int64, _ lat: Double, _ lon: Double) -> RustVec<Double> {
+        RustVec(ptr: __swift_bridge__$FlowsLegGeometry$match_fix(ptr, last, lat, lon))
+    }
+
+    public func progress(_ nearest: Int64, _ step: Int64) -> RustVec<Double> {
+        RustVec(ptr: __swift_bridge__$FlowsLegGeometry$progress(ptr, nearest, step))
+    }
+
+    public func ahead(_ index: Int64, _ meters: Double) -> Int64 {
+        __swift_bridge__$FlowsLegGeometry$ahead(ptr, index, meters)
+    }
+}
+extension FlowsLegGeometry: Vectorizable {
+    public static func vecOfSelfNew() -> UnsafeMutableRawPointer {
+        __swift_bridge__$Vec_FlowsLegGeometry$new()
+    }
+
+    public static func vecOfSelfFree(vecPtr: UnsafeMutableRawPointer) {
+        __swift_bridge__$Vec_FlowsLegGeometry$drop(vecPtr)
+    }
+
+    public static func vecOfSelfPush(vecPtr: UnsafeMutableRawPointer, value: FlowsLegGeometry) {
+        __swift_bridge__$Vec_FlowsLegGeometry$push(vecPtr, {value.isOwned = false; return value.ptr;}())
+    }
+
+    public static func vecOfSelfPop(vecPtr: UnsafeMutableRawPointer) -> Optional<Self> {
+        let pointer = __swift_bridge__$Vec_FlowsLegGeometry$pop(vecPtr)
+        if pointer == nil {
+            return nil
+        } else {
+            return (FlowsLegGeometry(ptr: pointer!) as! Self)
+        }
+    }
+
+    public static func vecOfSelfGet(vecPtr: UnsafeMutableRawPointer, index: UInt) -> Optional<FlowsLegGeometryRef> {
+        let pointer = __swift_bridge__$Vec_FlowsLegGeometry$get(vecPtr, index)
+        if pointer == nil {
+            return nil
+        } else {
+            return FlowsLegGeometryRef(ptr: pointer!)
+        }
+    }
+
+    public static func vecOfSelfGetMut(vecPtr: UnsafeMutableRawPointer, index: UInt) -> Optional<FlowsLegGeometryRefMut> {
+        let pointer = __swift_bridge__$Vec_FlowsLegGeometry$get_mut(vecPtr, index)
+        if pointer == nil {
+            return nil
+        } else {
+            return FlowsLegGeometryRefMut(ptr: pointer!)
+        }
+    }
+
+    public static func vecOfSelfAsPtr(vecPtr: UnsafeMutableRawPointer) -> UnsafePointer<FlowsLegGeometryRef> {
+        UnsafePointer<FlowsLegGeometryRef>(OpaquePointer(__swift_bridge__$Vec_FlowsLegGeometry$as_ptr(vecPtr)))
+    }
+
+    public static func vecOfSelfLen(vecPtr: UnsafeMutableRawPointer) -> UInt {
+        __swift_bridge__$Vec_FlowsLegGeometry$len(vecPtr)
+    }
+}
+
+
+
 public func flows_long_trips_fuel_severity(_ fraction: Double) -> Double {
     __swift_bridge__$flows_long_trips_fuel_severity(fraction)
 }
