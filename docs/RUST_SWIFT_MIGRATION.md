@@ -1862,7 +1862,7 @@ the original Swift and the same landing steps as waves 2 and 3:
 | `RiskAreaFallback` | LANDED (fourth landing) |
 | `BadgeClustering` | LANDED (fifth landing) |
 | `WMOAlerts` | LANDED (sixth landing) |
-| `RiskAdvice` | next |
+| `RiskAdvice` | LANDED (seventh landing) |
 
 ## Wave 4, first landing: the international weather rules (2026-11-12)
 
@@ -2068,3 +2068,36 @@ leading U+FEFF from Rust text, so a list link that began with one came
 back without it. `RustStringRef.text` now decodes the bytes as they are,
 which gives the original's link back; a test in `SafetyAndGradeTests`
 pins it. Rust text is always valid UTF-8, so no other answer changes.
+
+## Wave 4, seventh landing: the risk advice and the border lines (2026-11-12)
+
+`RiskAdvice` keeps the `URL` type and asks Rust for every rule: the advice
+lines for a hazard and band, the four border tests (north of the border,
+Canada below the bands, plainly across, and maybe across), the official
+page's address for a point, and the US-Mexico border's latitude for a
+longitude. The rules live in `flows_core::risk_advice`; seven bridge
+calls, `flows_risk_advice_*`, carry them. The band goes over as a code
+(clear 0, green 1, yellow 2, red 3), and the page comes back as its
+address. If a call ever failed, each answer falls to the side that hides
+no hazard: the band's general lines, "maybe across" yes, the other tests
+no (the US side, whose page is the default), no page, and NaN for the
+border's latitude.
+
+The name is lowercased and compared through `swift_text`, the standard
+library's rules, and the page's coordinates are written with
+`swift_text::fixed`, which prints what `String(format:)` printed.
+
+The oracle (`swift_risk_advice_oracle.tsv`, 43,572 records) was frozen
+from the original Swift at 3d08766: the 17 hazard names, names near them
+in every case and script, and random names, each at the four bands; and
+for the border lines every band and box edge with the doubles either side
+and a quarter degree either side, the sloped lines in small steps, every
+vertex and edge middle of the four outlines, odd numbers, real towns on
+both sides, and random points across North America. Thirty-three of
+thirty-five changed rules fail it, and the two survivors are the same rule
+written another way. Eleven of twelve changed facades fail it; the twelfth
+drops a guard `URL(string:)` already makes. The counts and reasons are in
+the harness README.
+
+With this landing every wave 4 file computes in Rust behind its Swift
+facade.

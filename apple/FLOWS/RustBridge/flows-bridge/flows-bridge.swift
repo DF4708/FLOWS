@@ -3363,6 +3363,31 @@ public func flows_decode_polyline_lonlat(_ bytes: UnsafeBufferPointer<UInt8>) ->
 }
 
 
+public func flows_risk_advice_actions<GenericToRustStr: ToRustStr>(_ kind_name: GenericToRustStr, _ band: Int64) -> RustVec<RustString> {
+    return kind_name.toRustStr({ kind_nameAsRustStr in
+        RustVec(ptr: __swift_bridge__$flows_risk_advice_actions(kind_nameAsRustStr, band))
+    })
+}
+public func flows_risk_advice_is_north(_ lat: Double, _ lon: Double) -> Bool {
+    __swift_bridge__$flows_risk_advice_is_north(lat, lon)
+}
+public func flows_risk_advice_canada_below(_ lat: Double, _ lon: Double) -> Bool {
+    __swift_bridge__$flows_risk_advice_canada_below(lat, lon)
+}
+public func flows_risk_advice_is_across(_ lat: Double, _ lon: Double) -> Bool {
+    __swift_bridge__$flows_risk_advice_is_across(lat, lon)
+}
+public func flows_risk_advice_may_be_across(_ lat: Double, _ lon: Double) -> Bool {
+    __swift_bridge__$flows_risk_advice_may_be_across(lat, lon)
+}
+public func flows_risk_advice_official_url(_ lat: Double, _ lon: Double) -> RustString {
+    RustString(ptr: __swift_bridge__$flows_risk_advice_official_url(lat, lon))
+}
+public func flows_risk_advice_southern_border_lat(_ lon: Double) -> Double {
+    __swift_bridge__$flows_risk_advice_southern_border_lat(lon)
+}
+
+
 public func flows_risk_area_in_zip_box(_ lat: Double, _ lon: Double) -> Bool {
     __swift_bridge__$flows_risk_area_in_zip_box(lat, lon)
 }
