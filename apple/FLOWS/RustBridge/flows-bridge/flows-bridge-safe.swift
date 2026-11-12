@@ -429,6 +429,26 @@ public func flows_route_blend<GenericToRustStr: ToRustStr>(_ field: FlowsRiskFie
     _flowsLend(samples) { (samples: UnsafeBufferPointer<Double>) -> RustVec<Double> in _flowsLend(event_lens) { (event_lens: UnsafeBufferPointer<Int64>) -> RustVec<Double> in _flowsLend(event_present) { (event_present: UnsafeBufferPointer<UInt8>) -> RustVec<Double> in _flowsLend(forecast_marks) { (forecast_marks: UnsafeBufferPointer<Int64>) -> RustVec<Double> in _flowsLend(forecast_values) { (forecast_values: UnsafeBufferPointer<Double>) -> RustVec<Double> in _flowsLend(gauge_lats) { (gauge_lats: UnsafeBufferPointer<Double>) -> RustVec<Double> in _flowsLend(gauge_lons) { (gauge_lons: UnsafeBufferPointer<Double>) -> RustVec<Double> in _flowsLend(water_lats) { (water_lats: UnsafeBufferPointer<Double>) -> RustVec<Double> in _flowsLend(water_lons) { (water_lons: UnsafeBufferPointer<Double>) -> RustVec<Double> in _flowsLend(closure_lats) { (closure_lats: UnsafeBufferPointer<Double>) -> RustVec<Double> in _flowsLend(closure_lons) { (closure_lons: UnsafeBufferPointer<Double>) -> RustVec<Double> in flows_route_blend(field, snapshot, has_snapshot, samples, sample_count, events_joined, event_lens, event_present, forecast_marks, forecast_values, forecast_count, gauge_lats, gauge_lons, gauge_categories_joined, gauge_count, water_lats, water_lons, water_count, closure_lats, closure_lons, closure_count) } } } } } } } } } } }
 }
 
+public func flows_designation_safest(_ rows: Span<Double>, _ count: Int64) -> Int64 {
+    _flowsLend(rows) { (rows: UnsafeBufferPointer<Double>) -> Int64 in flows_designation_safest(rows, count) }
+}
+
+public func flows_designation_cheapest(_ rows: Span<Double>, _ count: Int64) -> Int64 {
+    _flowsLend(rows) { (rows: UnsafeBufferPointer<Double>) -> Int64 in flows_designation_cheapest(rows, count) }
+}
+
+public func flows_designation_efficient(_ rows: Span<Double>, _ count: Int64) -> Int64 {
+    _flowsLend(rows) { (rows: UnsafeBufferPointer<Double>) -> Int64 in flows_designation_efficient(rows, count) }
+}
+
+public func flows_designation_trucker(_ rows: Span<Double>, _ count: Int64) -> Int64 {
+    _flowsLend(rows) { (rows: UnsafeBufferPointer<Double>) -> Int64 in flows_designation_trucker(rows, count) }
+}
+
+public func flows_designation_fastest_eta(_ etas: Span<Double>, _ count: Int64) -> Double {
+    _flowsLend(etas) { (etas: UnsafeBufferPointer<Double>) -> Double in flows_designation_fastest_eta(etas, count) }
+}
+
 public func flows_seasonal_prior(_ trip_count: Int64, _ cross_country: Bool, _ week: Int64, _ cells: Span<Double>, _ present: Span<Double>, _ now: Double) -> FlowsSeasonalPrior {
     _flowsLend(cells) { (cells: UnsafeBufferPointer<Double>) -> FlowsSeasonalPrior in _flowsLend(present) { (present: UnsafeBufferPointer<Double>) -> FlowsSeasonalPrior in flows_seasonal_prior(trip_count, cross_country, week, cells, present, now) } }
 }

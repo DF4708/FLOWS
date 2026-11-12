@@ -34,6 +34,8 @@
 //!              flood evidence, live feeds, alerts, closures
 //!   corridor_watch — the live corridor watch's rules: window, slice,
 //!              reading, fold
+//!   route_designations — which route earns Safest, Cheapest,
+//!              Efficient, the trucker badge, and time behind the fastest
 //!   hazard_feeds — live feed scores, the alert service's geometry and
 //!              severity rules, the CRE fuel scan
 //!   long_trips — the fuel warning, the long-trip share and the saved road
@@ -98,6 +100,7 @@ pub mod risk;
 pub mod risk_field;
 pub mod risk_summary;
 pub mod route_blend;
+pub mod route_designations;
 pub mod routing;
 pub mod scoring;
 pub mod seasonal;

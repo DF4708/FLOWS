@@ -7,6 +7,7 @@
 // -----------------------------------------------------------------------------
 
 import CoreLocation
+import FlowsBridge
 import Foundation
 import MapKit
 
@@ -894,6 +895,26 @@ enum RouteError: LocalizedError {
     }
 }
 
+/// The route chips' rules are computed in rust/flows-core
+/// (route_designations.rs) and called through rust/flows-bridge; pinned to
+/// the Swift they replaced by
+/// rust/flows-bridge/tests/fixtures/swift_route_designations_oracle.tsv.
+/// Candidates cross as rows of numbers (a flag is 0 or 1) and the answer is
+/// the winning row. No answer, or one that names no candidate, is no chip.
+private enum DesignationCall {
+    static func pick<C>(
+        _ candidates: [C], id: (C) -> UUID, row: (C) -> [Double], call: ([Double], Int64) -> Int64
+    ) -> UUID? {
+        // An empty list never crosses.
+        guard !candidates.isEmpty else { return nil }
+        let at = call(candidates.flatMap(row), Int64(candidates.count))
+        guard at >= 0, at < Int64(candidates.count) else { return nil }
+        return id(candidates[Int(at)])
+    }
+
+    static func flag(_ b: Bool) -> Double { b ? 1 : 0 }
+}
+
 /// Which route earns the "Cheapest" chip. Fuel is the only cost FLOWS can
 /// price, and every route burns it at one price and one mileage, so on fuel
 /// alone "Cheapest" always went to the shortest road — tolls and all, the
@@ -910,21 +931,14 @@ enum CheapestRoute {
         var isWalk = false
     }
 
-    static let tollAllowanceUSD = 5.0
+    static let tollAllowanceUSD = flows_designation_toll_allowance_usd()
 
     /// Lowest fuel, ties to toll-free; nil for no candidates or for walks.
     static func pick(_ candidates: [Candidate]) -> UUID? {
-        guard !candidates.contains(where: \.isWalk) else { return nil }
-        func cheaper(_ a: Candidate, _ b: Candidate) -> Bool {
-            if abs(a.fuelUSD - b.fuelUSD) > 0.01 { return a.fuelUSD < b.fuelUSD }
-            return !a.hasTolls && b.hasTolls
-        }
-        guard let lowest = candidates.min(by: cheaper) else { return nil }
-        guard lowest.hasTolls,
-            let tollFree = candidates.filter({ !$0.hasTolls }).min(by: cheaper),
-            tollFree.fuelUSD - lowest.fuelUSD <= tollAllowanceUSD
-        else { return lowest.id }
-        return tollFree.id
+        DesignationCall.pick(
+            candidates, id: \.id,
+            row: { [$0.fuelUSD, DesignationCall.flag($0.hasTolls), DesignationCall.flag($0.isWalk)] },
+            call: { rows, n in rows.lent { flows_designation_cheapest($0, n) } })
     }
 }
 
@@ -941,8 +955,9 @@ enum EfficientRoute {
 
     /// The shortest drive; nil for no candidates or for walks.
     static func pick(_ candidates: [Candidate]) -> UUID? {
-        guard !candidates.contains(where: \.isWalk) else { return nil }
-        return candidates.min { $0.meters < $1.meters }?.id
+        DesignationCall.pick(
+            candidates, id: \.id, row: { [$0.meters, DesignationCall.flag($0.isWalk)] },
+            call: { rows, n in rows.lent { flows_designation_efficient($0, n) } })
     }
 }
 
@@ -957,12 +972,9 @@ enum SafestRoute {
     }
 
     static func pick(_ candidates: [Candidate]) -> UUID? {
-        let scored = candidates.filter(\.scored)
-        guard scored.count == candidates.count, scored.count > 1,
-            let best = scored.min(by: { $0.risk < $1.risk }),
-            scored.contains(where: { $0.risk > best.risk })
-        else { return nil }
-        return best.id
+        DesignationCall.pick(
+            candidates, id: \.id, row: { [$0.risk, DesignationCall.flag($0.scored)] },
+            call: { rows, n in rows.lent { flows_designation_safest($0, n) } })
     }
 }
 
@@ -970,21 +982,26 @@ enum SafestRoute {
 /// pinned by tests.
 enum FastestRoute {
     /// The shortest ETA on offer; nil for no routes.
-    static func eta(_ etas: [TimeInterval]) -> TimeInterval? { etas.min() }
+    static func eta(_ etas: [TimeInterval]) -> TimeInterval? {
+        // An empty list never crosses.
+        guard !etas.isEmpty else { return nil }
+        return etas.lent { flows_designation_fastest_eta($0, Int64(etas.count)) }
+    }
 
     /// Minutes behind the fastest for the card's chip, at least 1; nil when
     /// this IS the fastest. Only the route that is fastest says so: rounded
-    /// first, a route 29 seconds slower said "Fastest" too.
+    /// first, a route 29 seconds slower said "Fastest" too. A gap too large
+    /// to count (the Swift this replaced crashed) is the largest number.
     static func chipMinutes(eta: TimeInterval, fastest: TimeInterval) -> Int? {
-        guard eta > fastest else { return nil }
-        return max(1, Int(((eta - fastest) / 60).rounded()))
+        let minutes = flows_designation_chip_minutes(eta, fastest)
+        return minutes >= 1 ? Int(minutes) : nil
     }
 
     /// Whole minutes behind the fastest for the card's key point; nil when
     /// it is not more than a minute behind.
     static func keyPointMinutes(eta: TimeInterval, fastest: TimeInterval) -> Int? {
-        guard eta > fastest + 60 else { return nil }
-        return Int((eta - fastest) / 60)
+        let minutes = flows_designation_key_point_minutes(eta, fastest)
+        return minutes >= 1 ? Int(minutes) : nil
     }
 }
 
@@ -1013,19 +1030,20 @@ enum TruckerDesignation {
     }
 
     static func score(_ c: Candidate) -> Double {
-        var s = 0.0
-        if c.hasHighways && !c.avoidsHighways { s += 3 }
-        if c.gradeOK { s += 2 }
-        if c.windOK { s += 1 }
-        return s
+        flows_designation_trucker_score(c.hasHighways, c.avoidsHighways, c.gradeOK, c.windOK)
     }
 
     /// Best score, then shortest ETA; nil when no drive clears.
     static func pick(_ candidates: [Candidate]) -> UUID? {
-        candidates
-            .filter { $0.clearsBridges && !$0.isWalk }
-            .map { (id: $0.id, score: score($0), eta: $0.eta) }
-            .min { $0.score != $1.score ? $0.score > $1.score : $0.eta < $1.eta }?
-            .id
+        let flag = DesignationCall.flag
+        return DesignationCall.pick(
+            candidates, id: \.id,
+            row: {
+                [
+                    flag($0.clearsBridges), flag($0.hasHighways), flag($0.avoidsHighways), flag($0.gradeOK),
+                    flag($0.windOK), flag($0.isWalk), $0.eta,
+                ]
+            },
+            call: { rows, n in rows.lent { flows_designation_trucker($0, n) } })
     }
 }

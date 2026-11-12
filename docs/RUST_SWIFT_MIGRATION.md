@@ -1659,6 +1659,38 @@ The learned-ETA factor (`TrafficLearning`) and `EscalationPolicy` were
 already Rust; the average-speed rule that picks the road class moved with
 this landing.
 
+## Wave 3, third landing: the route designations (2026-11-11)
+
+Which route wears "Safest", "Cheapest", "Efficient" and the trucker badge,
+and what a card says about time behind the fastest. Three of the rules were
+already pure Core statics in Swift; "Safest" and the two minutes-behind
+rules sat inside `RouteChoicesView`. ea53276 moved those, unchanged, beside
+the others (`SafestRoute`, `FastestRoute`); this landing computes all five
+in `flows_core::route_designations`. The view now holds no designation
+rule, only the reading of each route's facts into a candidate.
+
+The oracle is 2,038 records frozen at ea53276
+(`swift_route_designations_oracle.tsv`); the Rust matched all of them on
+its first run. Thirteen mutants each break records; two more change
+nothing and are listed as such in the harness README. Two mutants (the
+one-cent tie and the $5 toll allowance) survived the first fixture, which
+had no fuel costs exactly that far apart; the generator was given them and
+the fixture frozen again before the port was committed.
+
+Candidates cross as rows of numbers and the answer is the winning row; the
+facade maps it back to the route's id. No answer is no chip.
+
+One behaviour is new on purpose. The Swift crashed when a route's time
+behind the fastest was too large for an integer (an endless ETA). The Rust
+answers the largest integer: such a route is never called "Fastest" and
+the app does not crash. Unit tests on both sides pin it.
+
+The finding "Route safest and fastest designations are computed in several
+places with different gates" still stands for the surfaces outside the
+card list (the highlight, the spoken choice, the closest match): those use
+`RouteFilter` and the planner's order, not these chips, and were not
+changed.
+
 ### Wave 3 remaining
 
 | item | state |
@@ -1666,5 +1698,5 @@ this landing.
 | AppModel's route scoring as one batched call off the main actor | LANDED (first landing) |
 | RouteService and NavigationEngine over one opaque per-leg geometry | open |
 | Live corridor updates and learned ETA | LANDED (second landing) |
-| The compute leaked into views: the ContentView sweep, RouteChoicesView's route designations, NavigationHUD | open |
+| The compute leaked into views: the ContentView sweep, RouteChoicesView's route designations, NavigationHUD | route designations LANDED (third landing); the ContentView sweep and NavigationHUD are open |
 | The geo facade itself | open, last |

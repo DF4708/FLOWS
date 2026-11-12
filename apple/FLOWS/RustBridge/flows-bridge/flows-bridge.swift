@@ -3325,6 +3325,35 @@ public func flows_route_blend<GenericToRustStr: ToRustStr>(_ field: FlowsRiskFie
 
 
 
+public func flows_designation_toll_allowance_usd() -> Double {
+    __swift_bridge__$flows_designation_toll_allowance_usd()
+}
+public func flows_designation_safest(_ rows: UnsafeBufferPointer<Double>, _ count: Int64) -> Int64 {
+    __swift_bridge__$flows_designation_safest(rows.toFfiSlice(), count)
+}
+public func flows_designation_cheapest(_ rows: UnsafeBufferPointer<Double>, _ count: Int64) -> Int64 {
+    __swift_bridge__$flows_designation_cheapest(rows.toFfiSlice(), count)
+}
+public func flows_designation_efficient(_ rows: UnsafeBufferPointer<Double>, _ count: Int64) -> Int64 {
+    __swift_bridge__$flows_designation_efficient(rows.toFfiSlice(), count)
+}
+public func flows_designation_trucker(_ rows: UnsafeBufferPointer<Double>, _ count: Int64) -> Int64 {
+    __swift_bridge__$flows_designation_trucker(rows.toFfiSlice(), count)
+}
+public func flows_designation_trucker_score(_ has_highways: Bool, _ avoids_highways: Bool, _ grade_ok: Bool, _ wind_ok: Bool) -> Double {
+    __swift_bridge__$flows_designation_trucker_score(has_highways, avoids_highways, grade_ok, wind_ok)
+}
+public func flows_designation_fastest_eta(_ etas: UnsafeBufferPointer<Double>, _ count: Int64) -> Double {
+    __swift_bridge__$flows_designation_fastest_eta(etas.toFfiSlice(), count)
+}
+public func flows_designation_chip_minutes(_ eta: Double, _ fastest: Double) -> Int64 {
+    __swift_bridge__$flows_designation_chip_minutes(eta, fastest)
+}
+public func flows_designation_key_point_minutes(_ eta: Double, _ fastest: Double) -> Int64 {
+    __swift_bridge__$flows_designation_key_point_minutes(eta, fastest)
+}
+
+
 public func flows_seasonal_cross_country_km() -> Double {
     __swift_bridge__$flows_seasonal_cross_country_km()
 }
