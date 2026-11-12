@@ -73,8 +73,9 @@ final class RiskFieldService: ObservableObject {
         return out.string(from: date)
     }
 
-    /// The loaded field; nil until `load()` has parsed a bundle.
-    private var field: RiskField?
+    /// The loaded field; nil until `load()` has parsed a bundle. Read by the
+    /// route blend, which scores a whole road against it in one call.
+    private(set) var field: RiskField?
 
     init() {
         riskLog.info("init — scheduling load")

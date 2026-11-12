@@ -281,3 +281,132 @@ extension HazardFeedScores {
             avalanche: v[4], tropical: v[5], tsunami: v[6], convective: v[7])
     }
 }
+
+/// The corridor blend: every check point of a road scored with the SAME
+/// two-tier equation the map uses (`RiskEquations.realizedRisk` over
+/// `RiskEquations.bandInput`). The modeled ZIP field and the on-device
+/// forecast are predictors; an in-progress-danger alert, a reported closure
+/// and the live feeds are what can reach Red.
+///
+/// One call scores a whole list of check points, so the planner, the live
+/// corridor watch and the route card's progress all band alike. What a
+/// caller does not have, it leaves out: no forecasts means no forecast
+/// predictors and no flood amplifier, no snapshot means no live feeds.
+enum RouteBlend {
+    struct Answer: Sendable {
+        /// One realized risk per check point, in order.
+        var risks: [Double]
+        /// The worst reading per family along the road (the route filters
+        /// and the route card's live-hazard name read these).
+        var peaks: [String: Double]
+        /// The sum of the ZIP field's "environmental" score over the points.
+        var identifiedSum: Double
+        /// A point the live scorer could not answer: not a clear point.
+        var liveUnchecked: Bool
+    }
+
+    /// The route filters' families, in the order their peaks are read.
+    static let filterFamilies = ["wind", "qpf_flood", "winter", "convective"]
+
+    static func blend(
+        samples: [RiskSample],
+        onDevice: [Int: (ForecastConditions, Double?)] = [:],
+        field: RiskField?,
+        gauges: HazardFeedScores.PreparedGauges? = nil,
+        water: HazardFeedScores.PreparedPoints? = nil,
+        closures: HazardFeedScores.PreparedPoints? = nil,
+        live snapshot: LiveHazardSnapshot? = nil
+    ) -> Answer {
+        var peaks: [String: Double] = [:]
+        func nearestOnDevice(_ i: Int) -> (ForecastConditions, Double?)? {
+            // Nearest fetched sample (they're every other one).
+            let candidates = [i, i - 1, i + 1, i - 2, i + 2].filter { onDevice[$0] != nil }
+            return candidates.first.flatMap { onDevice[$0] }
+        }
+        // A sample with no forecast of its own borrows its neighbour's: the
+        // pair would work the same point out twice, so each point is done once.
+        var predictorsAt: [Int: [String: Double]] = [:]
+        func onDevicePredictors(near i: Int) -> [String: Double] {
+            let candidates = [i, i - 1, i + 1, i - 2, i + 2].filter { onDevice[$0] != nil }
+            guard let j = candidates.first, let (c, elev) = onDevice[j] else { return [:] }
+            if let done = predictorsAt[j] { return done }
+            let coord = samples[j].coordinate
+            let made = c.predictorFamilies(
+                latitude: coord.latitude, longitude: coord.longitude,
+                elevationMeters: elev)
+            predictorsAt[j] = made
+            return made
+        }
+
+        // WINDOWED local minimum elevation: the nearby pooling low, NOT the
+        // corridor-global low (which on a long/mountain route sits hundreds of
+        // km away and breaks "local minimum waterline"). Min over the fetched
+        // elevations within ±4 samples of the query point.
+        let elevBySample: [Int: Double?] = onDevice.mapValues(\.1)
+        func localMinElevation(near i: Int) -> Double? {
+            var lo: Double?
+            for j in max(i - 4, 0)...min(i + 4, max(samples.count - 1, 0)) {
+                if let e = elevBySample[j] ?? nil { lo = lo.map { Swift.min($0, e) } ?? e }
+            }
+            return lo
+        }
+
+        // Family indices are loop-invariant — resolve once, not per sample.
+        let envIdx = field?.familyIndex("environmental")
+        let filterIdx = filterFamilies.map { ($0, field?.familyIndex($0)) }
+        var identifiedSum = 0.0
+        var liveUnchecked = false
+        let risks = samples.enumerated().map { i, s -> Double in
+            let c = s.coordinate
+            let dev = onDevicePredictors(near: i)
+            let near = nearestOnDevice(i)
+            // One nearest-ZIP row per sample, shared by the filter peaks, the
+            // identified-exposure accumulation and the band input below.
+            let row = field.flatMap { f in f.nearest(c).map { f.scores(at: $0) } }
+            func rowScore(_ fi: Int?) -> Double {
+                guard let row, let fi, fi < row.count else { return 0 }
+                return row[fi]
+            }
+            identifiedSum += rowScore(envIdx)
+            // Evidence gate = noisy-OR of a gauge in flood and mapped water near.
+            let gaugeEvid = gauges.map { HazardFeedScores.floodGaugeScore(prepared: $0, at: c) } ?? 0
+            let waterEvid = water.map { HazardFeedScores.waterProximityScore(prepared: $0, at: c) } ?? 0
+            let floodEvidence = 1 - (1 - gaugeEvid) * (1 - waterEvid)
+            let floodMult = RiskEquations.floodElevationMultiplier(
+                sampleElevation: near?.1, localMinElevation: localMinElevation(near: i),
+                qpfInches: near?.0.qpfInches, supportingEvidence: floodEvidence)
+            // Route filters track per-family peaks (display): worse of the ZIP
+            // export and the on-device forecast decomposition.
+            for (fam, fi) in filterIdx {
+                let deviceKey = fam == "qpf_flood" ? "precip" : fam
+                let v = max(rowScore(fi), dev[deviceKey] ?? 0)
+                if v > (peaks[fam] ?? 0) { peaks[fam] = v }
+            }
+            // Live feeds: a fire perimeter or a fresh epicentre on the route
+            // is a realized primary here exactly as it is on the map, and its
+            // peak reaches the route card so the card can name it.
+            // A point the live scorer could not answer is not a clear point.
+            var live: [String: Double] = [:]
+            if let snapshot {
+                let liveAnswer = HazardFeedScores.liveChecked(at: c, snapshot: snapshot)
+                if liveAnswer == nil { liveUnchecked = true }
+                live = liveAnswer?.bandInputContribution ?? [:]
+            }
+            for (fam, v) in live where v > (peaks[fam] ?? 0) { peaks[fam] = v }
+            func fieldScore(_ fam: String) -> Double {
+                guard let row, let fi = field?.familyIndex(fam), fi < row.count else { return 0 }
+                return row[fi]
+            }
+            // The assembly itself is RiskEquations.bandInput — Core, tested.
+            return RiskEquations.realizedRisk(
+                RiskEquations.bandInput(
+                    field: fieldScore, onDevice: dev,
+                    alertEvent: s.worstEvent, alertSeverity: s.risk,
+                    floodMultiplier: floodMult,
+                    closureScore: closures.map { HazardFeedScores.closureScore(prepared: $0, at: c) } ?? 0,
+                    live: live))
+        }
+        return Answer(
+            risks: risks, peaks: peaks, identifiedSum: identifiedSum, liveUnchecked: liveUnchecked)
+    }
+}

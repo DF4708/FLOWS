@@ -4780,27 +4780,12 @@ final class AppModel: ObservableObject {
     /// it can the map. Shared by route planning and live corridor monitoring so
     /// every surface bands identically.
     private func sampleRealizedRisk(
-        at c: CLLocationCoordinate2D, alertEvent: String?, alertSeverity: Double,
-        onDevice: [String: Double] = [:], floodMultiplier: Double = 1,
-        closureScore: Double = 0,
-        live: [String: Double] = [:],
-        fieldRow: [Double]? = nil
+        at c: CLLocationCoordinate2D, alertEvent: String?, alertSeverity: Double
     ) -> Double {
-        // ONE nearest-ZIP resolution for all families at this coordinate —
-        // per-family score() calls redid the same neighborhood scan 8×. A
-        // caller that has already resolved the row (the plan-time blend
-        // loop does, for its own purposes) passes it in.
-        let row = fieldRow ?? riskField.scoreRow(at: c)
-        func field(_ fam: String) -> Double {
-            guard let row, let fi = riskField.familyIndex(fam), fi < row.count else { return 0 }
-            return row[fi]
-        }
-        // The assembly itself is RiskEquations.bandInput — Core, tested.
-        return RiskEquations.realizedRisk(
-            RiskEquations.bandInput(
-                field: field, onDevice: onDevice,
-                alertEvent: alertEvent, alertSeverity: alertSeverity,
-                floodMultiplier: floodMultiplier, closureScore: closureScore, live: live))
+        RouteBlend.blend(
+            samples: [RiskSample(coordinate: c, risk: alertSeverity, worstEvent: alertEvent)],
+            field: riskField.field
+        ).risks.first ?? 0
     }
 
     /// ON-DEVICE R equations, CONUS-wide: NWS gridpoint forecasts at every
@@ -4964,29 +4949,8 @@ final class AppModel: ObservableObject {
         // Blend alert severity with the R engine's continuous ZIP
         // environmental field (noisy-OR, per sample) — this is what makes the
         // route colored PHYSICALLY where the risk is, even where no alert
-        // polygon is active. Track per-family peaks along the way
-        // (wind/flood/… power the route filters).
-        var peaks: [String: Double] = [:]
-        let filterFamilies = ["wind", "qpf_flood", "winter", "convective"]
-        func nearestOnDevice(_ i: Int) -> (ForecastConditions, Double?)? {
-            // Nearest fetched sample (they're every other one).
-            let candidates = [i, i - 1, i + 1, i - 2, i + 2].filter { onDevice[$0] != nil }
-            return candidates.first.flatMap { onDevice[$0] }
-        }
-        // A sample with no forecast of its own borrows its neighbour's: the
-        // pair would work the same point out twice, so each point is done once.
-        var predictorsAt: [Int: [String: Double]] = [:]
-        func onDevicePredictors(near i: Int) -> [String: Double] {
-            let candidates = [i, i - 1, i + 1, i - 2, i + 2].filter { onDevice[$0] != nil }
-            guard let j = candidates.first, let (c, elev) = onDevice[j] else { return [:] }
-            if let done = predictorsAt[j] { return done }
-            let coord = score.samples[j].coordinate
-            let made = c.predictorFamilies(
-                latitude: coord.latitude, longitude: coord.longitude,
-                elevationMeters: elev)
-            predictorsAt[j] = made
-            return made
-        }
+        // polygon is active. The blend itself is RouteBlend: one call for the
+        // whole road, the same equation the map and the live watch use.
 
         // Rain-gate: water-proximity evidence only matters when the corridor
         // has forecast rain (the multiplier ignores evidence at qpf 0) — a dry
@@ -5012,80 +4976,24 @@ final class AppModel: ObservableObject {
         let corridorGauges = await gaugesF
         let corridorWater = await waterF
 
-        // WINDOWED local minimum elevation: the nearby pooling low, NOT the
-        // corridor-global low (which on a long/mountain route sits hundreds of
-        // km away and breaks "local minimum waterline"). Min over the fetched
-        // elevations within ±4 samples of the query point.
-        let elevBySample: [Int: Double?] = onDevice.mapValues(\.1)
-        func localMinElevation(near i: Int) -> Double? {
-            var lo: Double?
-            for j in max(i - 4, 0)...min(i + 4, max(score.samples.count - 1, 0)) {
-                if let e = elevBySample[j] ?? nil { lo = lo.map { Swift.min($0, e) } ?? e }
-            }
-            return lo
-        }
-
-        // Family indices are loop-invariant — resolve once, not per sample.
-        let envIdx = riskField.familyIndex("environmental")
-        let filterIdx = filterFamilies.map { ($0, riskField.familyIndex($0)) }
-        var identifiedSum = 0.0
-        // The gauges, mapped water and closures are the same at every sample:
-        // lay them out for the Rust scorers once per route, not per sample.
-        let preparedGauges = HazardFeedScores.PreparedGauges(corridorGauges)
-        let preparedWater = HazardFeedScores.PreparedPoints(corridorWater)
-        let preparedClosures = HazardFeedScores.PreparedPoints(corridorClosures)
-        // This loop is synchronous on the main actor — the journal says how
+        // This blend is synchronous on the main actor — the journal says how
         // long, so a planning stall can be attributed or ruled out.
         let blendStart = Date()
-        var liveUnchecked = false
-        let blended = score.samples.enumerated().map { i, s -> RiskSample in
-            let c = s.coordinate
-            let dev = onDevicePredictors(near: i)
-            let near = nearestOnDevice(i)
-            // One nearest-ZIP row per sample, shared by the filter peaks and
-            // the identified-exposure accumulation below (score(family:at:)
-            // per family redid the same neighborhood scan).
-            let row = riskField.scoreRow(at: c)
-            func rowScore(_ fi: Int?) -> Double {
-                guard let row, let fi, fi < row.count else { return 0 }
-                return row[fi]
-            }
-            identifiedSum += rowScore(envIdx)
-            // Evidence gate = noisy-OR of a gauge in flood and mapped water near.
-            let gaugeEvid = HazardFeedScores.floodGaugeScore(prepared: preparedGauges, at: c)
-            let waterEvid = HazardFeedScores.waterProximityScore(prepared: preparedWater, at: c)
-            let floodEvidence = 1 - (1 - gaugeEvid) * (1 - waterEvid)
-            let floodMult = RiskEquations.floodElevationMultiplier(
-                sampleElevation: near?.1, localMinElevation: localMinElevation(near: i),
-                qpfInches: near?.0.qpfInches, supportingEvidence: floodEvidence)
-            // Route filters track per-family peaks (display): worse of the ZIP
-            // export and the on-device forecast decomposition.
-            for (fam, fi) in filterIdx {
-                let deviceKey = fam == "qpf_flood" ? "precip" : fam
-                let v = max(rowScore(fi), dev[deviceKey] ?? 0)
-                if v > (peaks[fam] ?? 0) { peaks[fam] = v }
-            }
-            // SAME logic as the map: field + forecast are PREDICTORS (never
-            // proof); the only realized primary the route has today is an
-            // in-progress-danger ALERT (classified by RiskEquations.alertFamily).
-            // Live feeds: a fire perimeter or a fresh epicentre on the route
-            // is a realized primary here exactly as it is on the map, and its
-            // peak reaches the route card so the card can name it.
-            // A point the live scorer could not answer is not a clear point:
-            // the route stays "Checking weather…" like any failed check.
-            let liveAnswer = HazardFeedScores.liveChecked(at: c, snapshot: corridorLive)
-            if liveAnswer == nil { liveUnchecked = true }
-            let live = liveAnswer?.bandInputContribution ?? [:]
-            for (fam, v) in live where v > (peaks[fam] ?? 0) { peaks[fam] = v }
-            return RiskSample(
-                coordinate: c,
-                risk: sampleRealizedRisk(
-                    at: c, alertEvent: s.worstEvent, alertSeverity: s.risk,
-                    onDevice: dev, floodMultiplier: floodMult,
-                    closureScore: HazardFeedScores.closureScore(
-                        prepared: preparedClosures, at: c),
-                    live: live,
-                    fieldRow: row),  // resolved above; not a second ZIP scan
+        // FLOOD SUPPORTING EVIDENCE rides in as the gauges and the mapped
+        // water; a point the live scorer could not answer is not a clear
+        // point: the route stays "Checking weather…" like any failed check.
+        let blend = RouteBlend.blend(
+            samples: score.samples, onDevice: onDevice, field: riskField.field,
+            gauges: HazardFeedScores.PreparedGauges(corridorGauges),
+            water: HazardFeedScores.PreparedPoints(corridorWater),
+            closures: HazardFeedScores.PreparedPoints(corridorClosures),
+            live: corridorLive)
+        let liveUnchecked = blend.liveUnchecked
+        let identifiedSum = blend.identifiedSum
+        let peaks = blend.peaks
+        let blended = zip(score.samples, blend.risks).map { s, risk in
+            RiskSample(
+                coordinate: s.coordinate, risk: risk,
                 worstEvent: s.worstEvent, alertID: s.alertID)
         }
         FlowsDiag.log(
@@ -5682,20 +5590,13 @@ final class AppModel: ObservableObject {
         // spaced, so the comparable live number is the plain sample MEAN — the
         // old peak⊕avg blend sat above the weighted baseline by construction
         // and manufactured escalations on quiet routes.
-        let closures = HazardFeedScores.PreparedPoints(tripClosures)
         // A window with a point the live scorer could not answer is an
         // incomplete window: it is not folded into the route as clear.
-        var liveUnchecked = false
-        let sampleRisks = score.samples.map { sample -> Double in
-            let liveAnswer = HazardFeedScores.liveChecked(at: sample.coordinate, snapshot: tripLive)
-            if liveAnswer == nil { liveUnchecked = true }
-            return sampleRealizedRisk(
-                at: sample.coordinate, alertEvent: sample.worstEvent,
-                alertSeverity: sample.risk,
-                closureScore: HazardFeedScores.closureScore(
-                    prepared: closures, at: sample.coordinate),
-                live: liveAnswer?.bandInputContribution ?? [:])
-        }
+        let watch = RouteBlend.blend(
+            samples: score.samples, field: riskField.field,
+            closures: HazardFeedScores.PreparedPoints(tripClosures), live: tripLive)
+        let liveUnchecked = watch.liveUnchecked
+        let sampleRisks = watch.risks
         let peakR = sampleRisks.max() ?? 0
         // The DRIVEN route's samples, segments and alert shapes used to be
         // fixed at plan time: a tornado warning issued an hour into the trip
