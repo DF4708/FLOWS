@@ -125,6 +125,7 @@ pub mod trip_shape;
 pub mod trip_vehicle;
 pub mod vehicle_policy;
 pub mod viewport_point;
+pub mod wmo_alerts;
 
 pub use families::{
     alert_family, dominant_family, family_weight, flood_elevation_multiplier, is_primary,

@@ -4903,3 +4903,53 @@ public func flows_vehicle_policy_drive_efficient_cruise_mph(_ city_mpu: Double, 
 }
 
 
+public func flows_wmo_feed_code(_ lat: Double, _ lon: Double) -> RustString {
+    RustString(ptr: __swift_bridge__$flows_wmo_feed_code(lat, lon))
+}
+public func flows_wmo_south_of_mexico(_ lat: Double, _ lon: Double) -> Bool {
+    __swift_bridge__$flows_wmo_south_of_mexico(lat, lon)
+}
+public func flows_wmo_beside_belize(_ lat: Double, _ lon: Double) -> Int64 {
+    __swift_bridge__$flows_wmo_beside_belize(lat, lon)
+}
+public func flows_wmo_beside_costa_rica(_ lat: Double, _ lon: Double) -> Bool {
+    __swift_bridge__$flows_wmo_beside_costa_rica(lat, lon)
+}
+public func flows_wmo_rss_items<GenericToRustStr: ToRustStr>(_ xml: GenericToRustStr) -> RustVec<RustString> {
+    return xml.toRustStr({ xmlAsRustStr in
+        RustVec(ptr: __swift_bridge__$flows_wmo_rss_items(xmlAsRustStr))
+    })
+}
+public func flows_wmo_polygon<GenericToRustStr: ToRustStr>(_ raw: GenericToRustStr) -> RustVec<Double> {
+    return raw.toRustStr({ rawAsRustStr in
+        RustVec(ptr: __swift_bridge__$flows_wmo_polygon(rawAsRustStr))
+    })
+}
+public func flows_wmo_cap<GenericToRustStr: ToRustStr>(_ raw: GenericToRustStr) -> RustVec<RustString> {
+    return raw.toRustStr({ rawAsRustStr in
+        RustVec(ptr: __swift_bridge__$flows_wmo_cap(rawAsRustStr))
+    })
+}
+public func flows_wmo_cap_rings<GenericToRustStr: ToRustStr>(_ raw: GenericToRustStr) -> RustVec<Double> {
+    return raw.toRustStr({ rawAsRustStr in
+        RustVec(ptr: __swift_bridge__$flows_wmo_cap_rings(rawAsRustStr))
+    })
+}
+public func flows_wmo_event_in_risk_words<GenericToRustStr: ToRustStr>(_ event: GenericToRustStr, _ folded_event: GenericToRustStr, _ severity: GenericToRustStr, _ folded_rain_text: GenericToRustStr) -> RustString {
+    return folded_rain_text.toRustStr({ folded_rain_textAsRustStr in
+        return severity.toRustStr({ severityAsRustStr in
+        return folded_event.toRustStr({ folded_eventAsRustStr in
+        return event.toRustStr({ eventAsRustStr in
+        RustString(ptr: __swift_bridge__$flows_wmo_event_in_risk_words(eventAsRustStr, folded_eventAsRustStr, severityAsRustStr, folded_rain_textAsRustStr))
+    })
+    })
+    })
+    })
+}
+public func flows_wmo_names_heavy_rain<GenericToRustStr: ToRustStr>(_ folded: GenericToRustStr) -> Bool {
+    return folded.toRustStr({ foldedAsRustStr in
+        __swift_bridge__$flows_wmo_names_heavy_rain(foldedAsRustStr)
+    })
+}
+
+

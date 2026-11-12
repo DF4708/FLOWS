@@ -53,6 +53,7 @@ const BRIDGES: &[&str] = &[
     "src/transit.rs",
     "src/trip_vehicle.rs",
     "src/vehicle_policy.rs",
+    "src/wmo_alerts.rs",
 ];
 
 fn copy_if_changed(from: &Path, to: &Path) -> std::io::Result<()> {

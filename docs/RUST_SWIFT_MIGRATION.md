@@ -1861,8 +1861,8 @@ the original Swift and the same landing steps as waves 2 and 3:
 | `ManeuverSymbol` text reading | LANDED (third landing) |
 | `RiskAreaFallback` | LANDED (fourth landing) |
 | `BadgeClustering` | LANDED (fifth landing) |
-| `WMOAlerts` | next |
-| `RiskAdvice` | open |
+| `WMOAlerts` | LANDED (sixth landing) |
+| `RiskAdvice` | next |
 
 ## Wave 4, first landing: the international weather rules (2026-11-12)
 
@@ -2023,3 +2023,48 @@ spacing, the original's grid trapped when a cell number did not fit an
 coordinate over it passed 2^63); the Rust takes the linear scan there,
 which gives the grid's answer (66 such calls are left out of the
 fixture). The app never sends one: its points are real places.
+
+## Wave 4, sixth landing: the national weather alerts (2026-11-12)
+
+`WMOAlertParsing` keeps its fetches, its list of feeds' web addresses and
+the diacritic folding, and asks Rust for every rule: which country's list
+answers for a point (and where a border is too close to say), the items
+of an RSS or Atom list, a CAP file's rings, words and live mark, and an
+alert's own name in the words the risk rules read, with the heavy-rain
+test that turns a rain notice into a flood notice. The rules live in
+`flows_core::wmo_alerts`; ten bridge calls, `flows_wmo_*`, carry them.
+The answers come back flat: a feed code as text (empty for none),
+Belize's side as 0, 1 or 2, list items five texts each, a ring as
+latitude and longitude pairs, a CAP file as `["0"]` when it is not an
+alert file and otherwise its words with seven presence and live marks,
+and its rings as a count, their lengths and then the points. If a call
+ever failed, every answer falls to the side that hides no hazard and
+names no wrong country: no feed code, Belize unsure, beside Costa Rica's
+border, no items or rings, an unreadable file, the event as written, and
+heavy rain.
+
+The folding stays in Swift because it is Foundation's own table. The
+facade folds the event, and the event with its detail, and hands both to
+Rust. The rest of the text rules go through `swift_text`, and both
+regular expressions in the heavy-rain test are matched by hand as ICU
+reads them, scalar by scalar. One of them ran through
+`range(of:options: .regularExpression)`, but it carries a lookbehind, and
+the records show ICU's reading there, not Swift Regex's.
+
+The oracle (`swift_wmo_alerts_oracle.tsv`, 8,559 records) was frozen from
+the original Swift at 923174c: every box edge and border step with the
+doubles either side, the Hondo river line, real towns on both banks,
+random points, ring texts with every kind of white space, lists and
+alert files hand-made and random, 88 event names in every case and
+script at three severities, and the heavy-rain test on written amounts,
+word pairs, "sin" in front, gaps and odd Characters. Sixty-nine of
+seventy-two changed rules fail it, and the three survivors are the same
+rule written another way. Twenty-four of twenty-five changed facades fail
+it; the twenty-fifth drops a test the count test already makes. The
+counts and reasons are in the harness README.
+
+One change reaches every facade. swift-bridge's `toString()` drops a
+leading U+FEFF from Rust text, so a list link that began with one came
+back without it. `RustStringRef.text` now decodes the bytes as they are,
+which gives the original's link back; a test in `SafetyAndGradeTests`
+pins it. Rust text is always valid UTF-8, so no other answer changes.

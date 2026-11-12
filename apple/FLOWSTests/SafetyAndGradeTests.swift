@@ -854,6 +854,12 @@ final class WMOAlertTests: XCTestCase {
         XCTAssertEqual(
             WMOAlertParsing.parseCAP(
                 cap("", polygon: "22.0,-98.0 x,-98.0 22.5,-97.5 22.0,-98.0"))?.polygons.count, 0)
+        // A link that starts with a byte-order mark keeps it. Rust text read
+        // back through Foundation's string-from-bytes lost it.
+        XCTAssertEqual(
+            WMOAlertParsing.parseRSSItems("<item><link>\u{FEFF}https://x.example/a.xml</link></item>")
+                .first?.link,
+            "\u{FEFF}https://x.example/a.xml")
     }
 
     func testEachServiceIsReadFromItsOwnList() {

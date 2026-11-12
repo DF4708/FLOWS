@@ -79,5 +79,16 @@ extension Data {
 extension RustStringRef {
     /// The string, with the empty case answered here (rule 3 above): every
     /// facade reads Rust text through this.
-    var text: String { unsafe len() == 0 ? "" : as_str().toString() }
+    ///
+    /// The bytes are read as they are. The generated `toString()` goes
+    /// through `String(bytes:encoding:)`, which drops a leading U+FEFF: a
+    /// list link that began with one came back without it, unlike the
+    /// Swift it replaced. Rust text is always valid UTF-8, so decoding
+    /// repairs nothing.
+    var text: String {
+        guard len() > 0 else { return "" }
+        let s = unsafe as_str()
+        return unsafe String(
+            decoding: UnsafeBufferPointer(start: s.start, count: Int(s.len)), as: UTF8.self)
+    }
 }

@@ -7,6 +7,7 @@
 // -----------------------------------------------------------------------------
 
 import CoreLocation
+import FlowsBridge
 import Foundation
 
 /// WMO Alert Hub — official national CAP alerts for the countries NWS/ECCC
@@ -18,51 +19,21 @@ import Foundation
 /// then keep the ones that actually contain the driver's point.
 ///
 /// Pure parsing here (pinned by FLOWSTests); WeatherAlertService does the I/O.
+/// The rules run in Rust (`flows_core::wmo_alerts`); the diacritic folding
+/// stays here, with Foundation's own tables.
 enum WMOAlertParsing {
 
-    /// Country → hub feed code, checked most-specific first so a point in
-    /// Belize/CR/etc. isn't swallowed by Mexico's broad box. Coordinates are
-    /// coarse national bounding boxes (only the covered countries).
-    private static let feeds:
-        [(
-            code: String, minLat: Double, maxLat: Double,
-            minLon: Double, maxLon: Double
-        )] = [
-            ("bz-nms-en", 15.8, 18.5, -89.3, -87.3),  // Belize
-            ("cr-imn-es", 8.0, 11.3, -86.0, -82.5),  // Costa Rica
-            ("pa-imhpa-es", 7.0, 9.7, -83.1, -77.1),  // Panama
-            ("do-indomet-es", 17.5, 20.1, -72.1, -68.3),  // Dominican Republic
-            ("jm-jms-en", 17.6, 18.7, -78.5, -76.1),  // Jamaica
-            ("tt-ttms-en", 10.0, 11.4, -62.1, -60.8),  // Trinidad & Tobago
-            ("mx-smn-es", 14.3, 32.8, -118.5, -86.7),  // Mexico (regional catch-all)
-        ]
-
     /// The hub feed code for a point, or nil if outside every covered country.
+    /// Each covered country is a coarse national box, checked most-specific
+    /// first so a point in Belize, Costa Rica and the rest isn't swallowed by
+    /// Mexico's broad box. Mexico's box also takes in Guatemala, El Salvador
+    /// and northern Honduras, where its feed has no shapes; the small boxes
+    /// take in the neighbours too (Venezuela's Paria tip sits in Trinidad's),
+    /// and a neighbour read from the wrong country's list is "no alerts",
+    /// complete. Rules in `flows_core::wmo_alerts`.
     static func feedCode(for c: CLLocationCoordinate2D) -> String? {
-        for f in feeds
-        where c.latitude >= f.minLat && c.latitude <= f.maxLat
-            && c.longitude >= f.minLon && c.longitude <= f.maxLon
-        {
-            // Mexico's box also takes in Guatemala, El Salvador and northern
-            // Honduras, where its feed has no shapes: Guatemala City read
-            // "no alerts", complete, when it is a place no covered feed
-            // answers for.
-            if f.code == "mx-smn-es", southOfMexico(c) { continue }
-            // The small boxes take in the neighbours too, and a neighbour
-            // read from the wrong country's list is "no alerts", complete.
-            if f.code == "bz-nms-en" {
-                switch besideBelize(c) {
-                case .mexico: continue  // on to Mexico's own list
-                case .unsure: return nil
-                case .belize: break
-                }
-            }
-            // Venezuela's Paria tip sits in Trinidad's box.
-            if f.code == "tt-ttms-en", c.latitude > 10.45, c.longitude < -61.8 { return nil }
-            if f.code == "cr-imn-es", besideCostaRica(c) { return nil }
-            return f.code
-        }
-        return nil
+        let code = flows_wmo_feed_code(c.latitude, c.longitude).text
+        return code.isEmpty ? nil : code
     }
 
     /// Whether a point in Mexico's box lies past its southern border: the
@@ -72,12 +43,7 @@ enum WMOAlertParsing {
     /// at 91.4°W left Quetzaltenango, San Marcos and Huehuetenango on
     /// Mexico's feed.
     static func southOfMexico(_ c: CLLocationCoordinate2D) -> Bool {
-        let (lat, lon) = (c.latitude, c.longitude)
-        if lat < 15.2 { return lon > -92.25 }
-        if lat < 16.07 { return lon > -92.0 }
-        if lat < 16.5 { return lon > -90.6 }
-        if lat < 17.82 { return lon > -91.0 }
-        return false
+        flows_wmo_south_of_mexico(c.latitude, c.longitude)
     }
 
     enum BelizeSide { case belize, mexico, unsure }
@@ -89,23 +55,18 @@ enum WMOAlertParsing {
     /// the river the answer is "unsure": unknown fails safe, the wrong
     /// country's "no alerts" does not.
     static func besideBelize(_ c: CLLocationCoordinate2D) -> BelizeSide {
-        let (lat, lon) = (c.latitude, c.longitude)
-        if lat < 15.9 || lon < -89.15 { return .unsure }  // Guatemala, Honduras
-        if lon < -88.88 { return lat > 17.8 ? .unsure : .belize }  // Petén corner, Mexico above
-        if lon > -88.1 { return lat > 18.2 ? .mexico : .belize }  // Xcalak coast
-        if lon > -88.3 { return lat > 18.45 ? .unsure : .belize }  // Chetumal Bay
-        let river = 17.90 + 1.07 * (lon + 88.88)
-        if lat > river + 0.1 { return .mexico }
-        return lat > river - 0.1 ? .unsure : .belize
+        switch flows_wmo_beside_belize(c.latitude, c.longitude) {
+        case 0: return .belize
+        case 1: return .mexico
+        default: return .unsure
+        }
     }
 
     /// A point in Costa Rica's box that may be Nicaragua (north of the San
     /// Juan and the line to Salinas Bay) or Panama (east of the Sixaola and
     /// the ridge down to Punta Burica). Wide on purpose.
     static func besideCostaRica(_ c: CLLocationCoordinate2D) -> Bool {
-        let (lat, lon) = (c.latitude, c.longitude)
-        if lat > (lon < -85.0 ? 11.0 : 10.7) { return true }
-        return lon > -83.1 && lat < 9.7
+        flows_wmo_beside_costa_rica(c.latitude, c.longitude)
     }
 
     /// Each service's own list of alerts. The WMO hub's per-country lists
@@ -137,50 +98,19 @@ enum WMOAlertParsing {
     }
 
     /// Flat scan of the RSS `<item>` blocks (event/severity/expires inline;
-    /// the `<link>` points at the full CAP file with the geometry).
+    /// the `<link>` points at the full CAP file with the geometry), then the
+    /// Atom `<entry>` blocks (Mexico, Jamaica), whose link is an attribute:
+    /// `<link ... href="...">`. Any link: a list that names its alert files
+    /// some other way than ".xml" lost every alert, and read "no alerts". A
+    /// link that is not an alert file fails to parse as one: unknown.
     static func parseRSSItems(_ xml: String) -> [RSSItem] {
-        parseItems(xml, open: "<item>", close: "</item>")
-            + parseItems(xml, open: "<entry>", close: "</entry>")
-    }
-
-    /// RSS `<item>` blocks, or Atom `<entry>` blocks (Mexico, Jamaica), whose
-    /// link is an attribute: `<link ... href="...">`.
-    private static func parseItems(_ xml: String, open: String, close: String) -> [RSSItem] {
-        var out: [RSSItem] = []
-        var search = xml[xml.startIndex...]
-        while let open = search.range(of: open),
-            let close = search.range(of: close, range: open.upperBound..<search.endIndex)
-        {
-            let body = String(search[open.upperBound..<close.lowerBound])
-            func tag(_ name: String) -> String? {
-                guard let s = body.range(of: "<\(name)>"),
-                    let e = body.range(of: "</\(name)>", range: s.upperBound..<body.endIndex)
-                else { return nil }
-                return String(body[s.upperBound..<e.lowerBound])
-                    .trimmingCharacters(in: .whitespacesAndNewlines)
-            }
-            var link = tag("link")
-            if link == nil, let l = body.range(of: "<link "),
-                let h = body.range(of: "href=\"", range: l.upperBound..<body.endIndex),
-                let q = body.range(of: "\"", range: h.upperBound..<body.endIndex)
-            {
-                link = String(body[h.upperBound..<q.lowerBound])
-            }
-            // Any link: a list that names its alert files some other way
-            // than ".xml" lost every alert, and read "no alerts". A link
-            // that is not an alert file fails to parse as one: unknown.
-            if let link, !link.isEmpty {
-                out.append(
-                    RSSItem(
-                        link: link,
-                        event: tag("cap:event") ?? tag("title") ?? "Weather alert",
-                        severity: tag("cap:severity") ?? "Moderate",
-                        expires: tag("cap:expires") ?? "",
-                        published: tag("pubDate") ?? tag("updated") ?? ""))
-            }
-            search = search[close.upperBound...]
+        let v = flows_wmo_rss_items(xml).map { $0.text }
+        guard v.count % 5 == 0 else { return [] }
+        return stride(from: 0, to: v.count, by: 5).map { i in
+            RSSItem(
+                link: v[i], event: v[i + 1], severity: v[i + 2], expires: v[i + 3],
+                published: v[i + 4])
         }
-        return out
     }
 
     /// A service's own name for an alert, in the words the risk rules read.
@@ -202,33 +132,15 @@ enum WMOAlertParsing {
         _ event: String, severity: String,
         detail: String? = nil
     ) -> String {
-        guard !event.isEmpty, RiskEquations.alertFamily(event) == nil else { return event }
-        let e = event.folding(options: [.diacriticInsensitive, .caseInsensitive], locale: nil)
-            .lowercased()
-        func has(_ words: [String]) -> Bool { words.contains { e.contains($0) } }
-        let strong = ["severe", "extreme"].contains(severity.lowercased())
-        if has(["ciclon", "huracan", "tormenta tropical", "depresion tropical", "tropical"]) {
-            return strong ? "Tropical Storm Warning" : "Tropical Storm Watch"
-        }
-        if has(["small craft", "seas", "marine", "oleaje", "mar de fondo", "marejada", "surf"]) {
-            return event
-        }
-        if has(["inunda", "riverine", "crecida", "desbordamiento"]) {
-            return strong ? "Flood Warning" : "Flood Advisory"
-        }
-        if has(["lluvia", "rain"]) {
-            if strong { return "Flood Warning" }
-            return namesHeavyRain(event + " " + (detail ?? "")) ? "Flood Advisory" : "Rain Advisory"
-        }
-        if has(["nevada", "nieve", "aguanieve"]) { return "Winter Weather Advisory" }
-        if has(["frente frio", "frio", "helada"]) { return "Cold Weather Advisory" }
-        if has(["calor", "hot spell", "hot weather"]) { return "Heat Advisory" }
-        if has(["viento", "gust"]) { return "Wind Advisory" }
-        if has(["tormenta", "electrica", "granizo", "adverse weather"]) {
-            return strong ? "Severe Thunderstorm Warning" : "Severe Thunderstorm Watch"
-        }
-        if has(["niebla", "neblina"]) { return "Dense Fog Advisory" }
-        return event
+        flows_wmo_event_in_risk_words(
+            event, fold(event), severity, fold(event + " " + (detail ?? ""))
+        ).text
+    }
+
+    /// The diacritic and case folding the risk-word rules read: it stays in
+    /// Swift, with Foundation's own tables.
+    private static func fold(_ s: String) -> String {
+        s.folding(options: [.diacriticInsensitive, .caseInsensitive], locale: nil)
     }
 
     /// The least rain, in millimetres, that makes a rain notice a flood
@@ -242,42 +154,16 @@ enum WMOAlertParsing {
     /// amount of `floodRainMillimetres` or more (the low end of a range such
     /// as "75 a 150 mm" is the one read), or one of the class names that
     /// start there. "Fuertes" alone (25 to 50 mm) is below it.
+    ///
+    /// The class has to be said of the rain. "Lluvias fuertes y vientos muy
+    /// fuertes" is 25 to 50 mm with strong wind: the bare words used to make
+    /// that a flood notice. Up to four words may sit between ("lluvias
+    /// puntuales intensas", "lluvias de fuertes a muy fuertes"), none of them
+    /// the wind or the sea, and no comma. "Sin lluvias intensas" says there is
+    /// none: only that one plain "sin" right before the phrase is read as a
+    /// no. "75 a 150 mm", "50-75 mm", "de 150 mm": the first figure of each.
     static func namesHeavyRain(_ text: String) -> Bool {
-        let t = text.folding(options: [.diacriticInsensitive, .caseInsensitive], locale: nil)
-            .lowercased()
-        if ["very heavy rain", "torrential", "extreme rain"].contains(where: t.contains) {
-            return true
-        }
-        // The class has to be said of the rain. "Lluvias fuertes y vientos
-        // muy fuertes" is 25 to 50 mm with strong wind: the bare words used
-        // to make that a flood notice. Up to four words may sit between
-        // ("lluvias puntuales intensas", "lluvias de fuertes a muy fuertes"),
-        // none of them the wind or the sea, and no comma.
-        let heavy = #"(?:muy fuertes?|intensas?|torrencial(?:es)?|extraordinarias?)"#
-        let rainWord = #"(?:lluvias?|precipitacion(?:es)?|chubascos?|aguaceros?)"#
-        let other = #"(?!sin\b|vientos?\b|rachas?\b|oleaje\b|olas\b|mar\b)[a-z]+"#
-        // "Sin lluvias intensas" says there is none: only that one plain
-        // "sin" right before the phrase is read as a no. Anything less
-        // plain ("no solo lluvias intensas") still counts as heavy.
-        let notSin = #"(?<!\bsin\s)"#
-        let said = [
-            notSin + #"\b"# + rainWord + #"(?:\s+"# + other + #"){0,4}?\s+"# + heavy + #"\b"#,
-            notSin + #"\b"# + heavy + #"\s+"# + rainWord,
-        ]
-        if said.contains(where: { t.range(of: $0, options: .regularExpression) != nil }) {
-            return true
-        }
-        // "75 a 150 mm", "50-75 mm", "de 150 mm": the first figure of each.
-        let pattern =
-            #"(\d+(?:[.,]\d+)?)(?:\s*(?:a|to|-|–)\s*\d+(?:[.,]\d+)?)?\s*(?:mm|milimetros|millimeters|millimetres)\b"#
-        guard let regex = try? NSRegularExpression(pattern: pattern) else { return false }
-        let whole = NSRange(t.startIndex..., in: t)
-        return regex.matches(in: t, range: whole).contains { match in
-            guard let r = Range(match.range(at: 1), in: t),
-                let amount = Double(t[r].replacingOccurrences(of: ",", with: "."))
-            else { return false }
-            return amount >= floodRainMillimetres
-        }
+        flows_wmo_names_heavy_rain(fold(text))
     }
 
     struct ParsedCAP {
@@ -306,73 +192,59 @@ enum WMOAlertParsing {
 
     /// CAP `<polygon>` is space-separated `lat,lon` pairs (note: lat FIRST,
     /// unlike GeoJSON).
+    ///
+    /// Any white space parts the pairs (a Windows line end is one Character
+    /// that is not "\n"), and a ring with a pair that cannot be read is no
+    /// ring: a wrong shape can miss the driver.
     static func polygonCoords(_ raw: String) -> [CLLocationCoordinate2D] {
-        // Any white space parts the pairs. A Windows line end is one
-        // Character that is not "\n": two pairs joined by it failed to parse
-        // and were dropped, leaving a ring of the wrong shape. And a ring
-        // with a pair that cannot be read is no ring: a wrong shape can miss
-        // the driver.
-        var ring: [CLLocationCoordinate2D] = []
-        for pair in raw.split(whereSeparator: \.isWhitespace) {
-            let xy = pair.split(separator: ",")
-            guard xy.count == 2, let lat = Double(xy[0]), let lon = Double(xy[1]) else { return [] }
-            ring.append(CLLocationCoordinate2D(latitude: lat, longitude: lon))
-        }
-        return ring
+        coordinates(Array(flows_wmo_polygon(raw))[...])
     }
 
+    private static func coordinates(_ flat: ArraySlice<Double>) -> [CLLocationCoordinate2D] {
+        guard flat.count % 2 == 0 else { return [] }
+        return stride(from: flat.startIndex, to: flat.endIndex, by: 2).map {
+            CLLocationCoordinate2D(latitude: flat[$0], longitude: flat[$0 + 1])
+        }
+    }
+
+    /// A CAP file, or nil when it is not an alert file at all (an error
+    /// page, a web page). Tags read with or without the `cap:` prefix
+    /// (Belize). EVERY `<polygon>` is a ring, and one with fewer than three
+    /// vertices is dropped (un-locatable), so an alert with only garbled
+    /// rings has no polygons and the caller's emptiness check rejects it.
+    /// Not live: a test or an exercise, a cancellation, an "all clear".
+    /// References are the second part of each "sender,identifier,sent".
     static func parseCAP(_ raw: String) -> ParsedCAP? {
-        // Some services write every tag with a prefix (`<cap:polygon>`,
-        // Belize): read plain, their alerts had no shape and were dropped.
-        let xml = raw.replacingOccurrences(of: "<cap:", with: "<")
-            .replacingOccurrences(of: "</cap:", with: "</")
-        // Not an alert file at all (an error page, a web page): unreadable.
-        guard xml.contains("<alert") else { return nil }
-        func tag(_ name: String) -> String? {
-            guard let s = xml.range(of: "<\(name)>"),
-                let e = xml.range(of: "</\(name)>", range: s.upperBound..<xml.endIndex)
-            else { return nil }
-            return String(xml[s.upperBound..<e.lowerBound])
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-        }
-        // ALL <polygon> occurrences, not just the first — CAP allows several
-        // <area> blocks each with polygons, and services like SMN emit them
-        // for warnings spanning disjoint regions. A ring needs ≥3 vertices to
-        // enclose area; garbled sub-3-point rings are dropped (un-locatable),
-        // so an alert with only garbled rings ends up with no polygons and the
-        // caller's emptiness check rejects it.
-        var rings: [[CLLocationCoordinate2D]] = []
-        var search = xml[xml.startIndex...]
-        while let s = search.range(of: "<polygon>"),
-            let e = search.range(of: "</polygon>", range: s.upperBound..<search.endIndex)
-        {
-            let ring = polygonCoords(
-                String(search[s.upperBound..<e.lowerBound])
-                    .trimmingCharacters(in: .whitespacesAndNewlines))
-            if ring.count >= 3 { rings.append(ring) }
-            search = search[e.upperBound...]
-        }
-        let status = tag("status")?.lowercased()
-        let live =
-            (status == nil || status == "actual")
-            && tag("msgType")?.lowercased() != "cancel"
-            && tag("responseType")?.lowercased() != "allclear"
+        let v = flows_wmo_cap(raw).map { $0.text }
+        guard v.count >= 10, v[0] == "1" else { return nil }
+        let flags = Array(v[3])
+        guard flags.count == 7 else { return nil }
+        func optional(_ i: Int) -> String? { flags[i] == "1" ? v[4 + i] : nil }
         return ParsedCAP(
-            event: tag("event") ?? "Weather alert",
-            severity: tag("severity") ?? "Moderate",
-            polygons: rings,
-            areaDesc: tag("areaDesc"),
-            expires: tag("expires"),
-            effective: tag("effective") ?? tag("onset"),
-            web: tag("web"),
-            description: tag("description").map { String($0.prefix(280)) },
-            isLive: live,
-            identifier: tag("identifier"),
-            // "sender,identifier,sent" triples, parted by white space.
-            references: (tag("references") ?? "").split(whereSeparator: \.isWhitespace)
-                .compactMap { ref in
-                    let parts = ref.split(separator: ",")
-                    return parts.count >= 2 ? String(parts[1]) : nil
-                })
+            event: v[1],
+            severity: v[2],
+            polygons: rings(raw),
+            areaDesc: optional(0),
+            expires: optional(1),
+            effective: optional(2),
+            web: optional(3),
+            description: optional(4),
+            isLive: flags[6] == "1",
+            identifier: optional(5),
+            references: Array(v[10...]))
+    }
+
+    /// The rings of a CAP file: `[count, lengths..., lat, lon, ...]`.
+    private static func rings(_ raw: String) -> [[CLLocationCoordinate2D]] {
+        let v = Array(flows_wmo_cap_rings(raw))
+        guard let first = v.first, let n = Int(exactly: first), n >= 0, v.count > n else { return [] }
+        var at = 1 + n
+        var out: [[CLLocationCoordinate2D]] = []
+        for k in 0..<n {
+            guard let len = Int(exactly: v[1 + k]), len >= 0, at + 2 * len <= v.count else { return [] }
+            out.append(coordinates(v[at..<(at + 2 * len)]))
+            at += 2 * len
+        }
+        return out
     }
 }
