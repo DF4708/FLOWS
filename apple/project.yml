@@ -15,18 +15,13 @@ options:
 
 settings:
   base:
-    # Swift 5 language mode with complete concurrency checking: every Swift 6
-    # data-race diagnostic is reported at compile time (and the gate allows
-    # no warnings), without Swift 6 mode's run-time isolation traps. Those
-    # traps killed the app at launch when a system callback (speech
-    # permission) ran a main-actor closure on a background queue. Swift 6
-    # mode comes back only after every such callback is audited.
-    SWIFT_VERSION: "5.0"
-    SWIFT_STRICT_CONCURRENCY: complete
-    # The Swift 6 compile-time rules that are not part of "complete" checking
-    # in Swift 5 mode. DynamicActorIsolation (the run-time traps) is left out
-    # on purpose.
-    OTHER_SWIFT_FLAGS: "$(inherited) -enable-upcoming-feature GlobalActorIsolatedTypesUsability -enable-upcoming-feature InferSendableFromCaptures -enable-upcoming-feature IsolatedDefaultValues -enable-upcoming-feature DisableOutwardActorInference -enable-upcoming-feature RegionBasedIsolation -enable-upcoming-feature GlobalConcurrency"
+    # Swift 6 language mode: data races are compile errors, and a main-actor
+    # closure that the system runs on another thread stops the app at once
+    # instead of racing. Every closure that carries that run-time check was
+    # listed from the compiler's own output and read (2026-11-11); the ones a
+    # system framework can call off the main thread are marked `@Sendable`
+    # and hop to the main actor themselves.
+    SWIFT_VERSION: "6.0"
     MARKETING_VERSION: "0.1.0"
     CURRENT_PROJECT_VERSION: "1"
     GENERATE_INFOPLIST_FILE: NO

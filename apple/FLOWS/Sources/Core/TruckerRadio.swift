@@ -270,7 +270,7 @@ final class TruckerRadio: ObservableObject {
     private func configureRemoteCommands() {
         #if os(iOS)
             let center = MPRemoteCommandCenter.shared()
-            center.playCommand.addTarget { [weak self] _ in
+            center.playCommand.addTarget { @Sendable [weak self] _ in
                 Task { @MainActor in
                     if let self, self.playingChannelID == nil, let last = self.lastPlayed {
                         self.play(last)
@@ -278,15 +278,15 @@ final class TruckerRadio: ObservableObject {
                 }
                 return .success
             }
-            center.pauseCommand.addTarget { [weak self] _ in
+            center.pauseCommand.addTarget { @Sendable [weak self] _ in
                 Task { @MainActor in self?.stop() }
                 return .success
             }
-            center.stopCommand.addTarget { [weak self] _ in
+            center.stopCommand.addTarget { @Sendable [weak self] _ in
                 Task { @MainActor in self?.stop() }
                 return .success
             }
-            center.togglePlayPauseCommand.addTarget { [weak self] _ in
+            center.togglePlayPauseCommand.addTarget { @Sendable [weak self] _ in
                 Task { @MainActor in
                     guard let self else { return }
                     if self.playingChannelID != nil {
