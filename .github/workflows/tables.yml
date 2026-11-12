@@ -3,11 +3,14 @@
 # -----------------------------------------------------------------------------
 
 # The data tables shipped inside the app (scripts/tables/TABLES.tsv) each
-# have an age limit. The age test runs on every landing; this runs it once a
-# week with three weeks of warning, so a refresh is asked for (a failed run
-# mails the owner) before the limit itself stops a landing. It fetches
-# nothing and changes nothing: a refresh is run and read by a person
-# (scripts/tables/refresh.sh), never landed by a robot.
+# say how many days may pass before their source is looked at again. Age
+# never stops a landing: a table stays as the last known good one until its
+# provider publishes an update. This weekly run is what asks for the look:
+# it fails (a failed run mails the owner) for a table within three weeks of
+# its days or past them. It fetches nothing and changes nothing: a look is
+# run and read by a person (scripts/tables/refresh.sh <table> --check, then
+# a new stamp for the same table or a read diff for a changed one), never
+# landed by a robot.
 name: tables
 
 on:
@@ -21,7 +24,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@1.93.1
-      - name: every table is listed, unchanged and inside its age limit
+      - name: every table is listed, unchanged and not due for a look
         run: cargo test --release -p flows-bridge --test table_ages
         working-directory: rust
         env:

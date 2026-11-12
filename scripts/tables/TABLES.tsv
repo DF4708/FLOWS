@@ -1,5 +1,6 @@
 # FLOWS data tables: one line per table shipped inside the app.
-# Columns (tab): path, built (the day its source was last fetched), max_days (oldest it may get),
+# Columns (tab): path, built (the day its source was last fetched), max_days (days until the source is looked at again;
+# a table past them stays as the last known good one until its provider publishes an update),
 # cksum and bytes (POSIX `cksum`; "-" for a table that sits inside a hand-edited file), refresh, source.
 # rust/flows-bridge/tests/table_ages.rs reads this. Write a line with scripts/tables/stamp.sh, never by hand.
 rust/flows-core/src/airports_table.rs	2026-11-11	180	3772949320	228522	scripts/tables/refresh.sh airports	OurAirports airports.csv (public domain)

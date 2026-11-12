@@ -1158,24 +1158,31 @@ modification statement — **bundle it with the shards in the app**, and any
 About/legal screen listing data sources should credit: *"Place data:
 Foursquare OS Places, © Foursquare Labs, Inc., Apache License 2.0."*
 
-## 14. Data tables shipped in the app: dates, age limits, refresh (2026-11-11)
+## 14. Data tables shipped in the app: dates, look-again days, refresh (2026-11-11)
 
 Every table compiled into the app or bundled in its Resources has a line in
-`scripts/tables/TABLES.tsv`: the day its source was last fetched, the oldest
-it may get, its checksum, and how to refresh it.
+`scripts/tables/TABLES.tsv`: the day its source was last fetched, how many
+days may pass before the source is looked at again, its checksum, and how to
+refresh it.
 
+- Owner rule (2026-11-11): a table whose source is still valid stays as the
+  last known good one until the provider publishes an update. Age alone
+  never stops a landing, and a provider that cannot be reached does not
+  either.
 - `rust/flows-bridge/tests/table_ages.rs` runs on every landing. It fails
-  when a table is past its limit, when a table changed without a new stamp,
-  or when a new table has no line.
-- `.github/workflows/tables.yml` runs the same test every Monday with three
-  weeks of warning, so the refresh is asked for before a landing is stopped.
+  when a table changed without a new stamp or when a new table has no line.
+  A table past its days is named in the output as due for a look.
+- `.github/workflows/tables.yml` runs the same test every Monday, and there
+  a table within three weeks of its days (or past them) fails the run, which
+  mails the owner. The look is `refresh.sh <table> --check`: the same table
+  gets a new stamp, a changed one is read and landed.
 - `scripts/tables/refresh.sh <airports|feeds|ferries|rental> [--check]`
   fetches the source again, rebuilds the table, refuses one that shrank by a
   tenth, and stamps it. A refresh is read and landed by a person.
-- Limits: transit feeds and rental places 90 days; airports 180; ferries,
+- Days: transit feeds and rental places 90; airports 180; ferries,
   Amtrak stations, weather radio stations, shower lists and park fees 365;
   the storm-history baseline and the risk bundle 400; the usual alert
   lengths 730.
 - No fetch script yet: Amtrak stations, weather radio stations, the four
-  shower lists and park fees. They are refreshed by hand, and the age test
-  is what says when.
+  shower lists and park fees. They are refreshed by hand, and the weekly
+  check is what says when.

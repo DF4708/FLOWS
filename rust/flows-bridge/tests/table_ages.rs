@@ -7,18 +7,24 @@
 // -----------------------------------------------------------------------------
 
 //! Every data table shipped inside the app has a line in
-//! `scripts/tables/TABLES.tsv`: the day its source was last fetched, the
-//! oldest it may get, and its checksum. This test holds three things:
+//! `scripts/tables/TABLES.tsv`: the day its source was last fetched, how
+//! many days may pass before the source is looked at again, and its
+//! checksum. On every landing this test holds two things:
 //!
-//! * no table is older than its limit (a stale airport or transit list
-//!   sends a traveller to a service that is gone);
 //! * no table changed without a new stamp (the checksum must match, so a
 //!   date can never describe other bytes);
 //! * no table is missing from the list (a new `*_table.rs` in flows-core or
 //!   a new data file in the app's Resources fails until it is listed).
 //!
-//! `FLOWS_TABLE_WARN_DAYS=N` fails N days early. The weekly scheduled check
-//! sets it, so a refresh is asked for before the limit blocks a landing.
+//! Age alone does not stop a landing (owner rule, 2026-11-11): a table
+//! whose source is still valid stays as the last known good one until the
+//! provider publishes an update, and a provider that cannot be reached is
+//! not a reason to ship nothing. A table past its days is named in the
+//! test output as due for a look. The weekly scheduled check sets
+//! `FLOWS_TABLE_WARN_DAYS=N`, and there a table within N days of its limit
+//! (or past it) fails the run, which mails the owner: look at the source
+//! with `scripts/tables/refresh.sh <table> --check`. The same table means
+//! a new stamp; a changed one is read and landed.
 //! Refresh with `scripts/tables/refresh.sh`; stamp with
 //! `scripts/tables/stamp.sh`.
 
@@ -149,9 +155,9 @@ fn today() -> i64 {
     (secs / 86_400) as i64
 }
 
-/// What is wrong with one row on day `today`, failing `early` days before
-/// the limit.
-fn check_row(row: &Row, bytes: Option<&[u8]>, today: i64, early: i64) -> Vec<String> {
+/// What is wrong with one row on day `today`. Age is not in here: see
+/// `due_for_a_look`.
+fn check_row(row: &Row, bytes: Option<&[u8]>, today: i64) -> Vec<String> {
     let mut found = Vec::new();
     let Some(bytes) = bytes else {
         return vec![format!("{}: listed, but the file cannot be read", row.path)];
@@ -169,13 +175,19 @@ fn check_row(row: &Row, bytes: Option<&[u8]>, today: i64, early: i64) -> Vec<Str
     if age < -1 {
         found.push(format!("{}: built date is in the future", row.path));
     }
-    if age > row.max_days - early {
-        found.push(format!(
-            "{}: {age} days old, limit {} (checked {early} days early); refresh it (see {LIST})",
-            row.path, row.max_days
-        ));
-    }
     found
+}
+
+/// The row's source is due to be looked at again: its stamp is older than
+/// its days allow, counted `early` days ahead.
+fn due_for_a_look(row: &Row, today: i64, early: i64) -> Option<String> {
+    let age = today - row.built_day;
+    (age > row.max_days - early).then(|| {
+        format!(
+            "{}: source last fetched {age} days ago, look again every {} (counted {early} days early); see {LIST}",
+            row.path, row.max_days
+        )
+    })
 }
 
 /// Every table that must have a row: `*_table.rs` and `tables.rs` anywhere
@@ -230,11 +242,21 @@ fn every_table_is_listed_unchanged_and_fresh() {
         (0..=365).contains(&early),
         "FLOWS_TABLE_WARN_DAYS: 0 to 365"
     );
+    // Only the weekly check sets the variable, and only there does a due
+    // table fail: a landing keeps the last known good table.
+    let due_fails = std::env::var_os("FLOWS_TABLE_WARN_DAYS").is_some();
     let now = today();
     let mut found = Vec::new();
     for row in &rows {
         let bytes = std::fs::read(root.join(&row.path)).ok();
-        found.extend(check_row(row, bytes.as_deref(), now, early));
+        found.extend(check_row(row, bytes.as_deref(), now));
+        if let Some(due) = due_for_a_look(row, now, early) {
+            if due_fails {
+                found.push(due);
+            } else {
+                eprintln!("data table due for a look (kept as last known good): {due}");
+            }
+        }
     }
     for path in tables_that_must_be_listed(&root) {
         if !rows.iter().any(|r| r.path == path) {
@@ -284,27 +306,21 @@ fn a_stale_changed_or_missing_table_is_caught() {
         sum: Some((posix_cksum(bytes), 5)),
     };
     let day = parse_day("2026-11-11").unwrap();
-    assert!(check_row(&row("2026-08-13", 90), Some(bytes), day, 0).is_empty());
-    // One day past the limit.
-    assert_eq!(
-        check_row(&row("2026-08-12", 90), Some(bytes), day, 0).len(),
-        1
-    );
+    assert!(check_row(&row("2026-08-13", 90), Some(bytes), day).is_empty());
+    assert!(due_for_a_look(&row("2026-08-13", 90), day, 0).is_none());
+    // One day past the limit: due for a look, and nothing else wrong, so
+    // the last known good table still lands.
+    assert!(due_for_a_look(&row("2026-08-12", 90), day, 0).is_some());
+    assert!(check_row(&row("2026-08-12", 90), Some(bytes), day).is_empty());
     // Inside the limit, but inside the early-warning window too.
-    assert_eq!(
-        check_row(&row("2026-08-13", 90), Some(bytes), day, 14).len(),
-        1
-    );
+    assert!(due_for_a_look(&row("2026-08-13", 90), day, 14).is_some());
     // Other bytes under the same stamp, a file that is gone, a future date.
     assert_eq!(
-        check_row(&row("2026-11-01", 90), Some(b"tablE"), day, 0).len(),
+        check_row(&row("2026-11-01", 90), Some(b"tablE"), day).len(),
         1
     );
-    assert_eq!(check_row(&row("2026-11-01", 90), None, day, 0).len(), 1);
-    assert_eq!(
-        check_row(&row("2026-11-20", 90), Some(bytes), day, 0).len(),
-        1
-    );
+    assert_eq!(check_row(&row("2026-11-01", 90), None, day).len(), 1);
+    assert_eq!(check_row(&row("2026-11-20", 90), Some(bytes), day).len(), 1);
     // The list itself: a bad date, a missing column, a path given twice.
     assert!(parse_list("a\t2026-02-30\t9\t-\t-\tr\ts\n").is_err());
     assert!(parse_list("a\t2026-02-03\t9\t-\tr\ts\n").is_err());
