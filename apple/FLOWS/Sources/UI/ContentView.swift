@@ -1176,139 +1176,49 @@ struct ContentView: View {
                                     guard let c = await NWSForecastFetcher.shared.conditions(at: pt)
                                     else { return nil }
                                     let score = c.forecastScore(latitude: lat, longitude: lon, elevationMeters: nil)
-                                    var families = Self.familyScores(c, latitude: lat, longitude: lon)
                                     // No answer from the live scorer: the point is unknown, not clear.
-                                    guard let live = HazardFeedScores.liveChecked(at: pt, snapshot: liveSnapshot)
+                                    guard let scored = HazardFeedScores.liveChecked(at: pt, snapshot: liveSnapshot)
                                     else { return nil }
-                                    families["fire"] = live.fire
-                                    families["seismic"] = live.seismic
-                                    let floodRealized = HazardFeedScores.floodGaugeScore(
-                                        prepared: preparedGauges, at: pt)
-                                    families["qpf_flood"] = max(families["qpf_flood"] ?? 0, floodRealized)
                                     let (aqi, uv) = await LiveHazardFeedFetcher.shared.airAndUV(at: pt)
-                                    if let aqi { families["air"] = HazardFeedScores.airScore(usAQI: aqi) }
-                                    // Space weather from the snapshot; UV is per point.
-                                    let uvRad = uv.map { HazardFeedScores.uvScore(index: $0) } ?? 0
-                                    let radiation = max(live.spaceRadiation, uvRad)
-                                    if radiation > 0 { families["radiation"] = radiation }
-                                    if live.volcanic > 0 { families["volcanic"] = live.volcanic }
-                                    if live.avalanche > 0 { families["avalanche"] = live.avalanche }
-                                    if live.tropical > 0 { families["tropical"] = live.tropical }
-                                    if live.tsunami > 0 { families["tsunami"] = live.tsunami }
-                                    let spc = live.convective
-                                    if spc > 0 {
-                                        families["convective"] = max(families["convective"] ?? 0, spc)
-                                    }
-                                    // Keep the point if ANY family registers — the
-                                    // family overlay needs it even when the blended
-                                    // environmental score is quiet.
-                                    guard score >= 0.25 || families.values.contains(where: { $0 >= 0.25 })
+                                    // Space weather comes from the snapshot; UV and air are per point.
+                                    let live = ViewportPointRules.Live(
+                                        fire: scored.fire, seismic: scored.seismic, volcanic: scored.volcanic,
+                                        avalanche: scored.avalanche, tropical: scored.tropical,
+                                        tsunami: scored.tsunami, convective: scored.convective,
+                                        spaceRadiation: scored.spaceRadiation,
+                                        floodRealized: HazardFeedScores.floodGaugeScore(
+                                            prepared: preparedGauges, at: pt),
+                                        air: aqi.map { HazardFeedScores.airScore(usAQI: $0) },
+                                        uv: uv.map { HazardFeedScores.uvScore(index: $0) } ?? 0)
+                                    // What shows, what the band is fed and what names the
+                                    // badge are ViewportPointRules; this closure only
+                                    // gathers the readings and turns the name into a kind.
+                                    guard
+                                        let shown = ViewportPointRules.displayFamilies(
+                                            score: score,
+                                            forecast: Self.familyScores(c, latitude: lat, longitude: lon),
+                                            live: live)
                                     else { return (pt, nil) }
-                                    // Label the tappable symbol: a specific ACUTE hazard
-                                    // (fire, tsunami, volcanic…) takes the icon at yellow+
-                                    // over the blended forecast, since it's the distinct
-                                    // danger a driver most needs named. Otherwise use the
-                                    // forecast-dominant kind.
-                                    // The WORST hazard here names the area, comparing
-                                    // every family on the same footing — see
-                                    // HazardStyle.dominantFamily. Storms and flooding
-                                    // used to be excluded from naming entirely, so a
-                                    // middling fire reading labelled a ZIP surrounded
-                                    // by severe storms FIRE.
-                                    // The blended "environmental" composite is not a
-                                    // hazard: winning, it drew the generic triangle
-                                    // on an ordinary day. The forecast fall-through
-                                    // below names that case (heat, cold, wind, rain).
-                                    var kind: HazardKind
-                                    var iconFamily: String? = nil
-                                    if let top = HazardStyle.dominantFamily(
-                                        families.filter { $0.key != "environmental" })
-                                    {
-                                        kind = HazardStyle.kind(forFamily: top)
-                                        iconFamily = top
-                                        // The qpf_flood family carries BOTH the gauge
-                                        // reading and plain rain probability. With no
-                                        // gauge near flood stage the score is only
-                                        // "it may rain", and calling that Flood puts a
-                                        // blue water badge over a dry ZIP.
-                                        if top == "qpf_flood", floodRealized < 0.45 {
-                                            kind = HazardStyle.rain
-                                        }
-                                    } else {
-                                        kind = Self.dominantKind(c, latitude: lat, longitude: lon)
-                                    }
-                                    // A realized in-progress-danger WARNING here (Tornado,
-                                    // Flash Flood…) names the icon — it's the danger.
-                                    var iconNamedByAlert = false
-                                    if let ev = alertEvent, alertSeverity >= 0.6,
-                                        let fam = RiskEquations.alertFamily(ev),
-                                        RiskEquations.primaryFamilies.contains(fam)
-                                    {
-                                        kind = HazardStyle.kind(forEvent: ev)
-                                        iconNamedByAlert = true
-                                    }
-                                    // The BAND's driving-safety realized/predictor split,
-                                    // separate from `families` (which merges rain
-                                    // PROBABILITY into the Flood/Storm map filters):
-                                    //   • realized primaries = the road is impassable or
-                                    //     the driver is in direct danger (fire perimeter,
-                                    //     gauge flood over the road, SPC severe storm,
-                                    //     quake, tsunami…);
-                                    //   • predictors = precip probability, FORECAST winter
-                                    //     (snow prediction, not a blocked road), wind,
-                                    //     heat, cold, haze, UV — amplify a realized
-                                    //     primary, capped advisory alone.
-                                    var bandInput: [String: Double] = [
-                                        "fire": families["fire"] ?? 0,
-                                        "qpf_flood": floodRealized,
-                                        "convective": spc,
-                                        "seismic": families["seismic"] ?? 0,
-                                        "tropical": families["tropical"] ?? 0,
-                                        "tsunami": families["tsunami"] ?? 0,
-                                        "volcanic": families["volcanic"] ?? 0,
-                                        "avalanche": families["avalanche"] ?? 0,
-                                        "wind": families["wind"] ?? 0,
-                                        "heat": families["heat"] ?? 0,
-                                        "cold": families["cold"] ?? 0,
-                                        "air": families["air"] ?? 0,
-                                        "radiation": families["radiation"] ?? 0,
-                                        "precip": c.popPercent.map(RiskEquations.popRisk(pct:)) ?? 0,
-                                        "winter": families["winter"] ?? 0,
-                                    ]
-                                    // Realized NWS alert at this point: an in-progress-
-                                    // danger WARNING is a realized primary (Red-capable);
-                                    // a watch/advisory classifies to a predictor.
-                                    if let ev = alertEvent, let fam = RiskEquations.alertFamily(ev) {
-                                        bandInput[fam] = max(bandInput[fam] ?? 0, alertSeverity)
-                                    }
                                     // DOT-reported closure = PROOF the road is blocked.
+                                    // Looked up only for a point that shows.
                                     let closed = HazardFeedScores.closureScore(prepared: preparedClosures, at: pt)
-                                    if closed > 0 {
-                                        bandInput["closure"] = closed
-                                        families["closure"] = closed
-                                        // A closure is proof the road is blocked, but a Tornado Warning at
-                                        // the same point is the greater danger — the alert keeps the icon.
-                                        if closed >= 0.8, !iconNamedByAlert { kind = HazardStyle.closure }
-                                    }
-                                    // The icon came from the DISPLAY families, which merge
-                                    // rain probability and forecast wind in with the real
-                                    // hazards. When a realized primary (fire perimeter,
-                                    // gauge flood, quake) is what makes this area serious,
-                                    // it names the badge — not the predictor that happened
-                                    // to score highest on the map-filter side.
-                                    let iconIsPrimary =
-                                        iconFamily.map {
-                                            RiskEquations.primaryFamilies.contains($0)
-                                        } ?? false
-                                    let worstPrimary =
-                                        bandInput
-                                        .filter { RiskEquations.primaryFamilies.contains($0.key) }
-                                        .max { $0.value < $1.value }
-                                    if !iconNamedByAlert, closed < 0.8, !iconIsPrimary,
-                                        let worst = worstPrimary,
-                                        worst.value >= FlowsCore.riskYellowMin
-                                    {
-                                        kind = HazardStyle.kind(forFamily: worst.key)
+                                    let point = ViewportPointRules.point(
+                                        families: shown, live: live,
+                                        precipRisk: c.popPercent.map(RiskEquations.popRisk(pct:)) ?? 0,
+                                        alertFamily: alertEvent.flatMap { RiskEquations.alertFamily($0) },
+                                        alertSeverity: alertSeverity, closed: closed)
+                                    let families = point.families
+                                    let bandInput = point.bandInput
+                                    let kind: HazardKind
+                                    switch point.icon {
+                                    case .family(let family): kind = HazardStyle.kind(forFamily: family)
+                                    case .rainChance: kind = HazardStyle.rain
+                                    case .closure: kind = HazardStyle.closure
+                                    case .alert:
+                                        kind =
+                                            alertEvent.map { HazardStyle.kind(forEvent: $0) }
+                                            ?? Self.dominantKind(c, latitude: lat, longitude: lon)
+                                    case .forecast: kind = Self.dominantKind(c, latitude: lat, longitude: lon)
                                     }
                                     return (
                                         pt,
