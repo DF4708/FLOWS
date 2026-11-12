@@ -6,6 +6,7 @@
 // permission of the copyright holder.
 // -----------------------------------------------------------------------------
 
+import FlowsBridge
 import Foundation
 
 /// What counts as shelter from THIS hazard, and for how long.

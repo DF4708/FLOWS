@@ -7,6 +7,7 @@
 // -----------------------------------------------------------------------------
 
 import CoreLocation
+import FlowsBridge
 import Foundation
 
 /// The fuel gauge's color curve and the "stop for fuel NOW" decision — pure,

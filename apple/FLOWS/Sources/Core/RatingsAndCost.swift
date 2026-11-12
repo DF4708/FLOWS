@@ -6,6 +6,7 @@
 // permission of the copyright holder.
 // -----------------------------------------------------------------------------
 
+import FlowsBridge
 import Foundation
 
 /// Review stars (1–5) and cost "$" tiers (1–5) for POIs.

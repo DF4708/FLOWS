@@ -6,6 +6,7 @@
 // permission of the copyright holder.
 // -----------------------------------------------------------------------------
 
+import FlowsBridge
 import Foundation
 
 /// The driver's vehicle: make/model, fuel economy, and tank size — the

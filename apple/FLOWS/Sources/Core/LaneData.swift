@@ -6,6 +6,7 @@
 // permission of the copyright holder.
 // -----------------------------------------------------------------------------
 
+import FlowsBridge
 import Foundation
 
 /// REAL lane-level guidance, from OpenStreetMap's `turn:lanes` tag.

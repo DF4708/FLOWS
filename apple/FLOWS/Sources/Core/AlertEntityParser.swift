@@ -6,6 +6,7 @@
 // permission of the copyright holder.
 // -----------------------------------------------------------------------------
 
+import FlowsBridge
 import Foundation
 
 /// Pulls VEHICLE and PERSON descriptions out of red-alert text (AMBER /

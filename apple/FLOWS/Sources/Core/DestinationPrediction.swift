@@ -7,6 +7,7 @@
 // -----------------------------------------------------------------------------
 
 import CoreLocation
+import FlowsBridge
 import Foundation
 
 /// WHERE THIS DRIVER IS PROBABLY GOING, RIGHT NOW.

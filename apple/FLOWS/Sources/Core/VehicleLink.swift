@@ -7,6 +7,7 @@
 // -----------------------------------------------------------------------------
 
 import CoreBluetooth
+import FlowsBridge
 import Foundation
 
 #if canImport(ExternalAccessory)

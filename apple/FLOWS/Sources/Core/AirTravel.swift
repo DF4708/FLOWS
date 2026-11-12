@@ -7,6 +7,7 @@
 // -----------------------------------------------------------------------------
 
 import CoreLocation
+import FlowsBridge
 import Foundation
 
 /// Pure helpers behind the plane option (pinned by FLOWSTests): airport

@@ -26,6 +26,7 @@
 //  rust/flows-bridge/tests/swift_unsafe_islands.rs fails on a buffer loan or
 //  a `toString()` anywhere outside this folder.
 
+import FlowsBridge
 import Foundation
 
 /// An array's storage, lent to Rust for the length of one call.

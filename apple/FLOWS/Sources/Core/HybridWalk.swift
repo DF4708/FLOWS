@@ -7,6 +7,7 @@
 // -----------------------------------------------------------------------------
 
 import CoreLocation
+import FlowsBridge
 import Foundation
 
 /// The walk + paid-ride option (pinned by FLOWSTests). When the planner is in

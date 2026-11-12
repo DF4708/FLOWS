@@ -53,10 +53,10 @@ targets:
     platform: iOS
     dependencies:
       - target: RustBridge
+      - target: FlowsBridge-iOS
     sources:
       - path: FLOWS/Sources
       - path: FLOWS/Resources
-      - path: FLOWS/RustBridge
     info:
       path: FLOWS/Generated/Info-iOS.plist
       properties:
@@ -162,10 +162,11 @@ targets:
         CODE_SIGN_STYLE: Automatic
         DEVELOPMENT_TEAM: 3T5JWQ4XW4
         CODE_SIGN_IDENTITY[sdk=iphoneos*]: "Apple Development"
-        # Swift <-> Rust (rust/flows-bridge). The bridging header pulls in the
-        # generated C declarations; the library is built for this SDK by the
-        # RustBridge aggregate target this target depends on.
-        SWIFT_OBJC_BRIDGING_HEADER: FLOWS/RustBridge/BridgingHeader.h
+        # Swift <-> Rust (rust/flows-bridge). The generated Swift is the
+        # FlowsBridge module (a target above); this path is where its C
+        # declarations (module FlowsBridgeC) are found. The Rust library is
+        # built for this SDK by the RustBridge aggregate target.
+        SWIFT_INCLUDE_PATHS: "$(inherited) $(SRCROOT)/FLOWS/RustBridge"
         LIBRARY_SEARCH_PATHS: "$(inherited) $(SRCROOT)/../rust/target/xcode/$(PLATFORM_NAME)"
         OTHER_LDFLAGS: "$(inherited) -lflows_bridge"
 
@@ -195,10 +196,10 @@ targets:
     platform: macOS
     dependencies:
       - target: RustBridge
+      - target: FlowsBridge-macOS
     sources:
       - path: FLOWS/Sources
       - path: FLOWS/Resources
-      - path: FLOWS/RustBridge
     info:
       path: FLOWS/Generated/Info-macOS.plist
       properties:
@@ -281,10 +282,11 @@ targets:
         CODE_SIGN_IDENTITY: "Apple Development"
         CODE_SIGN_STYLE: Manual
         DEVELOPMENT_TEAM: 3T5JWQ4XW4
-        # Swift <-> Rust (rust/flows-bridge). The bridging header pulls in the
-        # generated C declarations; the library is built for this SDK by the
-        # RustBridge aggregate target this target depends on.
-        SWIFT_OBJC_BRIDGING_HEADER: FLOWS/RustBridge/BridgingHeader.h
+        # Swift <-> Rust (rust/flows-bridge). The generated Swift is the
+        # FlowsBridge module (a target above); this path is where its C
+        # declarations (module FlowsBridgeC) are found. The Rust library is
+        # built for this SDK by the RustBridge aggregate target.
+        SWIFT_INCLUDE_PATHS: "$(inherited) $(SRCROOT)/FLOWS/RustBridge"
         LIBRARY_SEARCH_PATHS: "$(inherited) $(SRCROOT)/../rust/target/xcode/$(PLATFORM_NAME)"
         OTHER_LDFLAGS: "$(inherited) -lflows_bridge"
 
@@ -413,20 +415,68 @@ targets:
       - path: FLOWS/Sources/Core/SiriSchemaRules.swift
       - path: FLOWS/Sources/Core/SpeechVoiceRules.swift
       - path: FLOWSTests
-      - path: FLOWS/RustBridge
     dependencies:
       - target: RustBridge
+      - target: FlowsBridge-macOS
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.flows.app.tests
         CODE_SIGN_IDENTITY: "-"
         GENERATE_INFOPLIST_FILE: YES   # test bundles get a stub plist
-        # Swift <-> Rust (rust/flows-bridge). The bridging header pulls in the
-        # generated C declarations; the library is built for this SDK by the
-        # RustBridge aggregate target this target depends on.
-        SWIFT_OBJC_BRIDGING_HEADER: FLOWS/RustBridge/BridgingHeader.h
+        # Swift <-> Rust (rust/flows-bridge). The generated Swift is the
+        # FlowsBridge module (a target above); this path is where its C
+        # declarations (module FlowsBridgeC) are found. The Rust library is
+        # built for this SDK by the RustBridge aggregate target.
+        SWIFT_INCLUDE_PATHS: "$(inherited) $(SRCROOT)/FLOWS/RustBridge"
         LIBRARY_SEARCH_PATHS: "$(inherited) $(SRCROOT)/../rust/target/xcode/$(PLATFORM_NAME)"
         OTHER_LDFLAGS: "$(inherited) -lflows_bridge"
+
+  # The generated half of the Swift <-> Rust bridge, as its own module.
+  # (These two sit after the app targets: TCCUsageKeyTests finds each app
+  # by the first `platform:` line.)
+  # swift-bridge writes raw pointers; keeping its output in a module of its
+  # own keeps them out of the app module, which then only meets the bridge
+  # through `import FlowsBridge`. The C declarations are the module
+  # FlowsBridgeC (FLOWS/RustBridge/module.modulemap, written by build.rs).
+  # Release builds pass the function bodies across the module line
+  # (-cross-module-optimization), so a call into Rust costs what it did when
+  # the bridge was compiled inside the app.
+  FlowsBridge-iOS:
+    type: library.static
+    platform: iOS
+    dependencies:
+      - target: RustBridge
+    sources:
+      - path: FLOWS/RustBridge
+        excludes:
+          - BridgingHeader.h
+    settings:
+      base:
+        PRODUCT_NAME: FlowsBridge
+        SKIP_INSTALL: YES
+        SWIFT_INSTALL_OBJC_HEADER: NO   # Swift callers only
+        SWIFT_INCLUDE_PATHS: "$(inherited) $(SRCROOT)/FLOWS/RustBridge"
+      configs:
+        Release:
+          OTHER_SWIFT_FLAGS: "$(inherited) -cross-module-optimization"
+  FlowsBridge-macOS:
+    type: library.static
+    platform: macOS
+    dependencies:
+      - target: RustBridge
+    sources:
+      - path: FLOWS/RustBridge
+        excludes:
+          - BridgingHeader.h
+    settings:
+      base:
+        PRODUCT_NAME: FlowsBridge
+        SKIP_INSTALL: YES
+        SWIFT_INSTALL_OBJC_HEADER: NO   # Swift callers only
+        SWIFT_INCLUDE_PATHS: "$(inherited) $(SRCROOT)/FLOWS/RustBridge"
+      configs:
+        Release:
+          OTHER_SWIFT_FLAGS: "$(inherited) -cross-module-optimization"
 
 schemes:
   FLOWSTests:

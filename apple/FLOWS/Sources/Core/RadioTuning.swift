@@ -7,6 +7,7 @@
 // -----------------------------------------------------------------------------
 
 import CoreLocation
+import FlowsBridge
 import Foundation
 
 /// Which NOAA Weather Radio transmitter the app should be tuned to, and when

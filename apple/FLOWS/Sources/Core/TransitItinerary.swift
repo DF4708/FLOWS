@@ -7,6 +7,7 @@
 // -----------------------------------------------------------------------------
 
 import CoreLocation
+import FlowsBridge
 import MapKit
 
 /// A multi-leg public-transit itinerary drawn and stepped IN FLOWS — not handed

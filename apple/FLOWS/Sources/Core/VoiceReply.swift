@@ -7,6 +7,7 @@
 // -----------------------------------------------------------------------------
 
 import AVFoundation
+import FlowsBridge
 import Foundation
 
 #if os(iOS)

@@ -7,6 +7,7 @@
 // -----------------------------------------------------------------------------
 
 import CoreLocation
+import FlowsBridge
 import Foundation
 
 /// FLOWS's OWN offline POI database: per-state ".fps" shards compiled from the

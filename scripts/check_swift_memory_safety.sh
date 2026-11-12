@@ -21,8 +21,8 @@
 #   - A number that went DOWN is good news that must be written down, so the
 #     list never has slack to hide new code in: run `update`.
 #
-# The generated bridge files (apple/FLOWS/RustBridge) are not counted; no one
-# writes them by hand.
+# The generated bridge (apple/FLOWS/RustBridge) is its own module,
+# FlowsBridge, and is not counted; no one writes it by hand.
 #
 # What this does not see: Apple's check (Swift 6.4.2) says nothing about
 # `$0.baseAddress!.pointee` written straight inside a `withUnsafe...`
@@ -51,10 +51,16 @@ WORK="$(mktemp -d "${TMPDIR:-/tmp}/flows_sms.XXXXXX")"
 trap 'rm -rf "$WORK"' EXIT
 
 find "$APP/Sources" -name '*.swift' | sort > "$WORK/files.txt"
-if ! xcrun --sdk "$SDK" swiftc -typecheck -parse-as-library -swift-version 6 \
-  -strict-memory-safety -target "$TARGET" \
-  -import-objc-header "$BR/BridgingHeader.h" -I "$BR" \
+if ! xcrun --sdk "$SDK" swiftc -emit-module -parse-as-library -swift-version 6 \
+  -module-name FlowsBridge -target "$TARGET" -I "$BR" \
   "$BR/SwiftBridgeCore.swift" "$BR/flows-bridge/flows-bridge.swift" \
+  -emit-module-path "$WORK/FlowsBridge.swiftmodule" > "$WORK/bridge.log" 2>&1; then
+  grep -E "error:" "$WORK/bridge.log" | head -20 >&2
+  echo "swift memory safety: the bridge module did not compile ($PLAT)" >&2
+  exit 1
+fi
+if ! xcrun --sdk "$SDK" swiftc -typecheck -parse-as-library -swift-version 6 \
+  -strict-memory-safety -target "$TARGET" -I "$BR" -I "$WORK" \
   $(cat "$WORK/files.txt") > "$WORK/out.log" 2>&1; then
   grep -E "error:" "$WORK/out.log" | head -20 >&2
   echo "swift memory safety: the typecheck itself failed ($PLAT)" >&2

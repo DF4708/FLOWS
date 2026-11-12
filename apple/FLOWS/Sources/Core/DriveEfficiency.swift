@@ -6,6 +6,7 @@
 // permission of the copyright holder.
 // -----------------------------------------------------------------------------
 
+import FlowsBridge
 import Foundation
 
 /// Is this vehicle being driven efficiently RIGHT NOW? Pure, pinned by

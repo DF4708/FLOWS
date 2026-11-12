@@ -6,6 +6,7 @@
 // permission of the copyright holder.
 // -----------------------------------------------------------------------------
 
+import FlowsBridge
 import Foundation
 
 /// Trip cost + CO₂ estimates powering the "Cheapest" and "Efficient" route

@@ -7,6 +7,7 @@
 // -----------------------------------------------------------------------------
 
 import CoreLocation
+import FlowsBridge
 import Foundation
 
 /// On-device, referable prediction store — the DATA FOUNDATION the ANE/Core ML

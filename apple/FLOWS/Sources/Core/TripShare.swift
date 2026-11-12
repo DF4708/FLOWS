@@ -7,6 +7,7 @@
 // -----------------------------------------------------------------------------
 
 import Combine
+import FlowsBridge
 import Foundation
 
 /// Long-trip route sharing: the trigger, the prefilled text, and the small

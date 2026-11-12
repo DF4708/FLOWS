@@ -1810,3 +1810,35 @@ without a regression:
   every way it closes, including the ones no button raises (it cleared, a
   graver alert replaced it). A spoken prompt added later passes a topic and
   inherits this.
+
+## The generated bridge is its own module
+
+- **Why.** The generated Swift is the one place that must hold raw
+  pointers. Inside the app module it shared a namespace with every screen
+  and every rule. As `FlowsBridge` (C side: `FlowsBridgeC`, from a
+  generated `module.modulemap`) it is a named boundary: the app says
+  `import FlowsBridge`, there is no bridging header, and the memory-safety
+  check reads app code only.
+- **The generator knows nothing about modules.** `build.rs` adds
+  `import FlowsBridgeC` to both generated files and marks the two
+  `RustStr` conformances `@retroactive` (the type now comes from another
+  module, and the compiler warns otherwise). It asserts each rewrite hits
+  exactly once, so a swift-bridge upgrade that moves the text fails the
+  build instead of going quiet.
+- **Speed needs one flag.** Release builds the library with
+  `-cross-module-optimization`. Read from the Release binary: 521 calls
+  into Rust sit directly in app functions, and only 79 calls go through a
+  bridge wrapper that was not inlined. Without the flag every call would
+  take the extra hop.
+- **Target order in `project.yml` is load-bearing.** `TCCUsageKeyTests`
+  finds each app by the first `platform:` line, so the library targets sit
+  after the apps and the tests.
+- **Scripts build the module first.** `typecheck_swift_app.sh` and
+  `check_swift_memory_safety.sh` emit `FlowsBridge.swiftmodule`, then check
+  the app against it. The old oracle harnesses still compile a pre-split
+  original in one module with `BridgingHeader.h`; an original taken after
+  this change says `import FlowsBridge`, so its harness must build the
+  module first the same way.
+- **It does not shrink the list by itself.** The 624 places are app code
+  that touches bridge types. They go down only as call sites move behind
+  safe wrappers.

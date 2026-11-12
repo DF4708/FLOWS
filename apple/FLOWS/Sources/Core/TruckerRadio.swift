@@ -8,6 +8,7 @@
 
 import AVFoundation
 import CoreLocation
+import FlowsBridge
 import Foundation
 
 #if os(iOS)

@@ -7,6 +7,7 @@
 // -----------------------------------------------------------------------------
 
 import CoreLocation
+import FlowsBridge
 import Foundation
 
 /// Imminent-hazard policy: weather the driver will ENCOUNTER SOON (within the

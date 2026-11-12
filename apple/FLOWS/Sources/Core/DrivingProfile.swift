@@ -7,6 +7,7 @@
 // -----------------------------------------------------------------------------
 
 import CoreLocation
+import FlowsBridge
 import Foundation
 
 /// What FLOWS learns about HOW THIS DRIVER DRIVES, persisted and encrypted.

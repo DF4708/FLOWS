@@ -555,11 +555,15 @@ So the accurate statement is:
 |---|---|---|
 | `rust/flows-core` | every equation, table and decoder | zero dependencies, `forbid(unsafe_code)`, does not know Swift exists |
 | `rust/flows-bridge` | swift-bridge declarations plus thin forwarders | `forbid(unsafe_code)`; every export runs through `contain` (a panic becomes a documented fallback, never an abort mid-drive); lengths validated first |
-| `apple/FLOWS/RustBridge` | generated Swift and C, plus an authored bridging header | committed, never hand-edited; `build.rs` rewrites a file only when its bytes change; CI fails on drift |
+| `apple/FLOWS/RustBridge` | generated Swift and C, its own Swift module `FlowsBridge` (C half: module `FlowsBridgeC`, from the generated `module.modulemap`); the authored bridging header is kept only for the old oracle harnesses | committed, never hand-edited; `build.rs` rewrites a file only when its bytes change; CI fails on drift; app files reach it with `import FlowsBridge` |
 | Swift facades (`RiskEquations`, `FlowsCore`) | the same Swift API as before, no arithmetic | tables read from Rust once (`RustTables`); no Swift copy of a weight, cut or family list |
 
 **Xcode.** The iOS, macOS and test targets depend on a `RustBridge`
-aggregate target that runs `scripts/build_rust_bridge.sh`.
+aggregate target that runs `scripts/build_rust_bridge.sh`, and on a
+`FlowsBridge` static library target (one per platform) that compiles the
+generated Swift as its own module (2026-11-11). The raw pointers
+swift-bridge writes stay in that module; Release builds pass function
+bodies across the module line (`-cross-module-optimization`).
 - Script sandboxing is off on that one target: cargo writes incremental state
   throughout `rust/target`. An external-build target was tried first and
   fails under the project's sandboxing.

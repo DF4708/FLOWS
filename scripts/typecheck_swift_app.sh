@@ -23,9 +23,15 @@ case "${1:-macos}" in
   *) echo "usage: $0 [macos|ios]" >&2; exit 2 ;;
 esac
 find "$APP/Sources" -name '*.swift' | sort > "${TMPDIR:-/tmp}/flows_typecheck_files.txt"
-xcrun --sdk "$SDK" swiftc -typecheck -parse-as-library -swift-version 6 \
-  -target "$TARGET" \
-  -import-objc-header "$BR/BridgingHeader.h" -I "$BR" \
+# The generated bridge is its own module (FlowsBridge), as in the Xcode
+# build: compile its interface first, then check the app against it.
+MOD="${TMPDIR:-/tmp}/flows_bridge_module_$SDK"
+mkdir -p "$MOD"
+xcrun --sdk "$SDK" swiftc -emit-module -parse-as-library -swift-version 6 \
+  -module-name FlowsBridge -target "$TARGET" -I "$BR" \
   "$BR/SwiftBridgeCore.swift" "$BR/flows-bridge/flows-bridge.swift" \
+  -emit-module-path "$MOD/FlowsBridge.swiftmodule"
+xcrun --sdk "$SDK" swiftc -typecheck -parse-as-library -swift-version 6 \
+  -target "$TARGET" -I "$BR" -I "$MOD" \
   $(cat "${TMPDIR:-/tmp}/flows_typecheck_files.txt")
 echo "typecheck OK ($SDK): $(wc -l < "${TMPDIR:-/tmp}/flows_typecheck_files.txt" | tr -d ' ') app files + bridge"

@@ -1,3 +1,4 @@
+import FlowsBridgeC
 public func flows_airports_nearest(_ latitude: Double, _ longitude: Double, _ limit: Int64) -> RustVec<RustString> {
     RustVec(ptr: __swift_bridge__$flows_airports_nearest(latitude, longitude, limit))
 }
