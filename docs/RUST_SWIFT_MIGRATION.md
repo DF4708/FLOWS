@@ -715,7 +715,7 @@ Dependencies decide it. Nothing moves before what it calls.
    - Live corridor updates and learned ETA.
    - The compute leaked into views: the ContentView sweep, RouteChoicesView's
      route designations, NavigationHUD.
-   - Last, the geo facade itself.
+   - Last, the geo facade itself (landed 2026-11-12, seventh landing).
 
 ### Rules every port follows
 
@@ -1360,8 +1360,8 @@ inline in `search`, which runs MapKit searches, are unit-tested helpers.
 Text lists cross as one joined string plus each text's UTF-8 length, so a
 place name holding any character splits back exactly. What stays in Swift:
 the MapKit requests, the ratings and price providers, the published state,
-the single-kind row decorations, and `POIRanking.meters` with its ~85
-callers (wave 3).
+the single-kind row decorations, and, until the seventh wave-3 landing moved it, `POIRanking.meters` with
+its callers.
 
 ## Review fixes: what the oracles could not see (2026-09-16)
 
@@ -1476,7 +1476,8 @@ stored recipient) and the saved road corridors (`OfflineCorridors`: what is
 worth saving, when a corridor goes, how a new one replaces the old, and how
 its line is thinned). The fuel warning's bearing and reachability test and
 the nearest saved corridor use the geo kernel, whose first bridge functions
-landed here; the rest of the geo facade still waits for wave 3.
+landed here; the rest of the geo facade followed in the seventh wave-3
+landing.
 
 The stores keep their files and keychain entries. Rust returns a plan (which
 recipient a share joins, how many old dates fall off, which recipients stay,
@@ -1780,6 +1781,35 @@ Swift does not guess: a fix is not matched and the drive stands where it
 was, the wait is the longest one (two minutes), and a path is cut evenly
 by its points, so a long road still gets its check points.
 
+## Wave 3, seventh landing: the geo facade (2026-11-12)
+
+The last row of wave 3. `POIRanking.meters`, the short-range distance that
+68 places in the app ask (the badge clustering, the place rankers, the
+route and dispatch code, the map and the route cards), now answers from
+`flows_core::geo::meters`. The enforcement camera's bearing and its 100°
+ahead cone answer from `geo::bearing_degrees` and `geo::camera_is_ahead`,
+the same calls the fuel warning already used. Two bridge calls are new,
+`flows_geo_meters` and `flows_geo_camera_is_ahead`; a missing heading
+crosses as a flag, and a panic answers "ahead", so a camera is still
+warned about.
+
+The cost was measured first, because many callers run in loops: twenty
+million calls take 0.13 s of CPU through Rust against 0.20 s for the
+Swift's own math, about 6 ns a call, with the same sum.
+
+The kernel was already pinned by the geo oracle (a007de0). A new harness,
+`oracle-harness/geo_facade`, feeds that oracle's `m`, `brg` and `ahead`
+records to the facades themselves and allows only what the Rust oracle
+allows: every distance bit for bit, the 9 bearings the original Release
+build moved by its fused sine (at most 1.65e-7 m on the ground), and 13
+ahead answers that flip within a nanodegree of the cone's edge. Three
+facades wired wrong on purpose all fail it.
+
+Nothing changes on purpose. What stays in Swift: the meters-to-degrees
+conversions in the files the classification table still leaves open
+(`CameraZoom`, `RiskAreaFallback`, the map's badge spacing and the badge
+grid), which are not the distance and wait on that decision.
+
 ### Wave 3 remaining
 
 | item | state |
@@ -1788,4 +1818,4 @@ by its points, so a long road still gets its check points.
 | RouteService and NavigationEngine over one opaque per-leg geometry | LANDED (sixth landing) |
 | Live corridor updates and learned ETA | LANDED (second landing) |
 | The compute leaked into views: the ContentView sweep, RouteChoicesView's route designations, NavigationHUD | route designations LANDED (third landing); NavigationHUD and the readouts LANDED (fourth landing); the ContentView sweep LANDED (fifth landing) |
-| The geo facade itself | open, last |
+| The geo facade itself | LANDED (seventh landing) |

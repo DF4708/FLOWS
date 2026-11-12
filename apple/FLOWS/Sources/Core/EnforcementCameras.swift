@@ -136,32 +136,26 @@ enum EnforcementCameras {
     /// Is a point in front of the vehicle? Within a 100° cone either side of
     /// the direction of travel. With no heading — stopped, or a fix with no
     /// course — everything counts, because there is nothing better to say.
+    /// A negative heading counts as none. Computed in Rust
+    /// (`flows_core::geo::camera_is_ahead`).
     static func isAhead(
         _ target: CLLocationCoordinate2D,
         from position: CLLocationCoordinate2D,
         headingDegrees: Double?
     ) -> Bool {
-        guard let heading = headingDegrees, heading >= 0 else { return true }
-        let bearing = bearingDegrees(from: position, to: target)
-        var delta = (bearing - heading).truncatingRemainder(dividingBy: 360)
-        if delta > 180 { delta -= 360 }
-        if delta < -180 { delta += 360 }
-        return abs(delta) <= 100
+        flows_geo_camera_is_ahead(
+            target.latitude, target.longitude, position.latitude, position.longitude,
+            headingDegrees ?? 0, headingDegrees != nil)
     }
 
-    /// Compass bearing from one point to another, 0..<360.
+    /// Compass bearing from one point to another, 0..<360. Computed in Rust
+    /// (`flows_core::geo::bearing_degrees`), the same call as the fuel
+    /// warning's.
     static func bearingDegrees(
         from a: CLLocationCoordinate2D,
         to b: CLLocationCoordinate2D
     ) -> Double {
-        let rad = Double.pi / 180
-        let dLon = (b.longitude - a.longitude) * rad
-        let y = sin(dLon) * cos(b.latitude * rad)
-        let x =
-            cos(a.latitude * rad) * sin(b.latitude * rad)
-            - sin(a.latitude * rad) * cos(b.latitude * rad) * cos(dLon)
-        let deg = atan2(y, x) / rad
-        return deg < 0 ? deg + 360 : deg
+        flows_geo_bearing_degrees(a.latitude, a.longitude, b.latitude, b.longitude)
     }
 
     /// What to say. The camera's own limit wins over the road's when the

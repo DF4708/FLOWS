@@ -8,9 +8,10 @@
 
 //! Swift boundary for `flows_core::geo`. Functions are named `flows_geo_…`.
 //!
-//! The kernel crosses with its callers. Today that is the fuel warning's
-//! bearing and reachability test and the saved corridor nearest a position;
-//! the rest (`POIRanking.meters` and its many callers) moves with wave 3.
+//! The kernel crosses with its callers: the short-range distance every caller
+//! of `POIRanking.meters` uses, the enforcement camera's bearing and ahead
+//! cone, the fuel warning's bearing and reachability test, and the saved
+//! corridor nearest a position.
 //!
 //! Point lists cross as latitude and longitude columns with a count, and a
 //! list of corridors as flat columns plus each corridor's point count, so the
@@ -26,8 +27,17 @@ use flows_core::geo;
 #[swift_bridge::bridge]
 mod ffi {
     extern "Rust" {
+        fn flows_geo_meters(a_lat: f64, a_lon: f64, b_lat: f64, b_lon: f64) -> f64;
         fn flows_geo_bearing_degrees(a_lat: f64, a_lon: f64, b_lat: f64, b_lon: f64) -> f64;
         fn flows_geo_ahead_cone_degrees() -> f64;
+        fn flows_geo_camera_is_ahead(
+            target_lat: f64,
+            target_lon: f64,
+            position_lat: f64,
+            position_lon: f64,
+            heading_degrees: f64,
+            has_heading: bool,
+        ) -> bool;
         fn flows_geo_fuel_corridor_meters() -> f64;
         fn flows_geo_fuel_station_is_reachable(
             station_lat: f64,
@@ -56,10 +66,36 @@ fn clamp(count: i64, available: usize) -> usize {
     usize::try_from(count).unwrap_or(0).min(available)
 }
 
+/// `geo::meters`. A panic answers NaN.
+pub fn flows_geo_meters(a_lat: f64, a_lon: f64, b_lat: f64, b_lon: f64) -> f64 {
+    contain(f64::NAN, || geo::meters(a_lat, a_lon, b_lat, b_lon))
+}
+
 /// `geo::bearing_degrees`. A panic answers NaN.
 pub fn flows_geo_bearing_degrees(a_lat: f64, a_lon: f64, b_lat: f64, b_lon: f64) -> f64 {
     contain(f64::NAN, || {
         geo::bearing_degrees(a_lat, a_lon, b_lat, b_lon)
+    })
+}
+
+/// `geo::camera_is_ahead`, the heading present when `has_heading`. A panic
+/// answers true: the camera is still warned about.
+pub fn flows_geo_camera_is_ahead(
+    target_lat: f64,
+    target_lon: f64,
+    position_lat: f64,
+    position_lon: f64,
+    heading_degrees: f64,
+    has_heading: bool,
+) -> bool {
+    contain(true, || {
+        geo::camera_is_ahead(
+            target_lat,
+            target_lon,
+            position_lat,
+            position_lon,
+            has_heading.then_some(heading_degrees),
+        )
     })
 }
 
@@ -124,6 +160,18 @@ pub fn flows_geo_corridor_nearest(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_heading_counts_only_when_it_is_there() {
+        // A camera due north of the position, the vehicle heading due south.
+        assert!(!flows_geo_camera_is_ahead(1.0, 0.0, 0.0, 0.0, 180.0, true));
+        assert!(flows_geo_camera_is_ahead(1.0, 0.0, 0.0, 0.0, 180.0, false));
+        assert!(flows_geo_camera_is_ahead(1.0, 0.0, 0.0, 0.0, 0.0, true));
+        assert_eq!(
+            flows_geo_meters(45.0, -93.0, 46.0, -93.0).to_bits(),
+            geo::meters(45.0, -93.0, 46.0, -93.0).to_bits()
+        );
+    }
 
     #[test]
     fn placeholders_behind_a_zero_count_are_never_read() {

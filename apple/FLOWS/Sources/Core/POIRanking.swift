@@ -231,18 +231,13 @@ enum POIRanking {
     }
 
     /// THE app-wide short-range distance primitive (BadgeClustering and the
-    /// POI rankers share it). Equirectangular approximation — pure math, no
-    /// CLLocation allocations (review finding: nearest() allocated two
-    /// CLLocations per vertex × per item on the main thread). Error is <0.1%
-    /// at the corridor scales callers use it for (compare + accumulate short
-    /// hops), matching RiskFieldService's grid math.
+    /// POI rankers share it): the equirectangular approximation, 111,320 m a
+    /// degree with the longitude shrunk by the cosine of the mean latitude.
+    /// Error is <0.1% at the corridor scales callers use it for (compare and
+    /// accumulate short hops). Computed in Rust (`flows_core::geo::meters`);
+    /// pure math, no CLLocation allocations, about 6 ns a call.
     static func meters(_ a: CLLocationCoordinate2D, _ b: CLLocationCoordinate2D) -> CLLocationDistance {
-        let metersPerDegree = 111_320.0
-        let dLat = (b.latitude - a.latitude) * metersPerDegree
-        let dLon =
-            (b.longitude - a.longitude) * metersPerDegree
-            * cos((a.latitude + b.latitude) * .pi / 360)
-        return (dLat * dLat + dLon * dLon).squareRoot()
+        flows_geo_meters(a.latitude, a.longitude, b.latitude, b.longitude)
     }
 }
 

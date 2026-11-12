@@ -909,11 +909,17 @@ public func flows_forecast_predictor_families(_ temperature_f: Double, _ has_tem
 }
 
 
+public func flows_geo_meters(_ a_lat: Double, _ a_lon: Double, _ b_lat: Double, _ b_lon: Double) -> Double {
+    __swift_bridge__$flows_geo_meters(a_lat, a_lon, b_lat, b_lon)
+}
 public func flows_geo_bearing_degrees(_ a_lat: Double, _ a_lon: Double, _ b_lat: Double, _ b_lon: Double) -> Double {
     __swift_bridge__$flows_geo_bearing_degrees(a_lat, a_lon, b_lat, b_lon)
 }
 public func flows_geo_ahead_cone_degrees() -> Double {
     __swift_bridge__$flows_geo_ahead_cone_degrees()
+}
+public func flows_geo_camera_is_ahead(_ target_lat: Double, _ target_lon: Double, _ position_lat: Double, _ position_lon: Double, _ heading_degrees: Double, _ has_heading: Bool) -> Bool {
+    __swift_bridge__$flows_geo_camera_is_ahead(target_lat, target_lon, position_lat, position_lon, heading_degrees, has_heading)
 }
 public func flows_geo_fuel_corridor_meters() -> Double {
     __swift_bridge__$flows_geo_fuel_corridor_meters()
