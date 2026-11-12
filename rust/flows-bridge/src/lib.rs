@@ -56,6 +56,7 @@
 pub mod airports;
 pub mod alert_text;
 pub mod alerts;
+pub mod badges;
 pub mod climate;
 pub mod corridor_watch;
 pub mod forecast;

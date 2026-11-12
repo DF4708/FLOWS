@@ -276,6 +276,35 @@ public func flows_alerts_length_usable(_ hours: Double) -> Bool {
 }
 
 
+public func flows_badges_cluster(_ points: UnsafeBufferPointer<Double>, _ kinds: UnsafeBufferPointer<Int64>, _ min_sep: Double) -> RustVec<Double> {
+    RustVec(ptr: __swift_bridge__$flows_badges_cluster(points.toFfiSlice(), kinds.toFfiSlice(), min_sep))
+}
+public func flows_badges_declutter(_ points: UnsafeBufferPointer<Double>, _ kinds: UnsafeBufferPointer<Int64>, _ min_sep: Double) -> RustVec<Int64> {
+    RustVec(ptr: __swift_bridge__$flows_badges_declutter(points.toFfiSlice(), kinds.toFfiSlice(), min_sep))
+}
+public func flows_badges_labels(_ badge_points: UnsafeBufferPointer<Double>, _ badge_kinds: UnsafeBufferPointer<Int64>, _ labelled_points: UnsafeBufferPointer<Double>, _ labelled_kinds: UnsafeBufferPointer<Int64>, _ radius: Double) -> RustVec<Int64> {
+    RustVec(ptr: __swift_bridge__$flows_badges_labels(badge_points.toFfiSlice(), badge_kinds.toFfiSlice(), labelled_points.toFfiSlice(), labelled_kinds.toFfiSlice(), radius))
+}
+public func flows_badges_is_warning<GenericToRustStr: ToRustStr>(_ event: GenericToRustStr) -> Bool {
+    return event.toRustStr({ eventAsRustStr in
+        __swift_bridge__$flows_badges_is_warning(eventAsRustStr)
+    })
+}
+public func flows_badges_same_hazard<GenericToRustStr: ToRustStr>(_ has_badge: Bool, _ badge_event: GenericToRustStr, _ has_shown: Bool, _ shown_event: GenericToRustStr) -> Bool {
+    return shown_event.toRustStr({ shown_eventAsRustStr in
+        return badge_event.toRustStr({ badge_eventAsRustStr in
+        __swift_bridge__$flows_badges_same_hazard(has_badge, badge_eventAsRustStr, has_shown, shown_eventAsRustStr)
+    })
+    })
+}
+public func flows_badges_near_pairs(_ badge_points: UnsafeBufferPointer<Double>, _ badge_kinds: UnsafeBufferPointer<Int64>, _ shown_points: UnsafeBufferPointer<Double>, _ shown_kinds: UnsafeBufferPointer<Int64>, _ merge: Double) -> RustVec<Int64> {
+    RustVec(ptr: __swift_bridge__$flows_badges_near_pairs(badge_points.toFfiSlice(), badge_kinds.toFfiSlice(), shown_points.toFfiSlice(), shown_kinds.toFfiSlice(), merge))
+}
+public func flows_badges_unshown(_ badge_points: UnsafeBufferPointer<Double>, _ badge_kinds: UnsafeBufferPointer<Int64>, _ shown_points: UnsafeBufferPointer<Double>, _ shown_kinds: UnsafeBufferPointer<Int64>, _ ring_lens: UnsafeBufferPointer<Int64>, _ ring_points: UnsafeBufferPointer<Double>, _ merge: Double, _ minor: UnsafeBufferPointer<UInt8>, _ same_pairs: UnsafeBufferPointer<Int64>) -> RustVec<Int64> {
+    RustVec(ptr: __swift_bridge__$flows_badges_unshown(badge_points.toFfiSlice(), badge_kinds.toFfiSlice(), shown_points.toFfiSlice(), shown_kinds.toFfiSlice(), ring_lens.toFfiSlice(), ring_points.toFfiSlice(), merge, minor.toFfiSlice(), same_pairs.toFfiSlice()))
+}
+
+
 public func flows_climate_south_anchor() -> Double {
     __swift_bridge__$flows_climate_south_anchor()
 }

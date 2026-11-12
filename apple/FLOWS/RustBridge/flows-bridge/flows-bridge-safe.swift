@@ -37,6 +37,26 @@ public func flows_alert_text_merged_keep(_ kinds: Span<UInt8>, _ lats: Span<Doub
     _flowsLend(kinds) { (kinds: UnsafeBufferPointer<UInt8>) -> RustVec<Int64> in _flowsLend(lats) { (lats: UnsafeBufferPointer<Double>) -> RustVec<Int64> in _flowsLend(lons) { (lons: UnsafeBufferPointer<Double>) -> RustVec<Int64> in flows_alert_text_merged_keep(kinds, lats, lons, new_kind, new_lat, new_lon) } } }
 }
 
+public func flows_badges_cluster(_ points: Span<Double>, _ kinds: Span<Int64>, _ min_sep: Double) -> RustVec<Double> {
+    _flowsLend(points) { (points: UnsafeBufferPointer<Double>) -> RustVec<Double> in _flowsLend(kinds) { (kinds: UnsafeBufferPointer<Int64>) -> RustVec<Double> in flows_badges_cluster(points, kinds, min_sep) } }
+}
+
+public func flows_badges_declutter(_ points: Span<Double>, _ kinds: Span<Int64>, _ min_sep: Double) -> RustVec<Int64> {
+    _flowsLend(points) { (points: UnsafeBufferPointer<Double>) -> RustVec<Int64> in _flowsLend(kinds) { (kinds: UnsafeBufferPointer<Int64>) -> RustVec<Int64> in flows_badges_declutter(points, kinds, min_sep) } }
+}
+
+public func flows_badges_labels(_ badge_points: Span<Double>, _ badge_kinds: Span<Int64>, _ labelled_points: Span<Double>, _ labelled_kinds: Span<Int64>, _ radius: Double) -> RustVec<Int64> {
+    _flowsLend(badge_points) { (badge_points: UnsafeBufferPointer<Double>) -> RustVec<Int64> in _flowsLend(badge_kinds) { (badge_kinds: UnsafeBufferPointer<Int64>) -> RustVec<Int64> in _flowsLend(labelled_points) { (labelled_points: UnsafeBufferPointer<Double>) -> RustVec<Int64> in _flowsLend(labelled_kinds) { (labelled_kinds: UnsafeBufferPointer<Int64>) -> RustVec<Int64> in flows_badges_labels(badge_points, badge_kinds, labelled_points, labelled_kinds, radius) } } } }
+}
+
+public func flows_badges_near_pairs(_ badge_points: Span<Double>, _ badge_kinds: Span<Int64>, _ shown_points: Span<Double>, _ shown_kinds: Span<Int64>, _ merge: Double) -> RustVec<Int64> {
+    _flowsLend(badge_points) { (badge_points: UnsafeBufferPointer<Double>) -> RustVec<Int64> in _flowsLend(badge_kinds) { (badge_kinds: UnsafeBufferPointer<Int64>) -> RustVec<Int64> in _flowsLend(shown_points) { (shown_points: UnsafeBufferPointer<Double>) -> RustVec<Int64> in _flowsLend(shown_kinds) { (shown_kinds: UnsafeBufferPointer<Int64>) -> RustVec<Int64> in flows_badges_near_pairs(badge_points, badge_kinds, shown_points, shown_kinds, merge) } } } }
+}
+
+public func flows_badges_unshown(_ badge_points: Span<Double>, _ badge_kinds: Span<Int64>, _ shown_points: Span<Double>, _ shown_kinds: Span<Int64>, _ ring_lens: Span<Int64>, _ ring_points: Span<Double>, _ merge: Double, _ minor: Span<UInt8>, _ same_pairs: Span<Int64>) -> RustVec<Int64> {
+    _flowsLend(badge_points) { (badge_points: UnsafeBufferPointer<Double>) -> RustVec<Int64> in _flowsLend(badge_kinds) { (badge_kinds: UnsafeBufferPointer<Int64>) -> RustVec<Int64> in _flowsLend(shown_points) { (shown_points: UnsafeBufferPointer<Double>) -> RustVec<Int64> in _flowsLend(shown_kinds) { (shown_kinds: UnsafeBufferPointer<Int64>) -> RustVec<Int64> in _flowsLend(ring_lens) { (ring_lens: UnsafeBufferPointer<Int64>) -> RustVec<Int64> in _flowsLend(ring_points) { (ring_points: UnsafeBufferPointer<Double>) -> RustVec<Int64> in _flowsLend(minor) { (minor: UnsafeBufferPointer<UInt8>) -> RustVec<Int64> in _flowsLend(same_pairs) { (same_pairs: UnsafeBufferPointer<Int64>) -> RustVec<Int64> in flows_badges_unshown(badge_points, badge_kinds, shown_points, shown_kinds, ring_lens, ring_points, merge, minor, same_pairs) } } } } } } } }
+}
+
 public func flows_climate_parse_flhh(_ data: Span<UInt8>) -> Optional<FlowsHarmonicTable> {
     _flowsLend(data) { (data: UnsafeBufferPointer<UInt8>) -> Optional<FlowsHarmonicTable> in flows_climate_parse_flhh(data) }
 }

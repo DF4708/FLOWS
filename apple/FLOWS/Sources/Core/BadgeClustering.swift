@@ -7,6 +7,7 @@
 // -----------------------------------------------------------------------------
 
 import CoreLocation
+import FlowsBridge
 import Foundation
 
 /// One symbol per risk area, not dozens: greedy severity-first clustering.
@@ -15,27 +16,16 @@ import Foundation
 /// well-spaced heat symbols at the centers of its clusters, while a tornado
 /// cell next to a flood zone keeps BOTH symbols (different kinds overlap by
 /// design; identical kinds merge).
+///
+/// The rules run in Rust (flows-core `badges`, pinned by a frozen oracle of
+/// this file's original Swift). Swift keeps the generic items: each call
+/// numbers its kinds, equal kinds alike, and maps the answers back.
 enum BadgeClustering {
     struct Item<Kind: Hashable> {
         let coordinate: CLLocationCoordinate2D
         let kind: Kind
         let score: Double
     }
-
-    /// Cell key for the spatial index: hazard kind + integer grid cell. Same
-    /// kind + same cell hash together; different kinds never collide (matching
-    /// the `seed.kind == item.kind` guard).
-    private struct GridKey<K: Hashable>: Hashable {
-        let kind: K
-        let cx: Int
-        let cy: Int
-    }
-
-    /// Above this many items the O(N²) linear seed scan is replaced by the
-    /// grid; below it the linear path is both simpler and faster (a 3×3 hash
-    /// probe costs more than a handful of distance checks). Both paths are
-    /// byte-identical, so the threshold only trades constant factors.
-    private static let gridThreshold = 64
 
     /// Returns the representative badges, worst-first. Each badge sits at the
     /// SCORE-WEIGHTED CENTROID of its cluster's members ("the central weight
@@ -46,73 +36,21 @@ enum BadgeClustering {
     ///
     /// Seed assignment is greedy severity-first: each item joins the
     /// EARLIEST-INSERTED (= highest-score) already-kept seed of its own kind
-    /// within `minSeparationMeters`, else becomes a new seed. The linear form
-    /// is O(N²) (every item scans every seed). For large inputs a spatial grid
-    /// makes it ≈O(N): a same-kind seed within `minSeparationMeters` is
-    /// guaranteed to fall in the query cell's 3×3 neighborhood — the grid uses
-    /// the SAME 111 320 m/deg constant as `POIRanking.meters`, and the E-W term
-    /// there scales by cos(mean-latitude) ≥ cos(max |lat|), so cells are never
-    /// too small to miss a true neighbor. The exact `meters(…) < minSep` test
-    /// still gates membership, and the minimum in-range seed index is chosen —
-    /// so the grid returns the byte-identical result of `firstIndex(where:)`.
+    /// within `minSeparationMeters`, else becomes a new seed. Large inputs
+    /// use a spatial grid in Rust, with the same answer as the linear scan.
     static func cluster<Kind: Hashable>(
         _ items: [Item<Kind>], minSeparationMeters: CLLocationDistance
     ) -> [Item<Kind>] {
-        let sorted = items.sorted(by: { $0.score > $1.score })
-        var seeds: [Item<Kind>] = []
-        var members: [[Item<Kind>]] = []
-
-        if sorted.count >= gridThreshold && minSeparationMeters > 0 {
-            // Cell sized so any in-range same-kind seed sits in the 3×3 block.
-            let maxAbsLat = sorted.reduce(0.0) { max($0, abs($1.coordinate.latitude)) }
-            let cosMin = max(cos(maxAbsLat * .pi / 180), 1e-6)
-            let latCell = minSeparationMeters / 111_320.0
-            let lonCell = minSeparationMeters / (111_320.0 * cosMin)
-            var grid: [GridKey<Kind>: [Int]] = [:]
-            for item in sorted {
-                let cx = Int((item.coordinate.longitude / lonCell).rounded(.down))
-                let cy = Int((item.coordinate.latitude / latCell).rounded(.down))
-                var best = -1
-                for dx in -1...1 {
-                    for dy in -1...1 {
-                        guard let idxs = grid[GridKey(kind: item.kind, cx: cx + dx, cy: cy + dy)]
-                        else { continue }
-                        for si in idxs where best < 0 || si < best {
-                            if POIRanking.meters(seeds[si].coordinate, item.coordinate) < minSeparationMeters {
-                                best = si
-                            }
-                        }
-                    }
-                }
-                if best >= 0 {
-                    members[best].append(item)
-                } else {
-                    grid[GridKey(kind: item.kind, cx: cx, cy: cy), default: []].append(seeds.count)
-                    seeds.append(item)
-                    members.append([item])
-                }
-            }
-        } else {
-            for item in sorted {
-                if let si = seeds.firstIndex(where: { seed in
-                    seed.kind == item.kind
-                        && POIRanking.meters(seed.coordinate, item.coordinate) < minSeparationMeters
-                }) {
-                    members[si].append(item)
-                } else {
-                    seeds.append(item)
-                    members.append([item])
-                }
-            }
+        var kinds = Kinds<Kind>()
+        let e = kinds.encode(items)
+        let flat = e.points.lent { p in
+            e.kinds.lent { k in Array(flows_badges_cluster(p, k, minSeparationMeters)) }
         }
-
-        return zip(seeds, members).map { seed, group in
-            let weight = group.reduce(0.0) { $0 + max($1.score, 1e-4) }
-            let lat = group.reduce(0.0) { $0 + $1.coordinate.latitude * max($1.score, 1e-4) } / weight
-            let lon = group.reduce(0.0) { $0 + $1.coordinate.longitude * max($1.score, 1e-4) } / weight
+        return stride(from: 0, to: flat.count / 3 * 3, by: 3).compactMap { j in
+            guard let s = Int(exactly: flat[j]), items.indices.contains(s) else { return nil }
             return Item(
-                coordinate: CLLocationCoordinate2D(latitude: lat, longitude: lon),
-                kind: seed.kind, score: seed.score)
+                coordinate: CLLocationCoordinate2D(latitude: flat[j + 1], longitude: flat[j + 2]),
+                kind: items[s].kind, score: items[s].score)
         }
     }
 
@@ -125,20 +63,12 @@ enum BadgeClustering {
     static func declutter<Kind: Hashable>(
         _ items: [Item<Kind>], minSeparationMeters: CLLocationDistance
     ) -> [Item<Kind>] {
-        let order = items.indices.sorted {
-            items[$0].score != items[$1].score ? items[$0].score > items[$1].score : $0 < $1
+        var kinds = Kinds<Kind>()
+        let e = kinds.encode(items)
+        let kept = e.points.lent { p in
+            e.kinds.lent { k in Array(flows_badges_declutter(p, k, minSeparationMeters)) }
         }
-        var kept: [Item<Kind>] = []
-        for i in order {
-            let item = items[i]
-            if kept.contains(where: {
-                POIRanking.meters($0.coordinate, item.coordinate) < minSeparationMeters
-            }) {
-                continue
-            }
-            kept.append(item)
-        }
-        return kept
+        return picked(kept, from: items)
     }
 
     /// The label each badge carries (the live warning that names it, for
@@ -154,17 +84,21 @@ enum BadgeClustering {
         for badges: [Item<Kind>], from labelled: [(item: Item<Kind>, label: String)],
         radiusMeters: CLLocationDistance
     ) -> [String?] {
-        var best: [(score: Double, label: String)?] = Array(repeating: nil, count: badges.count)
-        for (item, label) in labelled {
-            var nearest: (index: Int, meters: CLLocationDistance)?
-            for (i, badge) in badges.enumerated() where badge.kind == item.kind {
-                let d = POIRanking.meters(badge.coordinate, item.coordinate)
-                if d < radiusMeters, d < (nearest?.meters ?? .infinity) { nearest = (i, d) }
+        var kinds = Kinds<Kind>()
+        let b = kinds.encode(badges)
+        let l = kinds.encode(labelled.map(\.item))
+        let picks = b.points.lent { bp in
+            b.kinds.lent { bk in
+                l.points.lent { lp in
+                    l.kinds.lent { lk in Array(flows_badges_labels(bp, bk, lp, lk, radiusMeters)) }
+                }
             }
-            guard let i = nearest?.index else { continue }
-            if item.score > (best[i]?.score ?? -.infinity) { best[i] = (item.score, label) }
         }
-        return best.map { $0?.label }
+        return badges.indices.map { i in
+            guard i < picks.count, let j = Int(exactly: picks[i]), labelled.indices.contains(j)
+            else { return nil }
+            return labelled[j].label
+        }
     }
 
     /// Whether an alert event is a warning (or an emergency) — never a
@@ -174,8 +108,7 @@ enum BadgeClustering {
     /// kind took them off the map. Watches, advisories and statements can
     /// give way.
     static func isWarning(_ event: String) -> Bool {
-        let lower = event.lowercased()
-        return lower.contains("warning") || lower.contains("emergency")
+        flows_badges_is_warning(event)
     }
 
     /// Whether a shown badge of the same kind draws the same hazard as a
@@ -183,8 +116,7 @@ enum BadgeClustering {
     /// warning is the same hazard only as a badge naming that warning; any
     /// other badge is one hazard with its kind.
     static func sameHazard(badgeEvent: String?, shownEvent: String?) -> Bool {
-        guard let badgeEvent, isWarning(badgeEvent) else { return true }
-        return shownEvent == badgeEvent
+        flows_badges_same_hazard(badgeEvent != nil, badgeEvent ?? "", shownEvent != nil, shownEvent ?? "")
     }
 
     /// A second layer's badges less those a first layer already shows, in
@@ -198,47 +130,97 @@ enum BadgeClustering {
     /// goes when ANY shown badge sits that close or it lies inside one of
     /// the shown `areas`: two symbols for one area. Any other badge stays,
     /// since different hazards may share an area (the rule `cluster` keeps).
+    ///
+    /// `sameHazard` is asked only about shown badges of the badge's kind
+    /// within `mergeMeters` (Rust names those pairs first), and `minor`
+    /// once per badge; both must be pure.
     static func unshown<Kind: Hashable>(
         _ badges: [Item<Kind>], shown: [Item<Kind>], areas: [[CLLocationCoordinate2D]],
         mergeMeters: CLLocationDistance, minor: (Item<Kind>) -> Bool,
         sameHazard: (_ badge: Item<Kind>, _ shown: Item<Kind>) -> Bool = { _, _ in true }
     ) -> [Item<Kind>] {
-        // This runs as the map draws: a ring's exact test only where its
-        // bounding box could hold the badge.
-        let boxes = areas.map(Box.init)
-        return badges.filter { badge in
-            let near = shown.filter {
-                POIRanking.meters($0.coordinate, badge.coordinate) < mergeMeters
+        var kinds = Kinds<Kind>()
+        let b = kinds.encode(badges)
+        let s = kinds.encode(shown)
+        let pairs = b.points.lent { bp in
+            b.kinds.lent { bk in
+                s.points.lent { sp in
+                    s.kinds.lent { sk in Array(flows_badges_near_pairs(bp, bk, sp, sk, mergeMeters)) }
+                }
             }
-            if near.contains(where: { $0.kind == badge.kind && sameHazard(badge, $0) }) {
-                return false
+        }
+        var same: [Int64] = []
+        for j in stride(from: 0, to: pairs.count / 2 * 2, by: 2) {
+            guard let bi = Int(exactly: pairs[j]), let si = Int(exactly: pairs[j + 1]),
+                badges.indices.contains(bi), shown.indices.contains(si)
+            else { continue }
+            if sameHazard(badges[bi], shown[si]) {
+                same.append(pairs[j])
+                same.append(pairs[j + 1])
             }
-            guard minor(badge) else { return true }
-            guard near.isEmpty else { return false }
-            return !zip(areas, boxes).contains { ring, box in
-                box.contains(badge.coordinate)
-                    && HazardFeedScores.pointInPolygon(badge.coordinate, ring)
+        }
+        let minors: [UInt8] = badges.map { minor($0) ? 1 : 0 }
+        var lens: [Int64] = []
+        var ringPoints: [Double] = []
+        for ring in areas {
+            lens.append(Int64(ring.count))
+            for c in ring {
+                ringPoints.append(c.latitude)
+                ringPoints.append(c.longitude)
             }
+        }
+        let kept = b.points.lent { bp in
+            b.kinds.lent { bk in
+                s.points.lent { sp in
+                    s.kinds.lent { sk in
+                        lens.lent { rl in
+                            ringPoints.lent { rp in
+                                minors.lent { mi in
+                                    same.lent { sa in
+                                        Array(flows_badges_unshown(bp, bk, sp, sk, rl, rp, mergeMeters, mi, sa))
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        return picked(kept, from: badges)
+    }
+
+    /// The items Rust picked, by index, in its order.
+    private static func picked<Kind: Hashable>(_ indices: [Int64], from items: [Item<Kind>]) -> [Item<Kind>] {
+        indices.compactMap { i in
+            guard let j = Int(exactly: i), items.indices.contains(j) else { return nil }
+            return items[j]
         }
     }
 
-    /// A ring's latitude/longitude bounds.
-    private struct Box {
-        var minLat = Double.infinity, maxLat = -Double.infinity
-        var minLon = Double.infinity, maxLon = -Double.infinity
+    /// One call's kind numbers: the first kind seen is 0, and equal kinds
+    /// share a number, so Rust's `==` on them is the kinds' own.
+    private struct Kinds<K: Hashable> {
+        private var ids: [K: Int64] = [:]
 
-        init(_ ring: [CLLocationCoordinate2D]) {
-            for c in ring {
-                minLat = min(minLat, c.latitude)
-                maxLat = max(maxLat, c.latitude)
-                minLon = min(minLon, c.longitude)
-                maxLon = max(maxLon, c.longitude)
+        mutating func encode(_ items: [Item<K>]) -> (points: [Double], kinds: [Int64]) {
+            var points: [Double] = []
+            var kinds: [Int64] = []
+            points.reserveCapacity(items.count * 3)
+            kinds.reserveCapacity(items.count)
+            for item in items {
+                points.append(item.coordinate.latitude)
+                points.append(item.coordinate.longitude)
+                points.append(item.score)
+                kinds.append(id(item.kind))
             }
+            return (points, kinds)
         }
 
-        func contains(_ c: CLLocationCoordinate2D) -> Bool {
-            c.latitude >= minLat && c.latitude <= maxLat
-                && c.longitude >= minLon && c.longitude <= maxLon
+        private mutating func id(_ kind: K) -> Int64 {
+            if let id = ids[kind] { return id }
+            let id = Int64(ids.count)
+            ids[kind] = id
+            return id
         }
     }
 }

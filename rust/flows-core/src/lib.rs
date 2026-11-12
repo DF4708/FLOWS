@@ -81,6 +81,7 @@ pub mod airports;
 pub mod airports_table;
 pub mod alert_text;
 pub mod alerts;
+pub mod badges;
 pub mod ch;
 pub mod climate;
 pub mod corridor_watch;

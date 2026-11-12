@@ -1860,8 +1860,8 @@ the original Swift and the same landing steps as waves 2 and 3:
 | `TouristInfo` | LANDED (second landing) |
 | `ManeuverSymbol` text reading | LANDED (third landing) |
 | `RiskAreaFallback` | LANDED (fourth landing) |
-| `BadgeClustering` | next |
-| `WMOAlerts` | open |
+| `BadgeClustering` | LANDED (fifth landing) |
+| `WMOAlerts` | next |
 | `RiskAdvice` | open |
 
 ## Wave 4, first landing: the international weather rules (2026-11-12)
@@ -1983,3 +1983,43 @@ One thing changes on purpose. A lattice whose bound is infinite, or whose
 multiples are past 2^53, made the original loop until memory ran out; the
 Rust stops there (77 such lattices are left out of the fixture). The app
 never asks for one: its spans come from a real map view.
+
+## Wave 4, fifth landing: the map's hazard badges (2026-11-12)
+
+`BadgeClustering` keeps its generic items and the closures its callers
+pass, and asks Rust for every rule: the clusters and their weighted
+centres, the thinning of icons, which label each badge carries, whether
+an alert event is a warning, whether two badges draw the same hazard, and
+which route badges the planning map already shows. The rules live in
+`flows_core::badges`; seven bridge calls, `flows_badges_*`, carry them.
+Each call numbers its kinds in the order it first sees them, equal kinds
+alike, so Rust's `==` on the numbers is the kinds' own; the answers come
+back as indices into the items. `unshown` first asks Rust which pairs are
+near and of one kind, asks the caller's `sameHazard` about those pairs
+only, and asks `minor` once per badge (both closures are pure, so the
+answer is the same as the original's lazy calls). If a call ever failed,
+every answer falls to the side that hides no hazard: each item its own
+badge, every icon kept and every route badge drawn.
+
+The answers are the original's bits because the Rust copies Swift's own
+helpers: its sort (which places a NaN score where Swift does), its `max`
+and `min`, and its text rules through `swift_text`.
+
+The oracle (`swift_badge_clustering_oracle.tsv`, 2,972 records) was frozen
+from the original Swift at 6343007: hand-made sets (a corridor, the poles,
+one point many times, NaN scores either side of the grid's 64 items,
+points on the grid's cell edges) with every kind of spacing, random sets,
+labels with ties, alert events in every case and script, and route badges
+beside shown badges and areas. Twenty-eight changed rules fail it, three more tests kill the three
+that slipped through, and six survivors are the same rule written
+another way. Eight of nine changed facades fail it; the ninth sends a
+missing badge event as an empty one, which is never a warning, so it
+gives the same answer. The counts and
+reasons are in the harness README.
+
+One thing changes on purpose. On 64 or more items with a positive
+spacing, the original's grid trapped when a cell number did not fit an
+`Int` (a NaN or infinite coordinate, or a spacing so small that a
+coordinate over it passed 2^63); the Rust takes the linear scan there,
+which gives the grid's answer (66 such calls are left out of the
+fixture). The app never sends one: its points are real places.
