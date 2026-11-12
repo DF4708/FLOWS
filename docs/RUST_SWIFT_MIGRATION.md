@@ -1805,10 +1805,12 @@ build moved by its fused sine (at most 1.65e-7 m on the ground), and 13
 ahead answers that flip within a nanodegree of the cone's edge. Three
 facades wired wrong on purpose all fail it.
 
-Nothing changes on purpose. What stays in Swift: the meters-to-degrees
-conversions in the files the classification table still leaves open
-(`CameraZoom`, `RiskAreaFallback`, the map's badge spacing and the badge
-grid), which are not the distance and wait on that decision.
+Nothing changes on purpose. What stays in Swift: the conversions between
+meters and degrees, which are not the distance. Two sit in files the wave-1
+inventory left unclassified (`CameraZoom`, `BadgeClustering`); one is the
+map view's visible-span size in `ContentView`; and `RiskAreaFallback`
+(2026-10-01) is newer than that inventory and on no list yet. They wait on
+the same classification decision.
 
 ### Wave 3 remaining
 
