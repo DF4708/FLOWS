@@ -3325,6 +3325,56 @@ public func flows_route_blend<GenericToRustStr: ToRustStr>(_ field: FlowsRiskFie
 
 
 
+public func flows_readout_miles(_ meters: Double) -> Double {
+    __swift_bridge__$flows_readout_miles(meters)
+}
+public func flows_readout_turn_feet(_ meters: Double) -> Int64 {
+    __swift_bridge__$flows_readout_turn_feet(meters)
+}
+public func flows_readout_mile_places(_ meters: Double) -> Int64 {
+    __swift_bridge__$flows_readout_mile_places(meters)
+}
+public func flows_readout_planner_mile_places(_ meters: Double) -> Int64 {
+    __swift_bridge__$flows_readout_planner_mile_places(meters)
+}
+public func flows_readout_spoken_kind(_ meters: Double) -> Int64 {
+    __swift_bridge__$flows_readout_spoken_kind(meters)
+}
+public func flows_readout_spoken_whole(_ meters: Double) -> Int64 {
+    __swift_bridge__$flows_readout_spoken_whole(meters)
+}
+public func flows_readout_spoken_tenths(_ meters: Double) -> Double {
+    __swift_bridge__$flows_readout_spoken_tenths(meters)
+}
+public func flows_readout_minutes(_ seconds: Double) -> Int64 {
+    __swift_bridge__$flows_readout_minutes(seconds)
+}
+public func flows_readout_clock_kind(_ seconds: Double, _ days: Bool) -> Int64 {
+    __swift_bridge__$flows_readout_clock_kind(seconds, days)
+}
+public func flows_readout_clock_hours(_ seconds: Double) -> Int64 {
+    __swift_bridge__$flows_readout_clock_hours(seconds)
+}
+public func flows_readout_clock_minutes(_ seconds: Double) -> Int64 {
+    __swift_bridge__$flows_readout_clock_minutes(seconds)
+}
+public func flows_readout_clock_days(_ seconds: Double) -> Double {
+    __swift_bridge__$flows_readout_clock_days(seconds)
+}
+public func flows_readout_minutes_saved(_ eta: Double, _ faster: Double) -> Int64 {
+    __swift_bridge__$flows_readout_minutes_saved(eta, faster)
+}
+public func flows_readout_exposure_percent(_ coverage: Double) -> Int64 {
+    __swift_bridge__$flows_readout_exposure_percent(coverage)
+}
+public func flows_readout_exposure_miles(_ meters: Double, _ coverage: Double) -> Int64 {
+    __swift_bridge__$flows_readout_exposure_miles(meters, coverage)
+}
+public func flows_readout_grade_at(_ mile: Double, _ stretches: UnsafeBufferPointer<Double>, _ count: Int64) -> Double {
+    __swift_bridge__$flows_readout_grade_at(mile, stretches.toFfiSlice(), count)
+}
+
+
 public func flows_designation_toll_allowance_usd() -> Double {
     __swift_bridge__$flows_designation_toll_allowance_usd()
 }

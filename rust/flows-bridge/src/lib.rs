@@ -74,6 +74,7 @@ pub mod route_designations;
 pub mod seasonal;
 pub mod tags_and_replies;
 pub mod transit;
+pub mod trip_readouts;
 pub mod trip_vehicle;
 pub mod vehicle_policy;
 

@@ -36,6 +36,8 @@
 //!              reading, fold
 //!   route_designations — which route earns Safest, Cheapest,
 //!              Efficient, the trucker badge, and time behind the fastest
+//!   trip_readouts — the numbers behind the distance and time readouts:
+//!              feet and miles, minutes and hours, alert share, grade
 //!   hazard_feeds — live feed scores, the alert service's geometry and
 //!              severity rules, the CRE fuel scan
 //!   long_trips — the fuel warning, the long-trip share and the saved road
@@ -108,6 +110,7 @@ pub mod swift_text;
 pub mod tags_and_replies;
 pub mod transit;
 pub mod travel_modes;
+pub mod trip_readouts;
 pub mod trip_shape;
 pub mod trip_vehicle;
 pub mod vehicle_policy;

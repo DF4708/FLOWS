@@ -1691,6 +1691,33 @@ card list (the highlight, the spoken choice, the closest match): those use
 `RouteFilter` and the planner's order, not these chips, and were not
 changed.
 
+## Wave 3, fourth landing: the trip readouts (2026-11-12)
+
+The numbers behind what the driver reads and hears about distance and time:
+feet to the next turn, miles, minutes and hours left, days for a long walk,
+Siri's spoken miles and minutes, the share of a route in alert areas, the
+minutes a faster road saves, and the grade under the vehicle. They sat
+inline in `NavigationHUD`, `RouteChoicesView`, `PlannerPanel`,
+`SiriSummaries` and `AppModel`. 1cc992f moved them, unchanged, into
+`Core/TripReadouts.swift`; this landing computes them in
+`flows_core::trip_readouts`. The words stay in Swift.
+
+The oracle is 2,609 records frozen at 1cc992f
+(`swift_trip_readouts_oracle.tsv`); the Rust matched all of them on its
+first run. Twenty-two mutants were run before the freeze: twenty-one break
+records and one changes nothing (listed in the harness README).
+
+One behaviour is new on purpose. The Swift crashed when a distance or a
+time was not a number or was endless, because it turned the value straight
+into an integer: a route with a broken ETA took the app down from the
+driving screen, a route card or a Siri reply. The Rust answers 0 for
+not-a-number and the largest integer for endless. Unit tests on both sides
+pin it.
+
+NavigationHUD's speed and efficiency rules already ran in Core
+(`SpeedLaw`, `DriveEfficiency`), so the readouts were the last rules of
+this kind in the driving screen.
+
 ### Wave 3 remaining
 
 | item | state |
@@ -1698,5 +1725,5 @@ changed.
 | AppModel's route scoring as one batched call off the main actor | LANDED (first landing) |
 | RouteService and NavigationEngine over one opaque per-leg geometry | open |
 | Live corridor updates and learned ETA | LANDED (second landing) |
-| The compute leaked into views: the ContentView sweep, RouteChoicesView's route designations, NavigationHUD | route designations LANDED (third landing); the ContentView sweep and NavigationHUD are open |
+| The compute leaked into views: the ContentView sweep, RouteChoicesView's route designations, NavigationHUD | route designations LANDED (third landing); NavigationHUD and the readouts LANDED (fourth landing); the ContentView sweep is open |
 | The geo facade itself | open, last |
