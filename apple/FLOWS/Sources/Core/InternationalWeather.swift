@@ -8,58 +8,70 @@
 
 import Compression
 import CoreLocation
+import FlowsBridge
 import Foundation
 
 /// Pure parsing/conversion helpers for the international weather providers —
 /// separated for unit testing (the network side lives in NWSForecastFetcher's
-/// provider chain).
+/// provider chain). The rules run in Rust (flows-core `intl_weather`, pinned
+/// by a frozen oracle of this file's original rules); Swift reads each JSON
+/// field as a number its own way and hands the numbers over. The gzip body
+/// and the SMN row stay here.
 enum IntlWeatherParsing {
 
     // MARK: unit conversions
 
-    static func celsiusToF(_ c: Double) -> Double { c * 9 / 5 + 32 }
-    static func kmhToMph(_ kmh: Double) -> Double { kmh / 1.609344 }
-    static func msToMph(_ ms: Double) -> Double { ms * 2.2369362920544 }
+    static func celsiusToF(_ c: Double) -> Double { flows_intl_celsius_to_f(c) }
+    static func kmhToMph(_ kmh: Double) -> Double { flows_intl_kmh_to_mph(kmh) }
+    static func msToMph(_ ms: Double) -> Double { flows_intl_ms_to_mph(ms) }
+
+    /// A field read as a number: a JSON number, or text that reads as one.
+    private static func number(_ value: Any?) -> Double? {
+        (value as? Double) ?? (value as? String).flatMap(Double.init)
+    }
+
+    /// A Rust `[has, value]` answer.
+    private static func reading(_ answer: [Double]) -> Double? {
+        answer.count == 2 && answer[0] != 0 ? answer[1] : nil
+    }
 
     // MARK: ECCC SWOB observation extraction
 
     /// Scan a SWOB properties dict for air temperature (°C) — the field is
     /// reliably `air_temp` but station variants exist.
     static func ecccAirTempF(_ props: [String: Any]) -> Double? {
-        for key in ["air_temp", "air_temp_1", "avg_air_temp_pst1hr"] {
-            if let v = props[key] as? Double { return celsiusToF(v) }
-            if let s = props[key] as? String, let v = Double(s) { return celsiusToF(v) }
-        }
-        return nil
+        let numbers = ["air_temp", "air_temp_1", "avg_air_temp_pst1hr"].map { number(props[$0]) }
+        let values = numbers.map { $0 ?? 0 }
+        let present = numbers.map { UInt8($0 == nil ? 0 : 1) }
+        return reading(
+            values.lent { v in
+                present.lent { p in Array(flows_intl_air_temp_f(v, p, Int64(numbers.count))) }
+            })
     }
 
     /// Wind speed in mph from whichever anemometer field the station has;
     /// prefers 10 m sensors, converts by the sibling `-uom` unit (km/h vs m/s).
+    /// Each field crosses with its NFC name (Rust orders the names by their
+    /// bytes), its value read as a number, and its `-uom` text, looked up
+    /// here as the dictionary answers it.
     static func ecccWindMph(_ props: [String: Any]) -> Double? {
-        let windKeys = props.keys.filter {
-            $0.lowercased().contains("wnd_spd")
-                && !$0.contains("-uom") && !$0.contains("-qa") && !$0.contains("flag")
-        }.sorted { a, b in
-            // Prefer 10 m tower sensors over precip-gauge anemometers.
-            let aTen = a.contains("10m")
-            let bTen = b.contains("10m")
-            if aTen != bTen { return aTen }
-            return a < b
-        }
-        for key in windKeys {
-            let value: Double?
-            if let v = props[key] as? Double {
-                value = v
-            } else if let s = props[key] as? String {
-                value = Double(s)
-            } else {
-                value = nil
-            }
-            guard let v = value, v >= 0 else { continue }
-            let uom = (props["\(key)-uom"] as? String)?.lowercased() ?? "km/h"
-            return uom.contains("m/s") ? msToMph(v) : kmhToMph(v)
-        }
-        return nil
+        guard !props.isEmpty else { return nil }
+        let keys = Array(props.keys)
+        let speeds = keys.map { number(props[$0]) }
+        let names = RustTextColumn(keys.map { $0.precomposedStringWithCanonicalMapping })
+        let units = RustTextColumn(keys.map { props["\($0)-uom"] as? String })
+        let values = speeds.map { $0 ?? 0 }
+        let present = speeds.map { UInt8($0 == nil ? 0 : 1) }
+        return reading(
+            names.with { nj, nl, _ in
+                units.with { uj, ul, up in
+                    values.lent { v in
+                        present.lent { p in
+                            Array(flows_intl_wind_mph(nj, nl, v, p, uj, ul, up, Int64(keys.count)))
+                        }
+                    }
+                }
+            })
     }
 
     // MARK: SMN municipio rows
@@ -88,13 +100,14 @@ enum IntlWeatherParsing {
     /// (SMN method=1 is a daily municipal forecast, not hourly — documented).
     static func conditions(from row: SMNRow) -> ForecastConditions {
         var c = ForecastConditions()
-        switch (row.tmaxC, row.tminC) {
-        case (let hi?, let lo?): c.temperatureF = celsiusToF((hi + lo) / 2)
-        case (let hi?, nil): c.temperatureF = celsiusToF(hi)
-        case (nil, let lo?): c.temperatureF = celsiusToF(lo)
-        default: break
+        let n = Array(
+            flows_intl_smn_conditions(
+                row.tmaxC ?? 0, row.tmaxC != nil, row.tminC ?? 0, row.tminC != nil, row.windKmh ?? 0,
+                row.windKmh != nil))
+        if n.count == 4 {
+            c.temperatureF = reading(Array(n[0..<2]))
+            c.windMph = reading(Array(n[2..<4]))
         }
-        c.windMph = row.windKmh.map(kmhToMph)
         c.popPercent = row.popPct
         return c
     }

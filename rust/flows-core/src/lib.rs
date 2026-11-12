@@ -93,6 +93,7 @@ pub(crate) mod fmath;
 pub mod forecast;
 pub mod geo;
 pub mod hazard_feeds;
+pub mod intl_weather;
 pub mod learning;
 pub mod leg_geometry;
 pub mod long_trips;

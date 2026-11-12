@@ -1269,6 +1269,30 @@ extension FlowsHazardSnapshot: Vectorizable {
 
 
 
+public func flows_intl_celsius_to_f(_ c: Double) -> Double {
+    __swift_bridge__$flows_intl_celsius_to_f(c)
+}
+public func flows_intl_kmh_to_mph(_ kmh: Double) -> Double {
+    __swift_bridge__$flows_intl_kmh_to_mph(kmh)
+}
+public func flows_intl_ms_to_mph(_ ms: Double) -> Double {
+    __swift_bridge__$flows_intl_ms_to_mph(ms)
+}
+public func flows_intl_air_temp_f(_ values: UnsafeBufferPointer<Double>, _ present: UnsafeBufferPointer<UInt8>, _ count: Int64) -> RustVec<Double> {
+    RustVec(ptr: __swift_bridge__$flows_intl_air_temp_f(values.toFfiSlice(), present.toFfiSlice(), count))
+}
+public func flows_intl_wind_mph<GenericToRustStr: ToRustStr>(_ keys_joined: GenericToRustStr, _ key_lens: UnsafeBufferPointer<Int64>, _ speeds: UnsafeBufferPointer<Double>, _ speed_present: UnsafeBufferPointer<UInt8>, _ units_joined: GenericToRustStr, _ unit_lens: UnsafeBufferPointer<Int64>, _ unit_present: UnsafeBufferPointer<UInt8>, _ count: Int64) -> RustVec<Double> {
+    return units_joined.toRustStr({ units_joinedAsRustStr in
+        return keys_joined.toRustStr({ keys_joinedAsRustStr in
+        RustVec(ptr: __swift_bridge__$flows_intl_wind_mph(keys_joinedAsRustStr, key_lens.toFfiSlice(), speeds.toFfiSlice(), speed_present.toFfiSlice(), units_joinedAsRustStr, unit_lens.toFfiSlice(), unit_present.toFfiSlice(), count))
+    })
+    })
+}
+public func flows_intl_smn_conditions(_ high_c: Double, _ has_high: Bool, _ low_c: Double, _ has_low: Bool, _ wind_kmh: Double, _ has_wind: Bool) -> RustVec<Double> {
+    RustVec(ptr: __swift_bridge__$flows_intl_smn_conditions(high_c, has_high, low_c, has_low, wind_kmh, has_wind))
+}
+
+
 public func flows_learning_everyday_default_miles() -> Double {
     __swift_bridge__$flows_learning_everyday_default_miles()
 }

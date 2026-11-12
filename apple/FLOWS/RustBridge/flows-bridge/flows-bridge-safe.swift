@@ -172,6 +172,14 @@ extension FlowsHazardSnapshotRefMut {
     }
 }
 
+public func flows_intl_air_temp_f(_ values: Span<Double>, _ present: Span<UInt8>, _ count: Int64) -> RustVec<Double> {
+    _flowsLend(values) { (values: UnsafeBufferPointer<Double>) -> RustVec<Double> in _flowsLend(present) { (present: UnsafeBufferPointer<UInt8>) -> RustVec<Double> in flows_intl_air_temp_f(values, present, count) } }
+}
+
+public func flows_intl_wind_mph<GenericToRustStr: ToRustStr>(_ keys_joined: GenericToRustStr, _ key_lens: Span<Int64>, _ speeds: Span<Double>, _ speed_present: Span<UInt8>, _ units_joined: GenericToRustStr, _ unit_lens: Span<Int64>, _ unit_present: Span<UInt8>, _ count: Int64) -> RustVec<Double> {
+    _flowsLend(key_lens) { (key_lens: UnsafeBufferPointer<Int64>) -> RustVec<Double> in _flowsLend(speeds) { (speeds: UnsafeBufferPointer<Double>) -> RustVec<Double> in _flowsLend(speed_present) { (speed_present: UnsafeBufferPointer<UInt8>) -> RustVec<Double> in _flowsLend(unit_lens) { (unit_lens: UnsafeBufferPointer<Int64>) -> RustVec<Double> in _flowsLend(unit_present) { (unit_present: UnsafeBufferPointer<UInt8>) -> RustVec<Double> in flows_intl_wind_mph(keys_joined, key_lens, speeds, speed_present, units_joined, unit_lens, unit_present, count) } } } } }
+}
+
 public func flows_learning_everyday_quantile(_ values: Span<Double>, _ q: Double) -> FlowsLearningOptional {
     _flowsLend(values) { (values: UnsafeBufferPointer<Double>) -> FlowsLearningOptional in flows_learning_everyday_quantile(values, q) }
 }

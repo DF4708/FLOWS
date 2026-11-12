@@ -1856,10 +1856,39 @@ the original Swift and the same landing steps as waves 2 and 3:
 
 | item | state |
 |---|---|
-| `InternationalWeather` | next |
-| `TouristInfo` | open |
+| `InternationalWeather` | LANDED (first landing) |
+| `TouristInfo` | next |
 | `ManeuverSymbol` text reading | open |
 | `RiskAreaFallback` | open |
 | `BadgeClustering` | open |
 | `WMOAlerts` | open |
 | `RiskAdvice` | open |
+
+## Wave 4, first landing: the international weather rules (2026-11-12)
+
+`IntlWeatherParsing` keeps its fetches, the gzip body and the JSON, and
+asks Rust for every rule: the three conversions, which SWOB field speaks
+for the air temperature, which anemometer field speaks for the wind (a
+`wnd_spd` name in any case, not a `-uom`, `-qa` or `flag` sibling, 10 m
+tower sensors first, then by name, a speed of at least zero) and in which
+unit (metres a second when the unit holds `m/s` in any case, km/h
+otherwise), and the SMN row's midpoint temperature and wind. The rules
+live in `flows_core::intl_weather`; six bridge calls, `flows_intl_*`,
+carry them. Swift still reads each field as a number its own way and
+sends the names in NFC, so ordering their bytes is Swift's `<`.
+
+The oracle (`swift_intl_weather_oracle.tsv`, 4,225 records) was frozen
+from the original Swift at 66e95db: conversions with every special
+value, random SWOB stations with numbers, text, nulls, booleans and
+arrays, every two wind keys side by side (including keys whose "10m" a
+mark or a joiner splits), and SMN rows. Eleven changed rules and two
+changed facades all fail it; the counts are in the harness README.
+
+One thing the oracle found in Swift itself: its `<` gives
+"wnd_spd_o\u{308}" and "wnd_spd_\u{F6}z" no order (neither is less, and
+they are not equal), so the original's pick between those two followed
+the dictionary's order, which changes from run to run. That pair is left
+out of the fixture; the Rust's byte order makes the pick steady. No real
+station names its fields that way.
+
+Nothing else changes on purpose.
