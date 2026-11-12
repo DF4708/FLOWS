@@ -167,8 +167,7 @@ actor NWSForecastFetcher {
         }
         guard
             let pointURL = URL(
-                string: String(
-                    format: "https://api.weather.gov/points/%.4f,%.4f", c.latitude, c.longitude)),
+                string: "https://api.weather.gov/points/\(c.latitude.fixed(4)),\(c.longitude.fixed(4))"),
             let (pd, pr) = try? await ThrottledNet.fetch(pointURL),
             (pr as? HTTPURLResponse)?.statusCode == 200,
             let pjson = try? JSONSerialization.jsonObject(with: pd) as? [String: Any],
@@ -254,10 +253,9 @@ actor NWSForecastFetcher {
     /// The coming six hours of rain alone, for the places NWS answered (its
     /// hourly periods carry no amounts).
     private func openMeteoRain(at c: CLLocationCoordinate2D) async -> Double? {
-        let url = String(
-            format: "https://api.open-meteo.com/v1/forecast?latitude=%.4f&longitude=%.4f"
-                + "&hourly=precipitation&forecast_days=2&precipitation_unit=inch&timezone=GMT",
-            c.latitude, c.longitude)
+        let url =
+            ("https://api.open-meteo.com/v1/forecast?latitude=\(c.latitude.fixed(4))&longitude=\(c.longitude.fixed(4))"
+                + "&hourly=precipitation&forecast_days=2&precipitation_unit=inch&timezone=GMT")
         guard let u = URL(string: url),
             let (data, resp) = try? await ThrottledNet.fetch(u),
             (resp as? HTTPURLResponse)?.statusCode == 200,
@@ -280,12 +278,11 @@ actor NWSForecastFetcher {
     }
 
     private func openMeteoConditions(at c: CLLocationCoordinate2D) async -> ForecastConditions? {
-        let url = String(
-            format: "https://api.open-meteo.com/v1/forecast?latitude=%.4f&longitude=%.4f"
+        let url =
+            ("https://api.open-meteo.com/v1/forecast?latitude=\(c.latitude.fixed(4))&longitude=\(c.longitude.fixed(4))"
                 + "&hourly=temperature_2m,wind_speed_10m,precipitation_probability,precipitation"
                 + "&forecast_days=2&temperature_unit=fahrenheit&wind_speed_unit=mph"
-                + "&precipitation_unit=inch&timezone=GMT",
-            c.latitude, c.longitude)
+                + "&precipitation_unit=inch&timezone=GMT")
         guard let u = URL(string: url),
             let (data, resp) = try? await ThrottledNet.fetch(u),
             (resp as? HTTPURLResponse)?.statusCode == 200,
@@ -328,10 +325,9 @@ actor NWSForecastFetcher {
     // MARK: provider 4 — ECCC GeoMet SWOB (Canada)
 
     private func ecccConditions(at c: CLLocationCoordinate2D) async -> ForecastConditions? {
-        let url = String(
-            format: "https://api.weather.gc.ca/collections/swob-realtime/items"
-                + "?bbox=%.3f,%.3f,%.3f,%.3f&limit=20&f=json",
-            c.longitude - 0.4, c.latitude - 0.4, c.longitude + 0.4, c.latitude + 0.4)
+        let url =
+            ("https://api.weather.gc.ca/collections/swob-realtime/items"
+                + "?bbox=\((c.longitude - 0.4).fixed(3)),\((c.latitude - 0.4).fixed(3)),\((c.longitude + 0.4).fixed(3)),\((c.latitude + 0.4).fixed(3))&limit=20&f=json")
         guard let u = URL(string: url),
             let (d, r) = try? await ThrottledNet.fetch(u),
             (r as? HTTPURLResponse)?.statusCode == 200,

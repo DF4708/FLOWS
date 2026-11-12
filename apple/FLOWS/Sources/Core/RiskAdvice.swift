@@ -386,7 +386,7 @@ enum RiskAdvice {
         {
             return URL(
                 string: "https://weather.gc.ca/en/location/index.html"
-                    + String(format: "?coords=%.3f,%.3f", latitude, longitude))
+                    + "?coords=\(latitude.fixed(3)),\(longitude.fixed(3))")
         }
         // Mexico, in two segments because the border is diagonal and the Gulf
         // separates Mexico's east coast from Florida (a flat latitude box sent
@@ -404,10 +404,7 @@ enum RiskAdvice {
             return URL(string: "https://smn.conagua.gob.mx/es/pronosticos/avisos")
         }
         return URL(
-            string: String(
-                format:
-                    "https://forecast.weather.gov/MapClick.php?lat=%.4f&lon=%.4f",
-                latitude, longitude))
+            string: "https://forecast.weather.gov/MapClick.php?lat=\(latitude.fixed(4))&lon=\(longitude.fixed(4))")
     }
 
     /// Maine's land (north of 44.8°N), drawn along the Quebec and New

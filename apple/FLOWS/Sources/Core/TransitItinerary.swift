@@ -54,7 +54,7 @@ struct TransitFare: Equatable {
                     f.currencyCode = currency
                     return f
                 }
-            ) { $0.string(from: NSNumber(value: amount)) } ?? String(format: "%.2f", amount)
+            ) { $0.string(from: NSNumber(value: amount)) } ?? amount.fixed(2)
         return from ? "from \(money)" : money
     }
 
@@ -159,8 +159,7 @@ enum TransitPlanning {
     static func connector(
         _ a: CLLocationCoordinate2D, _ b: CLLocationCoordinate2D
     ) -> MKPolyline {
-        var pts = [a, b]
-        return MKPolyline(coordinates: &pts, count: 2)
+        MapLines.line([a, b])
     }
 
     /// Door-to-door overhead vs. solo driving: a scheduled service is slower
@@ -220,7 +219,7 @@ enum TransitPlanning {
     static func fmt(_ s: TimeInterval?) -> String {
         guard let s else { return "—" }
         let m = Int(s / 60)
-        return m >= 90 ? String(format: "%dh %02dm", m / 60, m % 60) : "\(m) min"
+        return m >= 90 ? "\(m / 60)h \((m % 60).padded(2))m" : "\(m) min"
     }
 
     /// A city ride as a rider says it: "the 30 bus", "the 12 Teutonia Avenue

@@ -499,6 +499,8 @@ int64_t __swift_bridge__$flows_places_text_shower_table_entry(struct __private__
 void* __swift_bridge__$flows_places_text_city_keys(struct RustStr state, struct RustStr city);
 void* __swift_bridge__$flows_places_text_lowercased(struct RustStr text);
 void* __swift_bridge__$flows_places_text_uppercased(struct RustStr text);
+void* __swift_bridge__$flows_places_text_fixed(double value, int64_t places);
+void* __swift_bridge__$flows_places_text_general(double value);
 double __swift_bridge__$flows_places_text_national_gas(void);
 double __swift_bridge__$flows_places_text_national_diesel(void);
 double __swift_bridge__$flows_places_text_national_kwh(void);

@@ -359,8 +359,7 @@ final class NavigationEngine: ObservableObject {
             let poly = step.polyline
             let n = poly.pointCount
             guard n > 0 else { continue }
-            var coords = [CLLocationCoordinate2D](repeating: kCLLocationCoordinate2DInvalid, count: n)
-            poly.getCoordinates(&coords, range: NSRange(location: 0, length: n))
+            let coords = poly.coordinateList
             for c in coords {
                 // Allocation-free hop distance — this walks every vertex of
                 // the whole route at leg start.

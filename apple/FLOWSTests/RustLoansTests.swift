@@ -6,25 +6,36 @@
 // permission of the copyright holder.
 // -----------------------------------------------------------------------------
 
+import FlowsBridge
 import XCTest
 
 /// The bridge facade's own rules (Core/Islands/RustLoans.swift).
 final class RustLoansTests: XCTestCase {
+    /// What a loan holds, copied out by checked index.
+    private static func list<T>(_ loan: RustLoan<T>) -> [T] {
+        loan.indices.map { loan[$0] }
+    }
+
     /// Rule 1: an empty loan still has a real address, so Rust never builds
-    /// a slice from null.
+    /// a slice from null. The bridge's safe twins hand every loan to Rust
+    /// through `_flowsLend`, which is where the address is given.
     func testAnEmptyLoanHasAnAddress() {
-        let doubles = [Double]().lent { ($0.baseAddress != nil, $0.count) }
+        let doubles = [Double]().lent { loan in
+            _flowsLend(loan) { ($0.baseAddress != nil, $0.count) }
+        }
         XCTAssertTrue(doubles.0)
         XCTAssertEqual(doubles.1, 0)
-        let bytes = Data().lentBytes { ($0.baseAddress != nil, $0.count) }
+        let bytes = Data().lentBytes { loan in
+            _flowsLend(loan) { ($0.baseAddress != nil, $0.count) }
+        }
         XCTAssertTrue(bytes.0)
         XCTAssertEqual(bytes.1, 0)
     }
 
     func testAFullLoanIsTheArrayItself() {
-        let seen = [1.5, 2.5, 4].lent { Array($0) }
+        let seen = [1.5, 2.5, 4].lent { Self.list($0) }
         XCTAssertEqual(seen, [1.5, 2.5, 4])
-        XCTAssertEqual(Data([7, 8, 9]).lentBytes { Array($0) }, [7, 8, 9])
+        XCTAssertEqual(Data([7, 8, 9]).lentBytes { Self.list($0) }, [7, 8, 9])
     }
 
     /// Slots start filled, take writes by index, and drop a write outside
@@ -37,7 +48,7 @@ final class RustLoansTests: XCTestCase {
                 set(4, 100)
                 set(-1, 100)
             }
-        ) { Array($0) }
+        ) { Self.list($0) }
         XCTAssertEqual(seen, [-1, -1, 9, -1])
         XCTAssertEqual(RustLoans.slots(0, startingAt: 0, fill: { $0(0, 1) }) { $0.count }, 0)
     }

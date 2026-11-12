@@ -1110,11 +1110,9 @@ final class WeatherAlertService: ObservableObject {
         // ~50 km around (false shelter alarms) and stopped at 20 — in a
         // widespread event the one covering the point could be cut. A
         // page that is still short of all it matched is unknown, not clear.
-        let url = String(
-            format: "https://api.weather.gc.ca/collections/weather-alerts/items"
-                + "?bbox=%.3f,%.3f,%.3f,%.3f&f=json&limit=200",
-            point.longitude - 0.02, point.latitude - 0.02,
-            point.longitude + 0.02, point.latitude + 0.02)
+        let url =
+            ("https://api.weather.gc.ca/collections/weather-alerts/items"
+                + "?bbox=\((point.longitude - 0.02).fixed(3)),\((point.latitude - 0.02).fixed(3)),\((point.longitude + 0.02).fixed(3)),\((point.latitude + 0.02).fixed(3))&f=json&limit=200")
         guard let u = URL(string: url),
             let (data, resp) = try? await ThrottledNet.fetch(u),
             (resp as? HTTPURLResponse)?.statusCode == 200,
@@ -1197,8 +1195,8 @@ final class WeatherAlertService: ObservableObject {
     }
 
     nonisolated private func nwsAlerts(at point: CLLocationCoordinate2D) async -> NWSResult {
-        let lat = String(format: "%.4f", point.latitude)
-        let lon = String(format: "%.4f", point.longitude)
+        let lat = point.latitude.fixed(4)
+        let lon = point.longitude.fixed(4)
         guard let url = URL(string: "https://api.weather.gov/alerts/active?point=\(lat),\(lon)") else {
             return .failed
         }

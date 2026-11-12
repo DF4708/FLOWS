@@ -272,9 +272,104 @@ fn decimal(body: &str) -> Option<f64> {
     body.parse::<f64>().ok()
 }
 
+/// A number with exactly `places` digits after the point: what Swift's
+/// `String(format: "%.Nf", value)` writes (C's `printf`). Both round the
+/// exact binary value, ties to even, so 9.95 (really 9.949999…) reads "9.9".
+/// The app builds every such text here so it needs no `printf`, whose
+/// arguments the compiler cannot check against the format.
+pub fn fixed(value: f64, places: usize) -> String {
+    if value.is_nan() {
+        return "nan".to_string();
+    }
+    if value.is_infinite() {
+        return if value < 0.0 { "-inf" } else { "inf" }.to_string();
+    }
+    format!("{value:.places$}")
+}
+
+/// `printf`'s `%g`: six significant digits, trailing zeros dropped, and the
+/// exponent form only for very small or very large values. (Checked against
+/// Darwin on 300,000 values: the one difference is that Darwin keeps a zero
+/// on an exact tie in exponent form, "1.04170e+07". Hours and the like never
+/// reach the exponent form.)
+pub fn general(value: f64) -> String {
+    if !value.is_finite() || value == 0.0 {
+        return if value == 0.0 {
+            if value.is_sign_negative() { "-0" } else { "0" }.to_string()
+        } else {
+            fixed(value, 0)
+        };
+    }
+    // Five digits after the first: the exponent after rounding to six.
+    let sci = format!("{value:.5e}");
+    let (mantissa, exponent) = sci.split_once('e').unwrap_or((&sci, "0"));
+    let exponent: i32 = exponent.parse().unwrap_or(0);
+    let trim = |text: &str| -> String {
+        if text.contains('.') {
+            text.trim_end_matches('0').trim_end_matches('.').to_string()
+        } else {
+            text.to_string()
+        }
+    };
+    if (-4..6).contains(&exponent) {
+        let places = usize::try_from(5 - exponent).unwrap_or(0);
+        trim(&format!("{value:.places$}"))
+    } else {
+        let sign = if exponent < 0 { '-' } else { '+' };
+        format!("{}e{sign}{:02}", trim(mantissa), exponent.abs())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // Each expected text is what Darwin's `String(format:)` wrote for the
+    // same value (2026-11-11, with 2.1 million more compared and equal).
+    #[test]
+    fn fixed_writes_what_printf_writes() {
+        for (value, places, want) in [
+            (9.95, 1, "9.9"),
+            (0.05, 1, "0.1"),
+            (2.675, 2, "2.67"),
+            (0.5, 0, "0"),
+            (1.5, 0, "2"),
+            (2.5, 0, "2"),
+            (-0.04, 1, "-0.0"),
+            (-0.0, 0, "-0"),
+            (99.995, 2, "100.00"),
+            (1.005, 2, "1.00"),
+            (1e21, 0, "1000000000000000000000"),
+            (41.878113, 5, "41.87811"),
+            (-87.629799, 4, "-87.6298"),
+            (f64::INFINITY, 1, "inf"),
+            (f64::NEG_INFINITY, 0, "-inf"),
+            (f64::NAN, 2, "nan"),
+        ] {
+            assert_eq!(fixed(value, places), want, "{value} to {places} places");
+        }
+    }
+
+    #[test]
+    fn general_writes_what_printf_writes() {
+        for (value, want) in [
+            (3.5, "3.5"),
+            (4.0, "4"),
+            (0.25, "0.25"),
+            (0.0, "0"),
+            (-0.0, "-0"),
+            (100000.0, "100000"),
+            (1234567.0, "1.23457e+06"),
+            (999999.5, "1e+06"),
+            (0.0001, "0.0001"),
+            (0.00001, "1e-05"),
+            (12345.678, "12345.7"),
+            (f64::NAN, "nan"),
+            (f64::INFINITY, "inf"),
+        ] {
+            assert_eq!(general(value), want, "{value}");
+        }
+    }
 
     fn bits(text: &str) -> Option<u64> {
         swift_double(text).map(f64::to_bits)

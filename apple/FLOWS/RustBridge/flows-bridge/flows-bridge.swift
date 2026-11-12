@@ -2613,6 +2613,12 @@ public func flows_places_text_uppercased<GenericToRustStr: ToRustStr>(_ text: Ge
         RustString(ptr: __swift_bridge__$flows_places_text_uppercased(textAsRustStr))
     })
 }
+public func flows_places_text_fixed(_ value: Double, _ places: Int64) -> RustString {
+    RustString(ptr: __swift_bridge__$flows_places_text_fixed(value, places))
+}
+public func flows_places_text_general(_ value: Double) -> RustString {
+    RustString(ptr: __swift_bridge__$flows_places_text_general(value))
+}
 public func flows_places_text_national_gas() -> Double {
     __swift_bridge__$flows_places_text_national_gas()
 }

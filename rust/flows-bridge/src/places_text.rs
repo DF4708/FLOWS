@@ -66,6 +66,9 @@ mod ffi {
         fn flows_places_text_city_keys(state: &str, city: &str) -> Vec<String>;
         fn flows_places_text_lowercased(text: &str) -> String;
         fn flows_places_text_uppercased(text: &str) -> String;
+        // Number text the way `printf` writes it (`%.Nf` and `%g`).
+        fn flows_places_text_fixed(value: f64, places: i64) -> String;
+        fn flows_places_text_general(value: f64) -> String;
 
         // ---- FuelPrices ----
         fn flows_places_text_national_gas() -> f64;
@@ -219,6 +222,14 @@ pub fn flows_places_text_lowercased(text: &str) -> String {
 }
 pub fn flows_places_text_uppercased(text: &str) -> String {
     contain(text.to_string(), || st::uppercased(text))
+}
+pub fn flows_places_text_fixed(value: f64, places: i64) -> String {
+    contain(String::new(), || {
+        st::fixed(value, usize::try_from(places.clamp(0, 17)).unwrap_or(0))
+    })
+}
+pub fn flows_places_text_general(value: f64) -> String {
+    contain(String::new(), || st::general(value))
 }
 
 // ---- FuelPrices: the national baseline is the fallback ----

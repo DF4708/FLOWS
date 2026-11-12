@@ -10,8 +10,11 @@
 //!
 //! Swift proves memory and data-race safety for most code. The tools that
 //! switch a proof off (`@unchecked Sendable`, `nonisolated(unsafe)`,
-//! `Unmanaged`, unchecked locks, raw pointers and buffer loans) are allowed only in the
-//! island files, where each use states the promise it rests on. This walks
+//! `Unmanaged`, unchecked locks, raw pointers and buffer loans, and the `unsafe`
+//! mark that strict memory safety asks for) are allowed only in the island
+//! files, where each use states the promise it rests on. `String(format:)` is
+//! on the list too: its arguments are C varargs the compiler cannot check
+//! (the app writes numbers with `.fixed`, `.padded` and `.general`). This walks
 //! every hand-written Swift file and fails on one of those tools anywhere
 //! else, so the islands cannot quietly spread. The generated bridge
 //! (`RustBridge`) is swift-bridge's output, not hand-written, and is the
@@ -55,6 +58,7 @@ const TOOLS: &[&str] = &[
     "assumingMemoryBound",
     "baseAddress",
     ".toString()",
+    "String(format:",
 ];
 
 fn repo() -> PathBuf {
@@ -72,6 +76,28 @@ fn code(line: &str) -> &str {
         Some(at) if !line[..at].ends_with(':') => &line[..at],
         _ => line,
     }
+}
+
+/// Whether a line of code carries the `unsafe` mark: the word standing alone,
+/// outside a string. (`nonisolated(unsafe)` and `unowned(unsafe)` are caught
+/// by name above; inside quotes the word is only text.)
+fn marks_unsafe(code: &str) -> bool {
+    let mut in_string = false;
+    let mut word = String::new();
+    for ch in code.chars().chain(std::iter::once(' ')) {
+        if ch == '"' {
+            in_string = !in_string;
+        }
+        if !in_string && (ch.is_alphanumeric() || ch == '_') {
+            word.push(ch);
+            continue;
+        }
+        if word == "unsafe" {
+            return true;
+        }
+        word.clear();
+    }
+    false
 }
 
 /// The tools one file's text uses, as `line number: tool`.
@@ -109,6 +135,9 @@ fn tools_in(text: &str) -> Vec<String> {
             if kept.contains(tool) {
                 found.push(format!("{}: {tool}", n + 1));
             }
+        }
+        if marks_unsafe(kept) {
+            found.push(format!("{}: unsafe", n + 1));
         }
     }
     found
@@ -179,6 +208,10 @@ fn the_check_sees_what_it_should() {
         "let u = URL(string: \"https://x.test\"); y.withLockUnchecked { _ in }"
     ));
     assert!(caught("/* note */ let q = unsafeBitCast(a, to: B.self)"));
+    assert!(caught("let n = unsafe stream.read(&buffer, maxLength: 8)"));
+    assert!(caught("return try unsafe body(loan)"));
+    assert!(caught("@unsafe struct Raw {}"));
+    assert!(caught("let s = String(format: \"%.1f\", miles)"));
     // Words about the tools are not uses of them.
     assert!(!caught("// `nonisolated(unsafe)` used to sit here"));
     assert!(!caught("/// was @unchecked Sendable"));
@@ -186,6 +219,9 @@ fn the_check_sees_what_it_should() {
         "/* withLockUnchecked\n   Unmanaged */\nlet safe = 1"
     ));
     assert!(!caught("xs.lent { flows_sum($0) }"));
+    assert!(!caught("Text(\"It is unsafe to drive now\")"));
+    assert!(!caught("let unsafeRoads = 3"));
+    assert!(!caught("let s = \"\\(miles.fixed(1)) mi\""));
     assert!(!caught("let kind = flows_kind(event).text"));
     assert!(!caught("let safe = [1, 2, 3].map { $0 + 1 }"));
 }

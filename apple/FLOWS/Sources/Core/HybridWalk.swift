@@ -111,7 +111,7 @@ enum HybridWalk {
 
     // -- Keyless deep links ---------------------------------------------------
 
-    private static func fmt(_ v: Double) -> String { String(format: "%.5f", v) }
+    private static func fmt(_ v: Double) -> String { v.fixed(5) }
 
     /// Uber universal link (m.uber.com/ul/) — opens the app when installed,
     /// the mobile site otherwise. No API key involved.

@@ -55,7 +55,7 @@ actor ZCTAFetcher {
         let url =
             "https://tigerweb.geo.census.gov/arcgis/rest/services/TIGERweb/"
             + "PUMA_TAD_TAZ_UGA_ZCTA/MapServer/1/query"
-            + String(format: "?geometry=%.4f,%.4f", point.longitude, point.latitude)
+            + "?geometry=\(point.longitude.fixed(4)),\(point.latitude.fixed(4))"
             + "&geometryType=esriGeometryPoint&inSR=4326"
             + "&spatialRel=esriSpatialRelIntersects&outFields=ZCTA5"
             + "&returnGeometry=true&outSR=4326&geometryPrecision=4&f=json"

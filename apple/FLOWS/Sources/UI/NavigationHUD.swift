@@ -626,13 +626,13 @@ struct NavigationHUD: View {
                 readout("Average") {
                     Text(
                         electric
-                            ? String(format: "%.1f mi/kWh", economy)
-                            : String(format: "%.0f MPG", economy))
+                            ? "\(economy.fixed(1)) mi/kWh"
+                            : "\(economy.fixed(0)) MPG")
                 }
             }
             if let range = vehicle.expectedRangeMiles {
                 readout("Fuel Tank") {
-                    Text(String(format: "%.0f mi left", range))
+                    Text(String("\(range.fixed(0)) mi left"))
                 }
             }
             if showsSpeedSign {
@@ -826,7 +826,7 @@ struct NavigationHUD: View {
                         }
                         if let stateMph, let stateFrac {
                             OutlinedText(
-                                text: String(format: "%.0f", stateMph),
+                                text: stateMph.fixed(0),
                                 color: Theme.riskYellow,
                                 font: .system(size: 10, weight: .bold)
                             )
@@ -834,7 +834,7 @@ struct NavigationHUD: View {
                             .position(x: w / 2, y: clampY(h * (1 - stateFrac), h))
                         }
                         if let fedMph, let fedFrac {
-                            Text(String(format: "%.0f", fedMph))
+                            Text(String(fedMph.fixed(0)))
                                 .scaledFont(size: 10, weight: .bold)
                                 .monospacedDigit()
                                 .foregroundStyle(Theme.riskRed)
@@ -876,11 +876,11 @@ struct NavigationHUD: View {
             Group {
                 if speedStanding == .stateViolation {
                     OutlinedText(
-                        text: String(format: "%.0f", max(liveMph, 0)),
+                        text: max(liveMph, 0).fixed(0),
                         color: Theme.riskYellow,
                         font: .system(size: 18, weight: .heavy, design: .rounded))
                 } else {
-                    Text(String(format: "%.0f", max(liveMph, 0)))
+                    Text(String(max(liveMph, 0).fixed(0)))
                         .font(.system(size: 18, weight: .heavy, design: .rounded))
                         .monospacedDigit()
                         .foregroundStyle(speedBarColor)
@@ -1254,12 +1254,12 @@ struct NavigationHUD: View {
                         // instead of stacking "in 2" over "mi".
                         Text(
                             String(
-                                format: "in %.0f mi · +%.0f min detour", miles,
-                                2 * ranked.detourMeters / POIRanking.detourSpeedMps / 60))
+                                "in \(miles.fixed(0)) mi · +\((2 * ranked.detourMeters / POIRanking.detourSpeedMps / 60).fixed(0)) min detour"
+                            ))
                     case .straightLine:
-                        Text(String(format: "%.0f mi away", miles))
+                        Text(String("\(miles.fixed(0)) mi away"))
                     case .offRoute:
-                        Text(String(format: "%.0f mi away · not on your route", miles))
+                        Text(String("\(miles.fixed(0)) mi away · not on your route"))
                     }
                     if let open = ranked.isOpenNow {
                         Text(open ? "· Open" : "· Closed")
@@ -1382,11 +1382,11 @@ struct NavigationHUD: View {
             // pesos a litre for the driver. It may be the CRE's posted
             // price or TomTom's, so the label claims neither.
             let pesosPerLitre = mx * FuelPrices.mxnPerUSD / FuelPrices.litersPerGallon
-            return (String(format: "MX$%.2f", pesosPerLitre), "/L · posted", true, true)
+            return ("MX$\(pesosPerLitre.fixed(2))", "/L · posted", true, true)
         }
         if kind == .gas, !ranked.isLivePrice {
             return (
-                ranked.pricePerUnit.map { String(format: "~$%.2f est.", $0) } ?? "$ —",
+                ranked.pricePerUnit.map { "~$\(($0).fixed(2)) est." } ?? "$ —",
                 nil, false, false
             )
         }
@@ -1394,9 +1394,7 @@ struct NavigationHUD: View {
             // No live nightly: a tier-anchored typical rate, clearly an
             // estimate — never a blank "$ —".
             return (
-                String(
-                    format: "~$%.0f est.",
-                    RatingsAndCost.estimatedNightly(costTier: ranked.costTier)),
+                "~$\(RatingsAndCost.estimatedNightly(costTier: ranked.costTier).fixed(0)) est.",
                 "per night", false, false
             )
         }
@@ -1405,7 +1403,7 @@ struct NavigationHUD: View {
             ? (model.poi.fuelType == .electric ? "/kWh" : "/gal")
             : "per night"
         return (
-            ranked.pricePerUnit.map { String(format: "$%.2f", $0) } ?? "$ —",
+            ranked.pricePerUnit.map { "$\(($0).fixed(2))" } ?? "$ —",
             unit, true, ranked.pricePerUnit != nil
         )
     }
@@ -1811,9 +1809,7 @@ struct NavigationHUD: View {
     /// reads as a whole one, never "+0 min").
     private var shelterDelayChip: some View {
         Label(
-            String(
-                format: "+%.0f min stopped time in ETA",
-                (model.stopDelayAheadSeconds / 60).rounded(.up)),
+            String("+\(((model.stopDelayAheadSeconds / 60).rounded(.up)).fixed(0)) min stopped time in ETA"),
             systemImage: "clock.badge.exclamationmark"
         )
         .scaledFont(.footnote, weight: .semibold)
@@ -3159,15 +3155,13 @@ struct NavigationHUD: View {
                     || radioChannelID == model.nearestStationID
                 Text(
                     !closest
-                        ? String(
-                            format: "This relay — %.0f mi away. It covers "
-                                + "its own area, not yours.", miles)
+                        ? ("This relay — \(miles.fixed(0)) mi away. It covers "
+                            + "its own area, not yours.")
                         : miles < 60
-                            ? String(format: "Closest relay — %.0f mi away", miles)
-                            : String(
-                                format: "Closest relay — %.0f mi away. It covers "
-                                    + "its own area, not yours; your local "
-                                    + "transmitter isn't relayed online.", miles)
+                            ? "Closest relay — \(miles.fixed(0)) mi away"
+                            : ("Closest relay — \(miles.fixed(0)) mi away. It covers "
+                                + "its own area, not yours; your local "
+                                + "transmitter isn't relayed online.")
                 )
                 .scaledFont(.caption)
                 .foregroundStyle(.secondary)
@@ -3316,8 +3310,8 @@ struct NavigationHUD: View {
         let inMiles = max(seg.startMile - currentMile, 0)
         return Label(
             String(
-                format: "%.1f%% (%.1f°) grade in %.1f mi",
-                abs(seg.gradePercent), abs(seg.gradeDegrees), inMiles),
+                "\(abs(seg.gradePercent).fixed(1))% (\(abs(seg.gradeDegrees).fixed(1))°) grade in \(inMiles.fixed(1)) mi"
+            ),
             systemImage: seg.gradePercent >= 0 ? "arrow.up.right" : "arrow.down.right"
         )
         .scaledFont(.footnote, weight: .bold)
@@ -3338,7 +3332,7 @@ struct NavigationHUD: View {
             text =
                 until < 90
                 ? "Driving hours: 30-min break due in 1 min"
-                : String(format: "Driving hours: 30-min break due in %.0f min", until / 60)
+                : "Driving hours: 30-min break due in \((until / 60).fixed(0)) min"
         case .breakDue:
             text = "Driving hours: 8 h driven — take your 30-min break now"
         case .limitReached:
@@ -3787,11 +3781,11 @@ struct NavigationHUD: View {
         // Never "0 ft" (the turn is here, not nowhere), and 9.95–9.99 mi
         // rounds to "10 mi", not "10.0 mi".
         if miles < 0.19 { return "\(max(50, Int((meters / 0.3048 / 50).rounded() * 50))) ft" }
-        return String(format: miles < 9.95 ? "%.1f mi" : "%.0f mi", miles)
+        return "\(miles.fixed(miles < 9.95 ? 1 : 0)) mi"
     }
 
     private func etaText(_ seconds: Double) -> String {
         let mins = Int((seconds / 60).rounded())
-        return mins >= 90 ? String(format: "%d h %02d min", mins / 60, mins % 60) : "\(mins) min"
+        return mins >= 90 ? "\(mins / 60) h \((mins % 60).padded(2)) min" : "\(mins) min"
     }
 }

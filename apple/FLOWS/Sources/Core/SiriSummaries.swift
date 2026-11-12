@@ -23,7 +23,7 @@ enum SiriSummaries {
             // Drop a trailing ".0" — "5 miles", not "5.0 miles".
             return rounded == rounded.rounded()
                 ? "\(Int(rounded)) miles"
-                : String(format: "%.1f miles", rounded)
+                : "\(rounded.fixed(1)) miles"
         }
         return "\(Int(miles.rounded())) miles"
     }

@@ -154,9 +154,7 @@ final class DrivingProfileStore: ObservableObject {
         if abs(after - before) > 0.001 {
             FlowsDiag.log(
                 .info, "learning",
-                String(
-                    format: "personal ETA correction now %.3f after %d trips",
-                    after, profile.etaSamples))
+                "personal ETA correction now \(after.fixed(3)) after \(profile.etaSamples) trips")
         }
     }
 

@@ -140,6 +140,11 @@ targets:
                 UISceneDelegateClassName: $(PRODUCT_MODULE_NAME).CarPlaySceneDelegate
     settings:
       base:
+        # Strict memory safety: every use of raw memory must be marked
+        # `unsafe`, and the marks live only in Sources/Core/Islands. An unmarked
+        # use is a compile error, not a warning.
+        SWIFT_STRICT_MEMORY_SAFETY: YES
+        OTHER_SWIFT_FLAGS: "$(inherited) -Werror StrictMemorySafety"
         # com.flows.app is registered to another team on Apple's portal —
         # device provisioning needs an id OUR team can claim.
         PRODUCT_BUNDLE_IDENTIFIER: com.wizeman555.flows
@@ -186,6 +191,11 @@ targets:
         WKCompanionAppBundleIdentifier: com.wizeman555.flows
     settings:
       base:
+        # Strict memory safety: every use of raw memory must be marked
+        # `unsafe`, and the marks live only in Sources/Core/Islands. An unmarked
+        # use is a compile error, not a warning.
+        SWIFT_STRICT_MEMORY_SAFETY: YES
+        OTHER_SWIFT_FLAGS: "$(inherited) -Werror StrictMemorySafety"
         PRODUCT_BUNDLE_IDENTIFIER: com.wizeman555.flows.watchkitapp
         PRODUCT_NAME: FLOWS
         CODE_SIGN_IDENTITY: "-"
@@ -271,6 +281,11 @@ targets:
           - com.apple.Music
     settings:
       base:
+        # Strict memory safety: every use of raw memory must be marked
+        # `unsafe`, and the marks live only in Sources/Core/Islands. An unmarked
+        # use is a compile error, not a warning.
+        SWIFT_STRICT_MEMORY_SAFETY: YES
+        OTHER_SWIFT_FLAGS: "$(inherited) -Werror StrictMemorySafety"
         PRODUCT_BUNDLE_IDENTIFIER: com.flows.app.mac
         PRODUCT_NAME: FLOWS            # menu bar / app name, not the target name
         # Real signing identity, NOT ad-hoc: TCC keys permission grants to the

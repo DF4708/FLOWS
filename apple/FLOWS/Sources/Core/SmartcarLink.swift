@@ -268,7 +268,7 @@ final class SmartcarLink: ObservableObject {
             }
         }
         status =
-            fuelFraction.map { String(format: "Fuel from your car: %.0f%%", $0 * 100) }
+            fuelFraction.map { "Fuel from your car: \(($0 * 100).fixed(0))%" }
             ?? "Connected — this car doesn't share its fuel level."
     }
 

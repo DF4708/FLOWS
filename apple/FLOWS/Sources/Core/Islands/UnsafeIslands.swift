@@ -113,9 +113,9 @@ enum RawBytes {
     static func secureRandom(_ count: Int) -> Data? {
         guard count > 0 else { return Data() }
         var bytes = Data(count: count)
-        let ok = bytes.withUnsafeMutableBytes { raw -> Bool in
+        let ok = unsafe bytes.withUnsafeMutableBytes { raw -> Bool in
             guard let base = raw.baseAddress, raw.count == count else { return false }
-            return SecRandomCopyBytes(kSecRandomDefault, count, base) == errSecSuccess
+            return unsafe SecRandomCopyBytes(kSecRandomDefault, count, base) == errSecSuccess
         }
         return ok ? bytes : nil
     }
@@ -126,13 +126,13 @@ enum RawBytes {
     static func inflate(_ deflated: Data, capacity: Int) -> Data? {
         guard !deflated.isEmpty, capacity > 0 else { return nil }
         var out = Data(count: capacity)
-        let written = out.withUnsafeMutableBytes { dst -> Int in
-            deflated.withUnsafeBytes { src -> Int in
-                guard let to = dst.bindMemory(to: UInt8.self).baseAddress,
-                    let from = src.bindMemory(to: UInt8.self).baseAddress,
+        let written = unsafe out.withUnsafeMutableBytes { dst -> Int in
+            unsafe deflated.withUnsafeBytes { src -> Int in
+                guard let to = unsafe dst.bindMemory(to: UInt8.self).baseAddress,
+                    let from = unsafe src.bindMemory(to: UInt8.self).baseAddress,
                     dst.count == capacity
                 else { return 0 }
-                return compression_decode_buffer(
+                return unsafe compression_decode_buffer(
                     to, capacity, from, src.count, nil, COMPRESSION_ZLIB)
             }
         }
@@ -144,10 +144,20 @@ enum RawBytes {
     /// Write all of `data` to an open stream; the count the stream took.
     static func write(_ data: Data, to stream: OutputStream) -> Int {
         guard !data.isEmpty else { return 0 }
-        return data.withUnsafeBytes { raw -> Int in
-            guard let base = raw.bindMemory(to: UInt8.self).baseAddress else { return 0 }
-            return stream.write(base, maxLength: raw.count)
+        return unsafe data.withUnsafeBytes { raw -> Int in
+            guard let base = unsafe raw.bindMemory(to: UInt8.self).baseAddress else { return 0 }
+            return unsafe stream.write(base, maxLength: raw.count)
         }
+    }
+
+    /// Up to `limit` bytes an open stream has waiting; empty when it has
+    /// none or the read fails.
+    static func read(from stream: InputStream, upTo limit: Int) -> [UInt8] {
+        guard limit > 0 else { return [] }
+        var buffer = [UInt8](repeating: 0, count: limit)
+        let n = unsafe stream.read(&buffer, maxLength: buffer.count)
+        guard n > 0 else { return [] }
+        return Array(buffer[0..<min(n, limit)])
     }
 }
 
@@ -185,3 +195,43 @@ final class TimerSlot: Sendable {
 
     deinit { set(nil) }
 }
+
+/// System calls that answer through a pointer to a variable.
+///
+/// PROMISE (each function): the variable is a local of this function, the
+/// system writes it only during the call, and it is read only afterwards.
+enum SystemAnswers {
+    /// The data of the one keychain item `query` matches; nil if there is
+    /// none, the keychain refuses, or the item is not data.
+    static func keychainData(_ query: [String: Any]) -> Data? {
+        var out: AnyObject?
+        guard unsafe SecItemCopyMatching(query as CFDictionary, &out) == errSecSuccess else {
+            return nil
+        }
+        return out as? Data
+    }
+}
+
+#if os(macOS)
+    import AppKit
+
+    extension SystemAnswers {
+        /// Run an AppleScript; its answer, or nil if it failed to compile or
+        /// run.
+        static func appleScript(_ source: String) -> NSAppleEventDescriptor? {
+            var error: NSDictionary?
+            let result = unsafe NSAppleScript(source: source)?.executeAndReturnError(&error)
+            return error == nil ? result : nil
+        }
+    }
+
+    extension NSView {
+        /// The view this one sits in.
+        ///
+        /// AppKit declares `superview` as an unowned, unchecked reference.
+        /// PROMISE: read on the main actor, where the view tree is only
+        /// changed, so the parent is alive when it is read and is held
+        /// strongly from then on.
+        @MainActor var parentView: NSView? { unsafe superview }
+    }
+#endif

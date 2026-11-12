@@ -1839,6 +1839,48 @@ without a regression:
   original in one module with `BridgingHeader.h`; an original taken after
   this change says `import FlowsBridge`, so its harness must build the
   module first the same way.
-- **It does not shrink the list by itself.** The 624 places are app code
-  that touches bridge types. They go down only as call sites move behind
-  safe wrappers.
+- **It did not shrink the list by itself.** The 624 places were app code
+  that touched bridge types. The safe twins (next section) took them to
+  zero.
+
+## Strict memory safety is on, and the list is zero
+
+- **What is true now.** The three app targets build with
+  `SWIFT_STRICT_MEMORY_SAFETY` and `-Werror StrictMemorySafety`: a use of
+  raw memory that is not marked `unsafe` does not compile. The marks live
+  only in `Sources/Core/Islands`. The guard test fails on the word
+  `unsafe`, a pointer tool or `String(format:)` anywhere else, and
+  `check_swift_memory_safety.sh` fails on any flagged place or on a mark
+  that covers nothing. The old per-file lists (624 on the Mac, 623 on the
+  phone) are deleted.
+- **Where the 624 went.** About 500 were calls into Rust. `build.rs` now
+  writes a safe twin for each bridge function that takes a buffer
+  (`flows-bridge-safe.swift`, 133 twins): same name, but it takes the
+  standard library's `Span`, the checked view that cannot outlive the call.
+  `RustLoan` is `Span`, so `xs.lent { flows_x($0) }` did not change at any
+  call site. The twin also gives an empty loan a real address, which the
+  island used to do. The build asserts every buffer line got a twin.
+- **`Array.span` needs macOS 26.** At our macOS 14 target the island builds
+  the `Span` from the buffer pointer (`Span(_unsafeElements:)`), under
+  `unsafe`. The `Span` type itself runs back to old systems.
+- **`String(format:)` is unsafe, and the obvious replacement is wrong.**
+  Its arguments are C varargs. Foundation's `FormatStyle` is not the same
+  text: it rounds from the shortest decimal, so 9.95 is "10.0" where printf
+  writes "9.9" (4,145 differences in 2.8 million cases). Rust's
+  `format!("{:.N}")` matched printf on all 2.1 million cases tried, so
+  `.fixed(N)` goes through the core. `.padded(N)` is `%0Nd`; `.general` is
+  `%g` (it differs from Darwin only on exact ties in exponent form, which
+  the one caller never reaches).
+- **Interpolation inside a SwiftUI view is a different type.** `Text("\(x)")`
+  makes a `LocalizedStringKey`. Where a format call was a view's direct
+  argument, the new text is wrapped: `Text(String("\(x.fixed(1)) mi"))`.
+- **The rest were Apple calls that answer through a pointer.** Map line
+  points (`coordinateList`, `coordinate(at:)`, `MapLines.line`), the
+  keychain read, AppleScript, a stream read and AppKit's unchecked
+  `superview` each got one island helper with its promise beside it.
+- **Marking is mechanical; the reading is not.** The compiler gives the
+  line and column of every unmarked place, so the marks can be placed by
+  script. Each island promise was already written; the mark only makes the
+  compiler hold us to having one.
+- **The test target is not strict.** Its fixtures build raw bytes by hand.
+  It compiles the same Core files the app targets check.

@@ -413,9 +413,7 @@ private func legEnd(_ leg: PlannedRoute) -> CLLocationCoordinate2D? {
     let poly = leg.route.polyline
     let n = poly.pointCount
     guard n > 0 else { return nil }
-    var last = CLLocationCoordinate2D()
-    poly.getCoordinates(&last, range: NSRange(location: n - 1, length: 1))
-    return last
+    return poly.coordinate(at: n - 1)
 }
 
 // MARK: start, add a stop, end

@@ -93,8 +93,7 @@ enum FasterRoutePolicy {
     static func coordinates(of polyline: MKPolyline) -> [CLLocationCoordinate2D] {
         let n = polyline.pointCount
         guard n > 0 else { return [] }
-        var coords = [CLLocationCoordinate2D](repeating: kCLLocationCoordinate2DInvalid, count: n)
-        polyline.getCoordinates(&coords, range: NSRange(location: 0, length: n))
+        let coords = polyline.coordinateList
         return coords
     }
 

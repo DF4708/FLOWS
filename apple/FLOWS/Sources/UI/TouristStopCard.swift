@@ -53,9 +53,8 @@ struct TouristStopCard: View {
             }
             Text(
                 String(
-                    format: "About %.0f mi ahead · about +%.0f min off your route",
-                    max(stop.aheadMeters, 0) / 1609.344,
-                    2 * stop.detourMeters / POIRanking.detourSpeedMps / 60)
+                    "About \((max(stop.aheadMeters, 0) / 1609.344).fixed(0)) mi ahead · about +\((2 * stop.detourMeters / POIRanking.detourSpeedMps / 60).fixed(0)) min off your route"
+                )
             )
             .scaledFont(.caption)
             .foregroundStyle(.secondary)

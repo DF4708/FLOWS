@@ -132,8 +132,8 @@ enum ShelterPolicy {
         let h = s / 3600
         let m = (s % 3600) / 60
         let sec = s % 60
-        if h > 0 { return String(format: "%d h %02d min", h, m) }
-        if m > 0 { return String(format: "%d:%02d", m, sec) }
-        return String(format: "0:%02d", sec)
+        if h > 0 { return "\(h) h \(m.padded(2)) min" }
+        if m > 0 { return "\(m):\(sec.padded(2))" }
+        return "0:\(sec.padded(2))"
     }
 }

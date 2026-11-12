@@ -39,7 +39,7 @@
 mod number;
 pub(crate) mod tables;
 
-pub use number::{swift_double, swift_double_substring};
+pub use number::{fixed, general, swift_double, swift_double_substring};
 
 use tables::{
     CCC_RANGES, CCC_RANGES_STRIDE, CI_AFTER_BLOCKER_RANGES, CI_AFTER_BLOCKER_RANGES_STRIDE,

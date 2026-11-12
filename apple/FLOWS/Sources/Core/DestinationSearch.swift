@@ -29,7 +29,7 @@ enum CoordinateInput {
 
     /// Plain display name for a parsed point ("Map point 43.0731, -89.4012").
     static func displayName(_ c: CLLocationCoordinate2D) -> String {
-        String(format: "Map point %.4f, %.4f", c.latitude, c.longitude)
+        "Map point \(c.latitude.fixed(4)), \(c.longitude.fixed(4))"
     }
 }
 

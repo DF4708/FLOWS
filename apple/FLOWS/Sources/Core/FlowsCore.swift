@@ -25,10 +25,8 @@ enum FlowsCore {
         guard !bytes.isEmpty else { return [] }
         let flat = bytes.lent { flows_decode_polyline_lonlat($0) }
         let pairs = flat.len() / 2
-        return withExtendedLifetime(flat) {
-            let p = flat.as_ptr()
-            return (0..<pairs).map { (lon: p[2 * $0], lat: p[2 * $0 + 1]) }
-        }
+        let all = Array(flat)
+        return (0..<pairs).map { (lon: all[2 * $0], lat: all[2 * $0 + 1]) }
     }
 
     static let riskGreenMin = flows_risk_green_min()
@@ -49,4 +47,33 @@ enum RiskBand: String {
     case green = "Green"
     case yellow = "Yellow"
     case red = "Red"
+}
+
+// MARK: - Number text
+//
+// The app writes no `String(format:)`: its arguments are C varargs, which
+// the compiler cannot check against the format, so a wrong one reads the
+// wrong memory. Text is built with string interpolation, and these give the
+// two things interpolation lacks.
+
+extension Double {
+    /// This number with exactly `places` digits after the point, rounded
+    /// the way `%.Nf` rounds (9.95 is "9.9"). Computed in Rust.
+    func fixed(_ places: Int) -> String {
+        flows_places_text_fixed(self, Int64(places)).text
+    }
+
+    /// This number the way `%g` writes it: 3.5 is "3.5" and 4 is "4".
+    var general: String { flows_places_text_general(self).text }
+}
+
+extension BinaryInteger {
+    /// This whole number with leading zeros up to `width` digits, the way
+    /// `%02d` writes it: 5 is "05".
+    func padded(_ width: Int) -> String {
+        let digits = String(magnitude)
+        let sign = self < 0 ? "-" : ""
+        let zeros = max(width - digits.count - sign.count, 0)
+        return sign + String(repeating: "0", count: zeros) + digits
+    }
 }

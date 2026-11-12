@@ -474,9 +474,8 @@ struct RouteChoicesView: View {
             var detail = "No station within range of the start point."
             if rail, let nearest = AmtrakStations.nearest(to: ep.from, within: 240_000) {
                 let mi = POIRanking.meters(nearest.coordinate, ep.from) / 1609.344
-                detail = String(
-                    format: "No rail close by. Closest train: %@, %.0f mi away — drive there or take the bus option.",
-                    nearest.name, mi)
+                detail =
+                    "No rail close by. Closest train: \(nearest.name), \(mi.fixed(0)) mi away — drive there or take the bus option."
             }
             model.transitOptions[tMode] = TransitOption(
                 title: rail ? "No rail found nearby" : "No bus service found nearby",
@@ -614,7 +613,7 @@ struct RouteChoicesView: View {
                 title: "\(shown.prefix(1).uppercased() + shown.dropFirst()) via \(boardName)",
                 detail: "\(accessVerb) \(TransitPlanning.fmt(access.seconds)) to \(boardName) · "
                     + "\(shown.lowercased()) ride \(TransitPlanning.fmt(rideShown))\(tail) · est. fare "
-                    + String(format: "$%.2f (carriers set final pricing).", fare),
+                    + "$\(fare.fixed(2)) (carriers set final pricing).",
                 fare: fare, destination: dest,
                 ticketLabel: ticketLabel, ticketURL: ticketURL,
                 itinerary: itinerary,
@@ -821,8 +820,8 @@ struct RouteChoicesView: View {
             title: "\(what) from \(trip.schedule.boardName)",
             detail: "\(trip.schedule.clockSpan) · "
                 + (itinerary.fareIsPublished
-                    ? String(format: "fare $%.2f, the city's own.", fare)
-                    : String(format: "est. fare $%.2f (the city sets the price).", fare)),
+                    ? "fare $\(fare.fixed(2)), the city's own."
+                    : "est. fare $\(fare.fixed(2)) (the city sets the price)."),
             fare: fare, destination: dest,
             itinerary: itinerary, schedule: trip.schedule,
             notes: note.map { [$0] } ?? [])
@@ -1190,9 +1189,7 @@ struct RouteChoicesView: View {
         }
         var detail = "No ferry FLOWS knows of sails between these two places."
         if let cruise, let url = ShipTravel.cruiseSearchURL(from: cruise.name, toward: destName) {
-            detail += String(
-                format: " Cruises sail from %@, %.0f mi from the start.",
-                cruise.name, cruise.miles)
+            detail += " Cruises sail from \(cruise.name), \(cruise.miles.fixed(0)) mi from the start."
             links.append(LabeledLink(label: "Find cruises from \(cruise.name)", url: url))
         }
         model.transitOptions[.ship] = TransitOption(
@@ -1221,11 +1218,9 @@ struct RouteChoicesView: View {
             if Task.isCancelled { return false }
             model.transitOptions[.plane] = TransitOption(
                 title: "Flying won't help here",
-                detail: String(
-                    format: "This trip is about %.0f miles. With "
-                        + "airport time added, a flight only beats the "
-                        + "road past %.0f miles.",
-                    tripMiles, AirTravel.minTripMiles),
+                detail: ("This trip is about \(tripMiles.fixed(0)) miles. With "
+                    + "airport time added, a flight only beats the "
+                    + "road past \(AirTravel.minTripMiles.fixed(0)) miles."),
                 fare: 0, destination: dest, offersFlightsAnyway: true)
             return false
         }
@@ -1304,8 +1299,7 @@ struct RouteChoicesView: View {
         let walkIn = await w1
         let walkOut = await w3
 
-        var arcPoints = [boardC, alightC]
-        let arc = MKGeodesicPolyline(coordinates: &arcPoints, count: 2)
+        let arc = MapLines.greatCircle([boardC, alightC])
         let flySec = AirTravel.doorSeconds(airportMiles: airportMiles)
         let flyLeg = TransitLeg(
             kind: .ride, fromName: boardName, toName: alightName,
@@ -1344,9 +1338,8 @@ struct RouteChoicesView: View {
                 title: "Plane via \(boardName)",
                 detail: "\(accessVerb) \(TransitPlanning.fmt(access.seconds)) to \(boardName) · "
                     + "flight \(TransitPlanning.fmt(flySec)) counting airport time · "
-                    + String(
-                        format: "about $%.0f, the usual fare for this far — "
-                            + "airlines set the real price.", fare),
+                    + ("about $\(fare.fixed(0)), the usual fare for this far — "
+                        + "airlines set the real price."),
                 fare: fare, destination: dest,
                 ticketLabel: ticket.label, ticketURL: ticket.url,
                 itinerary: itinerary,
@@ -1448,8 +1441,7 @@ struct RouteChoicesView: View {
             guard prefix.count >= 2, let dropC = prefix.last else { return }
             drop = dropC
             dropName = "the drop-off point"
-            var pts = prefix
-            ridePoly = MKPolyline(coordinates: &pts, count: pts.count)
+            ridePoly = MapLines.line(prefix)
             let (wPoly, wSec, wSteps, wMi) = await transitWalk(drop, ep.to)
             guard let wSec else { return }
             offer.walkSeconds = wSec
@@ -1497,9 +1489,7 @@ struct RouteChoicesView: View {
     private static func coordinates(of poly: MKPolyline) -> [CLLocationCoordinate2D] {
         let n = poly.pointCount
         guard n > 0 else { return [] }
-        var coords = [CLLocationCoordinate2D](
-            repeating: kCLLocationCoordinate2DInvalid, count: n)
-        poly.getCoordinates(&coords, range: NSRange(location: 0, length: n))
+        let coords = poly.coordinateList
         return coords
     }
 
@@ -1843,8 +1833,8 @@ struct RouteChoicesView: View {
                                 // The operators' own fares are said as they are; a
                                 // total with any estimate in it says so.
                                 : itin.fareIsPublished
-                                    ? String(format: " · $%.2f", itin.fare)
-                                    : " · ~$\(String(format: "%.0f", itin.fare)) est.")
+                                    ? " · $\(itin.fare.fixed(2))"
+                                    : " · ~$\(itin.fare.fixed(0)) est.")
                     )
                     .scaledFont(.caption2, weight: .semibold).foregroundStyle(.secondary)
                 }
@@ -2010,7 +2000,7 @@ struct RouteChoicesView: View {
     private func fuelCostText(_ route: PlannedRoute) -> String? {
         let cost = fuelCost(route)
         guard cost > 0.5 else { return nil }
-        return String(format: "~$%.0f fuel est.", cost)
+        return "~$\(cost.fixed(0)) fuel est."
     }
 
     /// Least-violating route when filters empty the list — the one the map
@@ -2385,9 +2375,8 @@ struct RouteChoicesView: View {
                     .lineLimit(1)
                 Text(
                     String(
-                        format: "%.0f mi along · about +%.0f min off the route",
-                        max(stop.aheadMeters, 0) / 1609.344,
-                        2 * stop.detourMeters / POIRanking.detourSpeedMps / 60)
+                        "\((max(stop.aheadMeters, 0) / 1609.344).fixed(0)) mi along · about +\((2 * stop.detourMeters / POIRanking.detourSpeedMps / 60).fixed(0)) min off the route"
+                    )
                 )
                 .scaledFont(.caption2)
                 .foregroundStyle(.secondary)
@@ -2423,7 +2412,7 @@ struct RouteChoicesView: View {
     /// The walk + paid-ride card (walking mode only). Plain words, the saving
     /// up front, both hail links, and the price labelled as our guess.
     private func hybridCard(_ h: HybridOption) -> some View {
-        let cost = String(format: "%.0f", h.offer.costUSD)
+        let cost = h.offer.costUSD.fixed(0)
         let savedPct = Int(
             ((h.walkAloneSeconds - h.offer.totalSeconds)
                 / max(h.walkAloneSeconds, 1) * 100).rounded())
@@ -2452,7 +2441,7 @@ struct RouteChoicesView: View {
             Text(
                 h.offer.walkSeconds > 0
                     ? "Walking the whole way takes \(TransitPlanning.fmt(h.walkAloneSeconds)). "
-                        + "Ride the first \(String(format: "%.0f", h.offer.rideMiles)) miles "
+                        + "Ride the first \(h.offer.rideMiles.fixed(0)) miles "
                         + "for about $\(cost), walk the rest, and get there \(savedPct)% sooner."
                     : "Walking the whole way takes \(TransitPlanning.fmt(h.walkAloneSeconds)). "
                         + "A ride costs about $\(cost) and gets you there \(savedPct)% sooner."
@@ -2529,15 +2518,13 @@ struct RouteChoicesView: View {
         if let gap = route.evChargingGapMiles {
             points.append(
                 (
-                    String(format: "No charger found near mile %.0f — check your range", gap),
+                    "No charger found near mile \(gap.fixed(0)) — check your range",
                     false
                 ))
         } else if let unchecked = route.evChargingUncheckedMiles {
             points.append(
                 (
-                    String(
-                        format: "Couldn't check for chargers near mile %.0f — check your range",
-                        unchecked), false
+                    "Couldn't check for chargers near mile \(unchecked.fixed(0)) — check your range", false
                 ))
         }
         // Closed roads that could not be read are not "no closed roads".
@@ -2561,9 +2548,7 @@ struct RouteChoicesView: View {
             {
                 points.append(
                     (
-                        String(
-                            format: "Worst stretch: %@ for %.0f mi",
-                            peakBand.rawValue, miles), false
+                        "Worst stretch: \(peakBand.rawValue) for \(miles.fixed(0)) mi", false
                     ))
             }
         }
@@ -2593,7 +2578,7 @@ struct RouteChoicesView: View {
                 .filter { $0.band == .red || $0.band == .yellow }
                 .reduce(0.0) { $0 + $1.miles }
             if redYellow >= 1 {
-                points.append((String(format: "%.0f mi in yellow+ conditions", redYellow), false))
+                points.append(("\(redYellow.fixed(0)) mi in yellow+ conditions", false))
             }
         }
         if !route.hasTolls, others.contains(where: \.hasTolls) {
@@ -3182,7 +3167,7 @@ private struct RouteCard: View {
                     ForEach(Array(route.milesByBand.enumerated()), id: \.offset) { _, item in
                         HStack(spacing: 3) {
                             Circle().fill(item.band.color).frame(width: 7, height: 7)
-                            Text(String(format: "%.0f mi %@", item.miles, item.band.rawValue.lowercased()))
+                            Text(String("\(item.miles.fixed(0)) mi \(item.band.rawValue.lowercased())"))
                         }
                     }
                 }
@@ -3204,11 +3189,7 @@ private struct RouteCard: View {
                     Text(
                         "Steepest hills: "
                             + steepest.map { seg in
-                                String(
-                                    format: "%.1f%% %@ at mile %.0f",
-                                    abs(seg.gradePercent),
-                                    seg.gradePercent < 0 ? "down" : "up",
-                                    seg.startMile)
+                                "\(abs(seg.gradePercent).fixed(1))% \(seg.gradePercent < 0 ? "down" : "up") at mile \(seg.startMile.fixed(0))"
                             }.joined(separator: " · ")
                     )
                     .fixedSize(horizontal: false, vertical: true)
@@ -3250,8 +3231,8 @@ private struct RouteCard: View {
             if let gap = route.evChargingGapMiles {
                 Label(
                     String(
-                        format: "No charger found near mile %.0f — verify "
-                            + "range before taking this route", gap),
+                        "No charger found near mile \(gap.fixed(0)) — verify "
+                            + "range before taking this route"),
                     systemImage: "bolt.slash.fill"
                 )
                 .scaledFont(.footnote, weight: .bold)
@@ -3259,8 +3240,8 @@ private struct RouteCard: View {
             } else if let unchecked = route.evChargingUncheckedMiles {
                 Label(
                     String(
-                        format: "Couldn't check for chargers near mile %.0f — verify "
-                            + "range before taking this route", unchecked),
+                        "Couldn't check for chargers near mile \(unchecked.fixed(0)) — verify "
+                            + "range before taking this route"),
                     systemImage: "exclamationmark.triangle.fill"
                 )
                 .scaledFont(.footnote, weight: .bold)
@@ -3306,7 +3287,7 @@ private struct RouteCard: View {
         var parts: [String] = []
         if let g = route.maxGradePercent {
             let degrees = atan(g / 100) * 180 / .pi
-            var text = String(format: "Max grade %.1f° (%.1f%%)", degrees, g)
+            var text = "Max grade \(degrees.fixed(1))° (\(g.fixed(1))%)"
             if model.routeFilters.contains(.mountainGrades) {
                 text += limits.passesGrade(g) ? " ✓" : " ✗ over your limit"
             }
@@ -3333,7 +3314,7 @@ private struct RouteCard: View {
         }
         if let weightLimits = route.weightLimitsLbs {
             if let lowest = weightLimits.min() {
-                var text = String(format: "Lowest weight sign %.0f lb", lowest)
+                var text = "Lowest weight sign \(lowest.fixed(0)) lb"
                 // Verdict only when the driver has GIVEN a weight — a ✓
                 // against no entered weight would be an empty promise.
                 if model.routeFilters.contains(.bridgeWeight), limits.rigWeightLbs != nil {
@@ -3356,7 +3337,7 @@ private struct RouteCard: View {
             parts.append(
                 f < 0.005
                     ? "No FEMA flood zones on this road"
-                    : String(format: "FEMA flood zones: %.0f%% of this road", f * 100))
+                    : "FEMA flood zones: \((f * 100).fixed(0))% of this road")
         } else {
             parts.append(
                 route.attributesScored
@@ -3427,9 +3408,9 @@ private struct RouteCard: View {
     private var etaText: String {
         let mins = Int((route.eta / 60).rounded())
         if mins >= 48 * 60 {  // multi-day walks read in days, not 260 h
-            return String(format: "%.1f days", route.eta / 86_400)
+            return "\((route.eta / 86_400).fixed(1)) days"
         }
-        return mins >= 90 ? String(format: "%d h %02d min", mins / 60, mins % 60) : "\(mins) min"
+        return mins >= 90 ? "\(mins / 60) h \((mins % 60).padded(2)) min" : "\(mins) min"
     }
 
     private var deltaText: String {
@@ -3444,7 +3425,7 @@ private struct RouteCard: View {
     /// Whole miles from ten up, tenths below: a half-mile walk read "0 mi".
     static func milesText(_ meters: Double) -> String {
         let miles = meters / 1609.344
-        return String(format: miles < 9.95 ? "%.1f mi" : "%.0f mi", miles)
+        return "\(miles.fixed(miles < 9.95 ? 1 : 0)) mi"
     }
 
     /// Review finding: this used `color == .blue` as a "clear band" sentinel —

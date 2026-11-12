@@ -770,9 +770,7 @@ final class SeasonalRiskModel: ObservableObject {
                 }
                 FlowsDiag.log(
                     .info, "learning",
-                    String(
-                        format: "route head fine-tuned on %d rows (MSE %.4f → %.4f)",
-                        rows.count, baseError, tunedError))
+                    "route head fine-tuned on \(rows.count) rows (MSE \(baseError.fixed(4)) → \(tunedError.fixed(4)))")
             }
         }
     }

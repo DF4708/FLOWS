@@ -67,9 +67,7 @@ enum TripShareLogic {
             ]
         if let latitude, let longitude {
             lines.append(
-                String(
-                    format: "Map: https://maps.apple.com/?daddr=%.5f,%.5f",
-                    latitude, longitude))
+                String("Map: https://maps.apple.com/?daddr=\(latitude.fixed(5)),\(longitude.fixed(5))"))
         }
         return lines.joined(separator: "\n")
     }

@@ -6,6 +6,8 @@
 # Typechecks every app Swift source together with the generated Rust bridge,
 # without Xcode. Use it to verify a Swift facade against the bindings in
 # seconds; the real gate is still the FLOWSTests suite and the Release matrix.
+# Strict memory safety is on, as in the app targets: an unmarked use of raw
+# memory is an error.
 # Run `cargo build -p flows-bridge` first so the generated bindings are current.
 #
 #   typecheck_swift_app.sh        macOS (the default; seconds)
@@ -30,8 +32,9 @@ mkdir -p "$MOD"
 xcrun --sdk "$SDK" swiftc -emit-module -parse-as-library -swift-version 6 \
   -module-name FlowsBridge -target "$TARGET" -I "$BR" \
   "$BR/SwiftBridgeCore.swift" "$BR/flows-bridge/flows-bridge.swift" \
+  "$BR/flows-bridge/flows-bridge-safe.swift" \
   -emit-module-path "$MOD/FlowsBridge.swiftmodule"
 xcrun --sdk "$SDK" swiftc -typecheck -parse-as-library -swift-version 6 \
-  -target "$TARGET" -I "$BR" -I "$MOD" \
+  -strict-memory-safety -Werror StrictMemorySafety -target "$TARGET" -I "$BR" -I "$MOD" \
   $(cat "${TMPDIR:-/tmp}/flows_typecheck_files.txt")
 echo "typecheck OK ($SDK): $(wc -l < "${TMPDIR:-/tmp}/flows_typecheck_files.txt" | tr -d ' ') app files + bridge"

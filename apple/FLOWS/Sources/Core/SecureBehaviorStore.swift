@@ -64,10 +64,7 @@ enum SecureBehaviorStore {
             kSecReturnData as String: true,
             kSecMatchLimit as String: kSecMatchLimitOne,
         ]
-        var out: AnyObject?
-        if SecItemCopyMatching(query as CFDictionary, &out) == errSecSuccess,
-            let data = out as? Data, data.count == 32
-        {
+        if let data = SystemAnswers.keychainData(query), data.count == 32 {
             return SymmetricKey(data: data)
         }
         // First run (or the item was purged): mint one.

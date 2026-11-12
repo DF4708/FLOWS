@@ -36,25 +36,25 @@ import Foundation
             to params: AVMutableAudioMixInputParameters,
             request: SFSpeechAudioBufferRecognitionRequest
         ) {
-            let box = Unmanaged.passRetained(Box(request)).toOpaque()
-            var callbacks = MTAudioProcessingTapCallbacks(
+            let box = unsafe Unmanaged.passRetained(Box(request)).toOpaque()
+            var callbacks = unsafe MTAudioProcessingTapCallbacks(
                 version: kMTAudioProcessingTapCallbacksVersion_0,
                 clientInfo: box,
-                init: { _, clientInfo, storageOut in storageOut.pointee = clientInfo },
+                init: { _, clientInfo, storageOut in unsafe storageOut.pointee = unsafe clientInfo },
                 finalize: { tap in
-                    if let storage = MTAudioProcessingTapGetStorage(tap) as UnsafeMutableRawPointer? {
-                        Unmanaged<Box>.fromOpaque(storage).release()
+                    if let storage = unsafe MTAudioProcessingTapGetStorage(tap) as UnsafeMutableRawPointer? {
+                        unsafe Unmanaged<Box>.fromOpaque(storage).release()
                     }
                 },
                 prepare: nil, unprepare: nil,
                 process: { tap, numberFrames, flags, bufferListInOut, numberFramesOut, flagsOut in
-                    let status = MTAudioProcessingTapGetSourceAudio(
+                    let status = unsafe MTAudioProcessingTapGetSourceAudio(
                         tap, numberFrames, bufferListInOut, flagsOut, nil, numberFramesOut)
                     guard status == noErr else { return }
-                    let storage = MTAudioProcessingTapGetStorage(tap)
-                    let box = Unmanaged<Box>.fromOpaque(storage).takeUnretainedValue()
+                    let storage = unsafe MTAudioProcessingTapGetStorage(tap)
+                    let box = unsafe Unmanaged<Box>.fromOpaque(storage).takeUnretainedValue()
                     guard let format = ScannerAudioTap.format(frames: numberFrames),
-                        let buffer = AVAudioPCMBuffer(
+                        let buffer = unsafe AVAudioPCMBuffer(
                             pcmFormat: format,
                             bufferListNoCopy: bufferListInOut)
                     else { return }
@@ -63,11 +63,11 @@ import Foundation
             // The current SDK imports the out-parameter as a managed optional,
             // so ARC balances the tap for us.
             var tap: MTAudioProcessingTap?
-            let err = MTAudioProcessingTapCreate(
+            let err = unsafe MTAudioProcessingTapCreate(
                 kCFAllocatorDefault, &callbacks,
                 kMTAudioProcessingTapCreationFlag_PostEffects, &tap)
             guard err == noErr, let created = tap else {
-                Unmanaged<Box>.fromOpaque(box).release()
+                unsafe Unmanaged<Box>.fromOpaque(box).release()
                 return
             }
             params.audioTapProcessor = created

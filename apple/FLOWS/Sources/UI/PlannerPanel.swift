@@ -500,8 +500,8 @@ struct PlannerPanel: View {
     static func milesText(_ meters: Double) -> String {
         let miles = meters / 1609.344
         return miles < 10
-            ? String(format: "%.1f mi", miles)
-            : String(format: "%.0f mi", miles)
+            ? "\(miles.fixed(1)) mi"
+            : "\(miles.fixed(0)) mi"
     }
 
     /// One truth for "can Plan fire": the button's disabled state and its

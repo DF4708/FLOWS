@@ -749,8 +749,7 @@ final class RouteService: ObservableObject {
     ) -> [(coordinate: CLLocationCoordinate2D, gradePercent: Double)] {
         let n = polyline.pointCount
         guard n > 1, !profile.isEmpty else { return [] }
-        var coords = [CLLocationCoordinate2D](repeating: kCLLocationCoordinate2DInvalid, count: n)
-        polyline.getCoordinates(&coords, range: NSRange(location: 0, length: n))
+        let coords = polyline.coordinateList
         var prefix = [Double](repeating: 0, count: n)
         for i in 1..<n { prefix[i] = prefix[i - 1] + POIRanking.meters(coords[i - 1], coords[i]) }
 
@@ -826,9 +825,7 @@ final class RouteService: ObservableObject {
     ) -> (samples: [CLLocationCoordinate2D], segments: [[CLLocationCoordinate2D]]) {
         let n = polyline.pointCount
         guard n > 0 else { return ([], []) }
-        var coords = [CLLocationCoordinate2D](
-            repeating: kCLLocationCoordinate2DInvalid, count: n)
-        polyline.getCoordinates(&coords, range: NSRange(location: 0, length: n))
+        let coords = polyline.coordinateList
         var samples: [CLLocationCoordinate2D] = [coords[0]]
         var segments: [[CLLocationCoordinate2D]] = []
         var current: [CLLocationCoordinate2D] = [coords[0]]

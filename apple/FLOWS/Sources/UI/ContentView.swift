@@ -281,7 +281,7 @@ struct ContentView: View {
             // Named by where it stands, so the map keeps the same circle
             // from sweep to sweep instead of redrawing it under a new id.
             return RiskAreaOverlay(
-                id: String(format: "circle-%.3f|%.3f", center.latitude, center.longitude),
+                id: "circle-\(center.latitude.fixed(3))|\(center.longitude.fixed(3))",
                 ring: ring,
                 score: worstMember?.realized ?? 0.25,
                 kind: worstMember?.kind ?? fallbackKind,
@@ -1681,10 +1681,8 @@ struct ContentView: View {
             // every leg's whole polyline on each render to look at one in
             // twenty-four of it.
             var d = Double.greatestFiniteMagnitude
-            var one = CLLocationCoordinate2D()
             var i = 0
-            while i < n {
-                poly.getCoordinates(&one, range: NSRange(location: i, length: 1))
+            while i < n, let one = poly.coordinate(at: i) {
                 d = min(d, POIRanking.meters(one, here))
                 i += max(n / 24, 1)
             }
@@ -1717,16 +1715,10 @@ struct ContentView: View {
     private func flightCamera(for fix: CLLocation) -> MapCamera? {
         guard model.transitItinerary?.mode == "Plane",
             let poly = model.transitItinerary?.mainRide?.polyline,
-            poly.pointCount >= 2
+            poly.pointCount >= 2,
+            let board = poly.coordinate(at: 0),
+            let alight = poly.coordinate(at: poly.pointCount - 1)
         else { return nil }
-        var board = CLLocationCoordinate2D()
-        var alight = CLLocationCoordinate2D()
-        poly.getCoordinates(&board, range: NSRange(location: 0, length: 1))
-        poly.getCoordinates(
-            &alight,
-            range: NSRange(
-                location: poly.pointCount - 1,
-                length: 1))
         let nearest = min(
             POIRanking.meters(board, fix.coordinate),
             POIRanking.meters(alight, fix.coordinate))
@@ -2405,7 +2397,7 @@ struct ContentView: View {
                 // A fuel stop's real posted price under its pin — never the
                 // state-average estimate, which is the same everywhere.
                 if kind == .gas, ranked.isLivePrice, let price = ranked.pricePerUnit {
-                    Text(String(format: "$%.2f", price))
+                    Text(String("$\(price.fixed(2))"))
                         .font(.system(size: 11, weight: .heavy)).monospacedDigit()
                         .padding(.horizontal, 5)
                         .padding(.vertical, 2)
@@ -2696,7 +2688,7 @@ struct ContentView: View {
                         .foregroundStyle(.secondary)
                     }
                     if let score = info.score {
-                        Text(String(format: "Local risk score %.0f%%", score * 100))
+                        Text(String("Local risk score \((score * 100).fixed(0))%"))
                             .scaledFont(.caption2)
                             .foregroundStyle(.secondary)
                     }
@@ -2866,7 +2858,7 @@ struct ContentView: View {
         ForEach(Array(route.steepMarkers.enumerated()), id: \.offset) { _, m in
             Annotation("", coordinate: m.coordinate) {
                 Label(
-                    String(format: "%.0f%%", abs(m.gradePercent)),
+                    String("\(abs(m.gradePercent).fixed(0))%"),
                     systemImage: m.gradePercent > 0
                         ? "arrow.up.right" : "arrow.down.right"
                 )
@@ -2917,9 +2909,7 @@ struct ContentView: View {
     private func firstCoordinate(of route: PlannedRoute) -> CLLocationCoordinate2D? {
         let poly = route.route.polyline
         guard poly.pointCount > 0 else { return nil }
-        var c = CLLocationCoordinate2D()
-        poly.getCoordinates(&c, range: NSRange(location: 0, length: 1))
-        return c
+        return poly.coordinate(at: 0)
     }
 
     @ViewBuilder
@@ -3369,9 +3359,7 @@ struct OfflinePill: View {
                 Button(
                     model.breadcrumbs.showTrail
                         ? "Hide my trail"
-                        : String(
-                            format: "Find my way back (%.1f mi trail)",
-                            model.breadcrumbs.wayBack().meters / 1609.344)
+                        : "Find my way back (\((model.breadcrumbs.wayBack().meters / 1609.344).fixed(1)) mi trail)"
                 ) {
                     model.breadcrumbs.showTrail.toggle()
                 }
@@ -3552,8 +3540,8 @@ struct FilterSlidersCard: View {
                             // 14° ≈ a 25% grade. Percent shown for the data-minded.
                             Text(
                                 String(
-                                    format: "Max grade: %.1f° (%.0f%%)", model.maxGradeDegrees,
-                                    FilterLimits.degreesToPercent(model.maxGradeDegrees))
+                                    "Max grade: \(model.maxGradeDegrees.fixed(1))° (\(FilterLimits.degreesToPercent(model.maxGradeDegrees).fixed(0))%)"
+                                )
                             )
                             .scaledFont(.caption, weight: .semibold)
                             Slider(value: $model.maxGradeDegrees, in: 2...15, step: 0.5)
@@ -3577,7 +3565,7 @@ struct FilterSlidersCard: View {
                                 }
                             }
                             Slider(value: $model.towVehicleWeightLbs, in: 2000...40000, step: 100)
-                            Text(String(format: "Towing weight: %.0f lb", model.towTrailerWeightLbs))
+                            Text(String("Towing weight: \(model.towTrailerWeightLbs.fixed(0)) lb"))
                                 .scaledFont(.caption, weight: .semibold)
                             Slider(value: $model.towTrailerWeightLbs, in: 0...45000, step: 100)
                             // Spell out the effect: the whole rig vs posted limits.
@@ -3589,11 +3577,9 @@ struct FilterSlidersCard: View {
                                     || model.towingRatings.gvwrLbs != nil
                                 Text(
                                     String(
-                                        format: "Avoiding roads and bridges with "
-                                            + "weight signs under %.0f lb (%@).", rig,
-                                        vehicleCounted
-                                            ? "your vehicle + what you tow"
-                                            : "what you tow — set your vehicle's weight too")
+                                        "Avoiding roads and bridges with "
+                                            + "weight signs under \(rig.fixed(0)) lb (\(vehicleCounted ? "your vehicle + what you tow" : "what you tow — set your vehicle's weight too"))."
+                                    )
                                 )
                                 .scaledFont(size: 9)
                                 .foregroundStyle(.secondary)
@@ -3632,13 +3618,13 @@ extension FilterSlidersCard {
     /// (AppModel.filterLimits). "No roads excluded" was false by then.
     fileprivate var vehicleWeightLabel: String {
         if model.towVehicleWeightLbs > 0 {
-            return String(format: "Vehicle weight: %.0f lb", model.towVehicleWeightLbs)
+            return "Vehicle weight: \(model.towVehicleWeightLbs.fixed(0)) lb"
         }
         guard model.towTrailerWeightLbs > 0 else {
             return "Vehicle weight: not set (no roads excluded)"
         }
         guard let rated = model.towingRatings.gvwrLbs else { return "Vehicle weight: not set" }
-        return String(format: "Vehicle weight: not set — counting its max, %.0f lb", rated)
+        return "Vehicle weight: not set — counting its max, \(rated.fixed(0)) lb"
     }
 
     /// "I-90 E · 2.1° ✓ · 16'4" ✓" — measured attributes vs current limits.
@@ -3684,7 +3670,7 @@ extension FilterSlidersCard {
                 if let g = r.maxGradePercent {
                     let deg = atan(g / 100) * 180 / .pi
                     Label(
-                        String(format: "%.1f°", deg),
+                        String("\(deg.fixed(1))°"),
                         systemImage: limits.passesGrade(g)
                             ? "checkmark.circle.fill" : "xmark.octagon.fill"
                     )
@@ -3712,7 +3698,7 @@ extension FilterSlidersCard {
                             // Whole inches FIRST. Truncating feet and then inches turned a posted
                             // 13'0" (3.9624 m → 12.99999 ft) into 12'11", one inch under the sign.
                             let inches = Int((w / 0.0254).rounded())
-                            return String(format: "%d'%d\"", inches / 12, inches % 12)
+                            return "\(inches / 12)'\(inches % 12)\""
                         } ?? "no low posts",
                         systemImage: passes ? "checkmark.circle.fill" : "xmark.octagon.fill"
                     )
@@ -3742,7 +3728,7 @@ extension FilterSlidersCard {
                 } else if let wl = r.weightLimitsLbs {
                     let passes = limits.passesWeightLimits(wl)
                     Label(
-                        wl.min().map { String(format: "%.0f lb", $0) } ?? "no weight signs",
+                        wl.min().map { "\(($0).fixed(0)) lb" } ?? "no weight signs",
                         systemImage: passes ? "checkmark.circle.fill" : "xmark.octagon.fill"
                     )
                     .scaledFont(size: 9, weight: .bold)
@@ -4372,8 +4358,8 @@ struct SettingsSheet: View {
     private func zoomLabel(_ meters: Double) -> String {
         let feet = meters / 0.3048
         return feet < 2_000
-            ? String(format: "%.0f ft up", feet)
-            : String(format: "%.1f mi up", meters / 1609.344)
+            ? "\(feet.fixed(0)) ft up"
+            : "\((meters / 1609.344).fixed(1)) mi up"
     }
 
     var body: some View {
@@ -4539,7 +4525,7 @@ struct SettingsSheet: View {
                             in: VehicleSpecs.heightSliderFloorFeet...16, step: 0.25)
                     }
                     HStack {
-                        Text(String(format: "Max grade %.1f°", model.maxGradeDegrees))
+                        Text(String("Max grade \(model.maxGradeDegrees.fixed(1))°"))
                             .scaledFont(.caption)
                             .frame(width: 90, alignment: .leading)
                         Slider(value: $model.maxGradeDegrees, in: 2...15, step: 0.5)
@@ -4825,12 +4811,8 @@ struct SettingsSheet: View {
                                 // truck read as a mistake.
                                 Text(
                                     String(
-                                        format: "%.0f %@ tank · %.0f mi/%@ · about %.0f mi left now",
-                                        v.tankCapacityUnits,
-                                        v.fuelType == .electric ? "kWh" : "gal",
-                                        v.ratedMilesPerUnit,
-                                        v.fuelType == .electric ? "kWh" : "gal",
-                                        model.vehicle.expectedRangeMiles ?? v.ratedRangeMiles)
+                                        "\(v.tankCapacityUnits.fixed(0)) \(v.fuelType == .electric ? "kWh" : "gal") tank · \(v.ratedMilesPerUnit.fixed(0)) mi/\(v.fuelType == .electric ? "kWh" : "gal") · about \((model.vehicle.expectedRangeMiles ?? v.ratedRangeMiles).fixed(0)) mi left now"
+                                    )
                                 )
                                 .scaledFont(.caption2)
                                 .foregroundStyle(.secondary)
@@ -4908,14 +4890,14 @@ struct SettingsSheet: View {
                     }
                     if model.tripNeedsEnabled {
                         HStack {
-                            Text(String(format: "Rest every %.0f min", model.tripRestMinutes))
+                            Text(String("Rest every \(model.tripRestMinutes.fixed(0)) min"))
                                 .scaledFont(.caption)
                                 .frame(width: 130, alignment: .leading)
                             Slider(value: $model.tripRestMinutes, in: 60...240, step: 15)
                         }
                         HStack {
                             // %g keeps the half hour: the 3.5 h default read "4 h".
-                            Text(String(format: "Food every %g h", model.tripFoodMinutes / 60))
+                            Text(String("Food every \((model.tripFoodMinutes / 60).general) h"))
                                 .scaledFont(.caption)
                                 .frame(width: 130, alignment: .leading)
                             Slider(value: $model.tripFoodMinutes, in: 90...360, step: 30)
@@ -4923,9 +4905,8 @@ struct SettingsSheet: View {
                         HStack {
                             Text(
                                 model.derivedFuelIntervalMiles.map {
-                                    String(
-                                        format: model.vehicle.profile?.fuelType == .electric
-                                            ? "Charge every ~%.0f mi" : "Fuel every ~%.0f mi", $0)
+                                    (model.vehicle.profile?.fuelType == .electric
+                                        ? "Charge every ~" : "Fuel every ~") + "\($0.fixed(0)) mi"
                                 } ?? "Fuel: add a vehicle"
                             )
                             .scaledFont(.caption)
@@ -5036,7 +5017,7 @@ struct SettingsSheet: View {
                         Text(
                             model.vehicleLink.tirePressuresPsi
                                 .sorted { $0.key < $1.key }
-                                .map { String(format: "%@ %.0f psi", $0.key, $0.value) }
+                                .map { "\($0.key) \(($0.value).fixed(0)) psi" }
                                 .joined(separator: " · ")
                         )
                         .font(.caption.monospacedDigit())
@@ -5086,11 +5067,10 @@ struct SettingsSheet: View {
                         .scaledFont(size: 14, weight: .semibold)
                     Text(
                         String(
-                            format: "Stops you use often within ~%.0f miles of "
+                            "Stops you use often within ~\(EverydayPlaces.shared.radiusMiles.fixed(0)) miles of "
                                 + "home are remembered on this device for instant results. "
                                 + "The area is learned from your trips and "
-                                + "never leaves your phone.",
-                            EverydayPlaces.shared.radiusMiles)
+                                + "never leaves your phone.")
                     )
                     .scaledFont(.caption)
                     .foregroundStyle(.secondary)
@@ -5179,7 +5159,7 @@ struct SettingsSheet: View {
                                 learnedRow(
                                     "Everyday area",
                                     EverydayPlaces.shared.radiusLearned
-                                        ? String(format: "%.0f mi", EverydayPlaces.shared.radiusMiles)
+                                        ? "\(EverydayPlaces.shared.radiusMiles.fixed(0)) mi"
                                         : "Not learned yet")
                                 learnedRow(
                                     "Home area learned",
@@ -5800,9 +5780,7 @@ struct VehicleEditorSheet: View {
                     .pickerStyle(.segmented)
                     HStack {
                         Text(
-                            String(
-                                format: "Tank: %.0f %@", tankUnits,
-                                fuelType == .electric ? "kWh" : "gal")
+                            String("Tank: \(tankUnits.fixed(0)) \(fuelType == .electric ? "kWh" : "gal")")
                         )
                         .scaledFont(.caption)
                         .frame(width: 120, alignment: .leading)
@@ -5810,9 +5788,7 @@ struct VehicleEditorSheet: View {
                     }
                     HStack {
                         Text(
-                            String(
-                                format: "Economy: %.1f mi/%@", milesPerUnit,
-                                fuelType == .electric ? "kWh" : "gal")
+                            String("Economy: \(milesPerUnit.fixed(1)) mi/\(fuelType == .electric ? "kWh" : "gal")")
                         )
                         .scaledFont(.caption)
                         .frame(width: 120, alignment: .leading)
@@ -5821,7 +5797,7 @@ struct VehicleEditorSheet: View {
                             step: fuelType == .electric ? 0.1 : 0.5)
                     }
                     HStack {
-                        Text(String(format: "Height: %.1f ft", heightFeet))
+                        Text(String("Height: \(heightFeet.fixed(1)) ft"))
                             .scaledFont(.caption)
                             .frame(width: 120, alignment: .leading)
                         Slider(value: $heightFeet, in: VehicleSpecs.minimumHeightFeet...14, step: 0.1)
@@ -5841,10 +5817,9 @@ struct VehicleEditorSheet: View {
             }
             Text(
                 String(
-                    format: "Rated range ~%.0f mi. Height feeds the low-bridge "
+                    "Rated range ~\((tankUnits * milesPerUnit).fixed(0)) mi. Height feeds the low-bridge "
                         + "filter automatically; on the road FLOWS adjusts range for "
-                        + "how you drive and recommends fuel stops early.",
-                    tankUnits * milesPerUnit)
+                        + "how you drive and recommends fuel stops early.")
             )
             .scaledFont(.caption)
             .foregroundStyle(.secondary)
@@ -6093,13 +6068,8 @@ struct VehicleEditorSheet: View {
             // filled in, on one line.
             Text(
                 String(
-                    format: "Filled in: %@ · %.0f %@ tank · %.1f mi/%@ "
-                        + "· %.1f ft tall%@",
-                    fuelType.rawValue, tankUnits,
-                    fuelType == .electric ? "kWh" : "gal",
-                    milesPerUnit, fuelType == .electric ? "kWh" : "gal",
-                    heightFeet,
-                    pendingEPARatings?.gvwr != nil ? " · tow ratings" : "")
+                    "Filled in: \(fuelType.rawValue) · \(tankUnits.fixed(0)) \(fuelType == .electric ? "kWh" : "gal") tank · \(milesPerUnit.fixed(1)) mi/\(fuelType == .electric ? "kWh" : "gal") "
+                        + "· \(heightFeet.fixed(1)) ft tall\(pendingEPARatings?.gvwr != nil ? " · tow ratings" : "")")
             )
             .scaledFont(.caption)
             .foregroundStyle(.secondary)

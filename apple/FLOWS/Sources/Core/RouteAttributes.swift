@@ -185,8 +185,8 @@ actor RouteAttributeFetcher {
         while start < missing.count {
             let chunk = Array(missing[start..<min(start + 100, missing.count)])
             start += chunk.count
-            let lats = chunk.map { String(format: "%.5f", $0.1.latitude) }.joined(separator: ",")
-            let lons = chunk.map { String(format: "%.5f", $0.1.longitude) }.joined(separator: ",")
+            let lats = chunk.map { ($0.1.latitude).fixed(5) }.joined(separator: ",")
+            let lons = chunk.map { ($0.1.longitude).fixed(5) }.joined(separator: ",")
             guard
                 let url = URL(
                     string:
@@ -231,10 +231,9 @@ actor RouteAttributeFetcher {
         let task = Task<Double?, Never> {
             guard
                 let url = URL(
-                    string: String(
-                        format:
-                            "https://epqs.nationalmap.gov/v1/json?x=%.5f&y=%.5f&wkid=4326&units=Meters&includeDate=false",
-                        lon, lat)),
+                    string:
+                        "https://epqs.nationalmap.gov/v1/json?x=\(lon.fixed(5))&y=\(lat.fixed(5))&wkid=4326&units=Meters&includeDate=false"
+                ),
                 let (data, resp) = try? await ThrottledNet.fetch(url),
                 (resp as? HTTPURLResponse)?.statusCode == 200,
                 let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
@@ -263,7 +262,7 @@ actor RouteAttributeFetcher {
         let task = Task<Bool?, Never> {
             let urlString =
                 "https://hazards.fema.gov/arcgis/rest/services/public/NFHL/MapServer/28/query"
-                + String(format: "?geometry=%.5f,%.5f", lon, lat)
+                + "?geometry=\(lon.fixed(5)),\(lat.fixed(5))"
                 + "&geometryType=esriGeometryPoint&inSR=4326&spatialRel=esriSpatialRelIntersects"
                 + "&outFields=FLD_ZONE&returnGeometry=false&f=json"
             guard let url = URL(string: urlString),
@@ -309,7 +308,7 @@ actor RouteAttributeFetcher {
         // rate-limited. Key on the rounded boxes; only successes are cached
         // (a failure must stay retryable), on a long TTL that still stretches
         // on a strained device.
-        let cacheKey = boxes.map { String(format: "%.2f,%.2f,%.2f,%.2f", $0.s, $0.w, $0.n, $0.e) }
+        let cacheKey = boxes.map { "\(($0.s).fixed(2)),\(($0.w).fixed(2)),\(($0.n).fixed(2)),\(($0.e).fixed(2))" }
             .joined(separator: ";")
         if let c = restrictionCache[cacheKey],
             Date().timeIntervalSince(c.fetched) < AdaptiveTuning.shared.ttl(6 * 3600)
@@ -317,7 +316,7 @@ actor RouteAttributeFetcher {
             return (c.clearances, c.weights)
         }
         let clauses = boxes.map {
-            let bbox = String(format: "%.4f,%.4f,%.4f,%.4f", $0.s, $0.w, $0.n, $0.e)
+            let bbox = "\(($0.s).fixed(4)),\(($0.w).fixed(4)),\(($0.n).fixed(4)),\(($0.e).fixed(4))"
             return "way[\"maxheight\"](\(bbox));way[\"maxweight\"](\(bbox));"
         }.joined()
         let query = "[out:json][timeout:10];(\(clauses));out geom tags;"

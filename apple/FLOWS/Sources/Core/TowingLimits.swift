@@ -74,11 +74,11 @@ enum TowingLimits {
         var title: String {
             switch self {
             case .overGVWR(let by):
-                return String(format: "Over max loaded weight by %.0f lb", by)
+                return "Over max loaded weight by \(by.fixed(0)) lb"
             case .overTowCapacity(let by):
-                return String(format: "Over max towing by %.0f lb", by)
+                return "Over max towing by \(by.fixed(0)) lb"
             case .overGCWR(let by):
-                return String(format: "Over max vehicle + trailer by %.0f lb", by)
+                return "Over max vehicle + trailer by \(by.fixed(0)) lb"
             }
         }
 

@@ -280,9 +280,7 @@ final class POIService: ObservableObject {
         // Full-resolution path for ahead/detour ranking (decimated to ~1500
         // points so nearest() stays sub-millisecond).
         let poly = route.route.polyline
-        let n = poly.pointCount
-        var coords = [CLLocationCoordinate2D](repeating: kCLLocationCoordinate2DInvalid, count: n)
-        poly.getCoordinates(&coords, range: NSRange(location: 0, length: n))
+        var coords = poly.coordinateList
         let step = Int(flows_places_route_decimation_step(Int64(coords.count)))
         if step > 1 {
             coords = stride(from: 0, to: coords.count, by: step).map { coords[$0] }

@@ -119,7 +119,7 @@ enum SiriSchemaRules {
     static func placeID(_ c: CLLocationCoordinate2D, name: String?) -> String? {
         guard isValid(c) else { return nil }
         let label = String((name ?? "").prefix(maxNameLength))
-        return String(format: "%.6f,%.6f,", c.latitude, c.longitude) + label
+        return "\(c.latitude.fixed(6)),\(c.longitude.fixed(6))," + label
     }
 
     /// The point and name in a place identifier, or nil when it isn't one.

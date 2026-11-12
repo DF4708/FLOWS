@@ -533,9 +533,7 @@ final class MusicController: ObservableObject {
 
         @discardableResult
         private func run(_ source: String) -> NSAppleEventDescriptor? {
-            var error: NSDictionary?
-            let result = NSAppleScript(source: source)?.executeAndReturnError(&error)
-            return error == nil ? result : nil
+            SystemAnswers.appleScript(source)
         }
 
         /// The app the transport scripts: Spotify when it is the pick, else Music.

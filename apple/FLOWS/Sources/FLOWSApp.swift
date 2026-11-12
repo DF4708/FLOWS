@@ -1227,13 +1227,9 @@ final class AppModel: ObservableObject {
         // check the learning afterwards.
         FlowsDiag.log(
             .info, "audio",
-            String(
-                format: "buffer sample %.1fs service=%@ radio=%@ "
-                    + "samples=%d usable=%@",
-                delay, service, tech ?? "unknown",
-                BufferMemory.shared.sampleCount(
-                    service: service, radioTechnology: tech),
-                BufferLearning.isUsable(sample: delay) ? "yes" : "no"))
+            ("buffer sample \(delay.fixed(1))s service=\(service) radio=\(tech ?? "unknown") "
+                + "samples=\(BufferMemory.shared.sampleCount( service: service, radioTechnology: tech)) usable=\(BufferLearning.isUsable(sample: delay) ? "yes" : "no")")
+        )
         connectionLostAt = nil
     }
 
@@ -1329,12 +1325,9 @@ final class AppModel: ObservableObject {
                 radioTechnology: graceRadioTechnology)
         FlowsDiag.log(
             .warn, "audio",
-            String(
-                format: "signal lost while playing — source=%@ "
-                    + "wait=%.1fs (prior %.1fs%@) radio=%@",
-                "\(source)", grace, prior,
-                grace == prior ? "" : ", LEARNED",
-                graceRadioTechnology ?? "unknown"))
+            ("signal lost while playing — source=\(source) "
+                + "wait=\(grace.fixed(1))s (prior \(prior.fixed(1))s\(grace == prior ? "" : ", LEARNED")) radio=\(graceRadioTechnology ?? "unknown")")
+        )
         radio.onStall = { [weak self] in self?.applyOfflineHandoff() }
         music.onPlaybackStopped = { [weak self] in self?.applyOfflineHandoff() }
         handoffGraceTask = Task { [weak self] in
@@ -2635,9 +2628,7 @@ final class AppModel: ObservableObject {
         _ from: CLLocationCoordinate2D, _ to: CLLocationCoordinate2D,
         tollFree: Bool
     ) -> String {
-        String(
-            format: "%.5f,%.5f>%.5f,%.5f|%d", from.latitude, from.longitude,
-            to.latitude, to.longitude, tollFree ? 1 : 0)
+        "\(from.latitude.fixed(5)),\(from.longitude.fixed(5))>\(to.latitude.fixed(5)),\(to.longitude.fixed(5))|\(tollFree ? 1 : 0)"
     }
 
     private func formulateConstrainedRoute(
@@ -2914,9 +2905,7 @@ final class AppModel: ObservableObject {
             let poly = route.polyline
             let n = poly.pointCount
             guard n > 1 else { return }
-            var coords = [CLLocationCoordinate2D](
-                repeating: kCLLocationCoordinate2DInvalid, count: n)
-            poly.getCoordinates(&coords, range: NSRange(location: 0, length: n))
+            let coords = poly.coordinateList
             let refined = coords  // a value crosses the actor hop, not the captured var
             await MainActor.run { [weak self] in
                 guard let self, !Task.isCancelled, self.navigation.route?.id == routeID,
@@ -3241,7 +3230,7 @@ final class AppModel: ObservableObject {
                     let text =
                         miles < 0.19
                         ? "\(Int((g.distanceToManeuver / 0.3048 / 50).rounded() * 50)) ft"
-                        : String(format: miles < 10 ? "%.1f mi" : "%.0f mi", miles)
+                        : "\(miles.fixed(miles < 10 ? 1 : 0)) mi"
                     // The fix this sink was handed, not location.coordinate:
                     // this runs inside $latest's willSet, when the published
                     // value is still the PREVIOUS fix.
@@ -3382,7 +3371,7 @@ final class AppModel: ObservableObject {
             vehicleLink.tirePressuresPsi, uniquingKeysWith: { _, ble in ble })
         let low = all.filter { $0.value < VehicleLink.lowPressurePsi }
         guard let worst = low.min(by: { $0.value < $1.value }) else { return nil }
-        return String(format: "%@ low: %.0f psi", worst.key, worst.value)
+        return "\(worst.key) low: \(worst.value.fixed(0)) psi"
     }
 
     // MARK: driving clocks — FMCSA hours of service + refuel dwell
@@ -4037,7 +4026,7 @@ final class AppModel: ObservableObject {
         let recommend = VehicleProfile.shouldRecommendFuel(
             rangeRemainingMiles: range, milesToNextStation: 25)
         if recommend, range < fuelRecommendationDismissedAtRange - 20 || fuelRecommendationDismissedAtRange == 0 {
-            let text = String(format: "≈%.0f mi of range left — plan a fuel stop", range)
+            let text = "≈\(range.fixed(0)) mi of range left — plan a fuel stop"
             if fuelRecommendation != text { fuelRecommendation = text }  // every fix
         } else if !recommend {
             if fuelRecommendation != nil { fuelRecommendation = nil }
@@ -5101,10 +5090,7 @@ final class AppModel: ObservableObject {
         }
         FlowsDiag.log(
             .info, "plan",
-            String(
-                format: "scored %d samples in %.0f ms",
-                score.samples.count,
-                Date().timeIntervalSince(blendStart) * 1000))
+            "scored \(score.samples.count) samples in \((Date().timeIntervalSince(blendStart) * 1000).fixed(0)) ms")
         r.familyPeaks = peaks
         r.alertCoverage = score.coverage
         r.alertHeadlines = score.headlines
@@ -5552,9 +5538,7 @@ final class AppModel: ObservableObject {
         let poly = route.route.polyline
         let n = poly.pointCount
         guard n > 1 else { return }
-        var coords = [CLLocationCoordinate2D](
-            repeating: kCLLocationCoordinate2DInvalid, count: n)
-        poly.getCoordinates(&coords, range: NSRange(location: 0, length: n))
+        let coords = poly.coordinateList
         corridors.record(
             coordinates: coords,
             destinationName: route.destinationName,
@@ -7530,17 +7514,13 @@ final class AppModel: ObservableObject {
         let poly = route.route.polyline
         let n = poly.pointCount
         guard n > 0 else { return nil }
-        var last = CLLocationCoordinate2D()
-        poly.getCoordinates(&last, range: NSRange(location: n - 1, length: 1))
-        return last
+        return poly.coordinate(at: n - 1)
     }
 
     private static func firstCoordinate(of route: PlannedRoute) -> CLLocationCoordinate2D? {
         let poly = route.route.polyline
         guard poly.pointCount > 0 else { return nil }
-        var c = CLLocationCoordinate2D()
-        poly.getCoordinates(&c, range: NSRange(location: 0, length: 1))
-        return c
+        return poly.coordinate(at: 0)
     }
 
     /// A place tapped on the map or a tourist stop ("Add it to your trip?"
@@ -7644,12 +7624,12 @@ struct FLOWSApp: App {
                     let content = window.contentView
                 else { return event }
                 let point =
-                    content.superview?.convert(event.locationInWindow, from: nil)
+                    content.parentView?.convert(event.locationInWindow, from: nil)
                     ?? event.locationInWindow
                 var view = content.hitTest(point)
                 while let v = view {
                     if v === editor { return event }  // click stays in the field
-                    view = v.superview
+                    view = v.parentView
                 }
                 window.makeFirstResponder(nil)
                 return event

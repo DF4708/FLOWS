@@ -182,7 +182,7 @@ enum CrashLogic {
         // become "GPS: 0.00000, 0.00000" — that is a real point in the
         // Atlantic Ocean off Africa and would misdirect responders.
         if let latitude, let longitude {
-            lines.append(String(format: "GPS: %.5f, %.5f", latitude, longitude))
+            lines.append(String("GPS: \(latitude.fixed(5)), \(longitude.fixed(5))"))
         } else {
             lines.append("GPS: unavailable at time of report.")
         }

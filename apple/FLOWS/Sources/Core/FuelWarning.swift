@@ -246,6 +246,6 @@ enum FuelWarning {
     private static func pricePhrase(_ station: Station, fuel: FuelType) -> String {
         guard let price = station.pricePerUnit else { return "" }
         let unit = fuel == .electric ? "kilowatt hour" : "gallon"
-        return String(format: " at $%.2f a %@", price, unit)
+        return " at $\(price.fixed(2)) a \(unit)"
     }
 }

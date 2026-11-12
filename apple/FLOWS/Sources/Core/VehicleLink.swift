@@ -347,13 +347,12 @@ final class VehicleLink: NSObject, ObservableObject {
 
         private func mfiReadFuel() {
             guard let input = mfiSession?.inputStream, input.hasBytesAvailable else { return }
-            var buffer = [UInt8](repeating: 0, count: 512)
-            let n = input.read(&buffer, maxLength: buffer.count)
-            guard n > 0, let text = String(bytes: buffer[0..<n], encoding: .ascii) else { return }
+            let bytes = RawBytes.read(from: input, upTo: 512)
+            guard !bytes.isEmpty, let text = String(bytes: bytes, encoding: .ascii) else { return }
             if let fuel = Self.parseFuelReply(text) {
                 obdFuelFraction = fuel
                 obdFuelReadAt = Date()
-                status = String(format: "Fuel from the car plug-in: %.0f%%", fuel * 100)
+                status = "Fuel from the car plug-in: \((fuel * 100).fixed(0))%"
             }
         }
     #else
@@ -545,7 +544,7 @@ extension VehicleLink: CBCentralManagerDelegate, CBPeripheralDelegate {
                 if let fuel = Self.parseFuelReply(self.obdBuffer) {
                     self.obdFuelFraction = fuel
                     self.obdFuelReadAt = Date()
-                    self.status = String(format: "Fuel from the car plug-in: %.0f%%", fuel * 100)
+                    self.status = "Fuel from the car plug-in: \((fuel * 100).fixed(0))%"
                 }
                 self.obdBuffer = ""
             } else if self.obdBuffer.count > 4096 {
