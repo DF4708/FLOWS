@@ -312,7 +312,7 @@ fn triples(lats: &[f64], lons: &[f64], third: &[f64]) -> Vec<(f64, f64, f64)> {
 /// [`split_joined`] reads as none, so that one point was dropped. The
 /// coordinates say how many there are: exactly one point and no text is one
 /// point with an empty name.
-fn named(lats: &[f64], lons: &[f64], joined: &str) -> Vec<(f64, f64, String)> {
+pub(crate) fn named(lats: &[f64], lons: &[f64], joined: &str) -> Vec<(f64, f64, String)> {
     let mut names = split_joined(joined);
     if names.is_empty() && lats.len() == 1 && lons.len() == 1 {
         names.push(String::new());
@@ -937,7 +937,10 @@ pub fn flows_hazard_fuel_places(xml: &str) -> Vec<String> {
 /// The live feeds behind Swift's `LiveHazardSnapshot`.
 /// A snapshot and, once a point is scored against it, its fire perimeters'
 /// bounding boxes (found once, not per point; reset when a perimeter is added).
-pub struct FlowsHazardSnapshot(Snapshot, std::sync::OnceLock<Vec<hf::RingBox>>);
+pub struct FlowsHazardSnapshot(
+    pub(crate) Snapshot,
+    pub(crate) std::sync::OnceLock<Vec<hf::RingBox>>,
+);
 
 pub fn flows_hazard_clip_margin_degrees() -> f64 {
     hf::CLIP_MARGIN_DEGREES

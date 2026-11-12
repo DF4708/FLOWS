@@ -30,6 +30,8 @@
 //!   risk_field — the ZIP-level risk field: FRB1 reader, grid lookup,
 //!              viewport selection, harmonic rescore
 //!   forecast — the forecast predictors over climate + scoring
+//!   route_blend — a whole road scored in one call: field, forecast,
+//!              flood evidence, live feeds, alerts, closures
 //!   hazard_feeds — live feed scores, the alert service's geometry and
 //!              severity rules, the CRE fuel scan
 //!   long_trips — the fuel warning, the long-trip share and the saved road
@@ -92,6 +94,7 @@ mod rental_places_table;
 pub mod risk;
 pub mod risk_field;
 pub mod risk_summary;
+pub mod route_blend;
 pub mod routing;
 pub mod scoring;
 pub mod seasonal;

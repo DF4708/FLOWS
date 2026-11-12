@@ -118,7 +118,7 @@ pub fn flows_risk_summary_plain(text: &str) -> String {
 }
 
 /// The field behind Swift's `RiskFieldService`.
-pub struct FlowsRiskField(RiskField);
+pub struct FlowsRiskField(pub(crate) RiskField);
 
 /// A joined text column as owned strings; `None` when it does not split.
 fn owned_texts(joined: &str, lens: &[i64], count: i64) -> Option<Vec<String>> {

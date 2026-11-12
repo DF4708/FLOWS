@@ -1578,3 +1578,55 @@ computes in Rust behind its facade.
 | POIRanking, PlacesStore (FPS1), POIService decisions | LANDED (fourth landing); the MapKit search, the providers and the row decorations stay with the service |
 | the long tail | FIRST LANDING: SignalQuality, AdaptiveTuning, PlaybackFallback, PlaybackGrace, RadioTuning, AmtrakStations, BreadcrumbTrail, AirTravel, Mobility, HybridWalk. SECOND LANDING: FuelWarning, TripShare, OfflineCorridors (`flows_core::long_trips`, first geo bridge functions). THIRD LANDING: RouteAttributes, VehicleLink's parsers, VoiceReply's word rules, BroadcastRadio, RadioBrowser's rules (`flows_core::tags_and_replies`). FOURTH LANDING: CoordinateInput, RecentDestinations, DestinationSearch.blend, RentalCars, TruckerRadio's static rules (`flows_core::recents_and_rides`) and TransitPlanning's ride estimates (`flows_core::travel_modes`). FIFTH LANDING: TruckerRadio's relay-directory scrape (made a pure static first). DONE |
 | wave-1 leftovers | LANDED: EscalationPolicy, AlertEntityParser, ScannerIncidents (`flows_core::alert_text`) |
+
+## Wave 3, first landing: the route blend as one call (2026-11-11)
+
+The plan's second wave-3 item: "AppModel's route scoring as one batched call
+off the main actor".
+
+It took two steps. First the loop was made one Swift function (91798be):
+the planner's `scoredWithFeeds`, the live corridor watch and the route
+card's progress each carried a copy of it, and `RouteBlend.blend` became
+the one all three call, with behaviour unchanged. The oracle was taken
+there: 900 roads through the real Core sources, linked against the bridge
+(`oracle-harness/route_blend`, no stubs).
+
+Then `flows_core::route_blend::blend` replaced the loop. It composes what
+earlier waves already moved (the field's nearest row, the forecast
+predictors, the gauge, water and closure scores, the live families, the
+flood amplifier, the alert family, the dense realized risk) with the band
+input assembled in fixed slots that keep the Swift dictionary's "is the
+family there" meaning. It matched all 900 records bit for bit on the first
+run; moving the local-low window or the neighbour order breaks 33 and 164
+of them, so the fixture does hold those rules.
+
+`flows-bridge::route_blend` is one function. The field and the live
+snapshot cross as the handles Swift already holds; check points, forecasts
+and the three feeds cross as flat columns. Before, a 200-point road made
+about 1,500 crossings (nearest row, scores, gauge, water, closure, live,
+flood amplifier, realized risk, per point); now it makes one. A point whose
+live score panics is "not checked" and the rest of the road is still
+scored; a call that fails as a whole answers nothing, which the facade
+reads as every point unchecked, never as clear.
+
+The planner now runs the call off the main actor (`Task.detached` in
+`scoredWithFeeds`); every input was already `Sendable`. The live watch and
+the route card stay synchronous: their roads are short and they run inside
+main-actor updates.
+
+The facade was checked end to end the same day: the harness, compiled
+against the Swift that now calls Rust, printed the fixture's bytes (same
+sha1, three runs). `RouteBlendTests` holds the Rust path equal, bit for
+bit, to `RiskEquations.bandInput` + `realizedRisk` for one point, which is
+why that Swift function stays: nothing in the app calls it now, but the
+band-input tests pin it and this test ties it to what the route runs.
+
+### Wave 3 remaining
+
+| item | state |
+|---|---|
+| AppModel's route scoring as one batched call off the main actor | LANDED (this landing) |
+| RouteService and NavigationEngine over one opaque per-leg geometry | open |
+| Live corridor updates and learned ETA | the corridor watch's scoring is the same call; the update rules and learned ETA are open |
+| The compute leaked into views: the ContentView sweep, RouteChoicesView's route designations, NavigationHUD | open |
+| The geo facade itself | open, last |

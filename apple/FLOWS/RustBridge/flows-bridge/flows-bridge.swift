@@ -3206,6 +3206,19 @@ extension FlowsRiskField: Vectorizable {
 
 
 
+public func flows_route_blend<GenericToRustStr: ToRustStr>(_ field: FlowsRiskFieldRef, _ snapshot: FlowsHazardSnapshotRef, _ has_snapshot: Bool, _ samples: UnsafeBufferPointer<Double>, _ sample_count: Int64, _ events_joined: GenericToRustStr, _ event_lens: UnsafeBufferPointer<Int64>, _ event_present: UnsafeBufferPointer<UInt8>, _ forecast_marks: UnsafeBufferPointer<Int64>, _ forecast_values: UnsafeBufferPointer<Double>, _ forecast_count: Int64, _ gauge_lats: UnsafeBufferPointer<Double>, _ gauge_lons: UnsafeBufferPointer<Double>, _ gauge_categories_joined: GenericToRustStr, _ gauge_count: Int64, _ water_lats: UnsafeBufferPointer<Double>, _ water_lons: UnsafeBufferPointer<Double>, _ water_count: Int64, _ closure_lats: UnsafeBufferPointer<Double>, _ closure_lons: UnsafeBufferPointer<Double>, _ closure_count: Int64) -> RustVec<Double> {
+    return gauge_categories_joined.toRustStr({ gauge_categories_joinedAsRustStr in
+        return events_joined.toRustStr({ events_joinedAsRustStr in
+        RustVec(ptr: __swift_bridge__$flows_route_blend(field.ptr, snapshot.ptr, has_snapshot, samples.toFfiSlice(), sample_count, events_joinedAsRustStr, event_lens.toFfiSlice(), event_present.toFfiSlice(), forecast_marks.toFfiSlice(), forecast_values.toFfiSlice(), forecast_count, gauge_lats.toFfiSlice(), gauge_lons.toFfiSlice(), gauge_categories_joinedAsRustStr, gauge_count, water_lats.toFfiSlice(), water_lons.toFfiSlice(), water_count, closure_lats.toFfiSlice(), closure_lons.toFfiSlice(), closure_count))
+    })
+    })
+}
+
+
+
+
+
+
 public func flows_seasonal_cross_country_km() -> Double {
     __swift_bridge__$flows_seasonal_cross_country_km()
 }

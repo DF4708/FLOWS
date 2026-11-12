@@ -4976,18 +4976,24 @@ final class AppModel: ObservableObject {
         let corridorGauges = await gaugesF
         let corridorWater = await waterF
 
-        // This blend is synchronous on the main actor — the journal says how
-        // long, so a planning stall can be attributed or ruled out.
+        // The blend is one Rust call for the whole road, run off the main
+        // actor so a long road never holds the screen. The journal still says
+        // how long, so a planning stall can be attributed or ruled out.
         let blendStart = Date()
         // FLOOD SUPPORTING EVIDENCE rides in as the gauges and the mapped
         // water; a point the live scorer could not answer is not a clear
         // point: the route stays "Checking weather…" like any failed check.
-        let blend = RouteBlend.blend(
-            samples: score.samples, onDevice: onDevice, field: riskField.field,
-            gauges: HazardFeedScores.PreparedGauges(corridorGauges),
-            water: HazardFeedScores.PreparedPoints(corridorWater),
-            closures: HazardFeedScores.PreparedPoints(corridorClosures),
-            live: corridorLive)
+        let blendSamples = score.samples
+        let blendField = riskField.field
+        let blendGauges = HazardFeedScores.PreparedGauges(corridorGauges)
+        let blendWater = HazardFeedScores.PreparedPoints(corridorWater)
+        let blendClosures = HazardFeedScores.PreparedPoints(corridorClosures)
+        let blend = await Task.detached(priority: .userInitiated) {
+            RouteBlend.blend(
+                samples: blendSamples, onDevice: onDevice, field: blendField,
+                gauges: blendGauges, water: blendWater, closures: blendClosures,
+                live: corridorLive)
+        }.value
         let liveUnchecked = blend.liveUnchecked
         let identifiedSum = blend.identifiedSum
         let peaks = blend.peaks

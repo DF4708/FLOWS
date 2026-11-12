@@ -68,6 +68,7 @@ pub mod places_text;
 pub mod recents_and_rides;
 pub mod risk;
 pub mod risk_field;
+pub mod route_blend;
 pub mod seasonal;
 pub mod tags_and_replies;
 pub mod transit;
