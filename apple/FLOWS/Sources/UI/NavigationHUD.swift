@@ -1386,7 +1386,7 @@ struct NavigationHUD: View {
         }
         if kind == .gas, !ranked.isLivePrice {
             return (
-                ranked.pricePerUnit.map { "~$\(($0).fixed(2)) est." } ?? "$ —",
+                ranked.pricePerUnit.map { "~$\($0.fixed(2)) est." } ?? "$ —",
                 nil, false, false
             )
         }
@@ -1403,7 +1403,7 @@ struct NavigationHUD: View {
             ? (model.poi.fuelType == .electric ? "/kWh" : "/gal")
             : "per night"
         return (
-            ranked.pricePerUnit.map { "$\(($0).fixed(2))" } ?? "$ —",
+            ranked.pricePerUnit.map { "$\($0.fixed(2))" } ?? "$ —",
             unit, true, ranked.pricePerUnit != nil
         )
     }

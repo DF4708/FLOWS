@@ -542,7 +542,7 @@ struct TowingCard: View {
             Text(label).scaledFont(size: 9, weight: .bold).foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
-            Text(value.map { "\(($0).fixed(0)) lb" } ?? "—")
+            Text(value.map { String("\($0.fixed(0)) lb") } ?? "—")
                 .scaledFont(size: 13, weight: .heavy).monospacedDigit()
                 .foregroundStyle(violated ? Theme.riskRed : .primary)
         }

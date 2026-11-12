@@ -3728,7 +3728,7 @@ extension FilterSlidersCard {
                 } else if let wl = r.weightLimitsLbs {
                     let passes = limits.passesWeightLimits(wl)
                     Label(
-                        wl.min().map { "\(($0).fixed(0)) lb" } ?? "no weight signs",
+                        wl.min().map { String("\($0.fixed(0)) lb") } ?? "no weight signs",
                         systemImage: passes ? "checkmark.circle.fill" : "xmark.octagon.fill"
                     )
                     .scaledFont(size: 9, weight: .bold)
@@ -5017,7 +5017,7 @@ struct SettingsSheet: View {
                         Text(
                             model.vehicleLink.tirePressuresPsi
                                 .sorted { $0.key < $1.key }
-                                .map { "\($0.key) \(($0.value).fixed(0)) psi" }
+                                .map { "\($0.key) \($0.value.fixed(0)) psi" }
                                 .joined(separator: " · ")
                         )
                         .font(.caption.monospacedDigit())

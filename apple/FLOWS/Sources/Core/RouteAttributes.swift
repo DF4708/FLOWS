@@ -185,8 +185,8 @@ actor RouteAttributeFetcher {
         while start < missing.count {
             let chunk = Array(missing[start..<min(start + 100, missing.count)])
             start += chunk.count
-            let lats = chunk.map { ($0.1.latitude).fixed(5) }.joined(separator: ",")
-            let lons = chunk.map { ($0.1.longitude).fixed(5) }.joined(separator: ",")
+            let lats = chunk.map { $0.1.latitude.fixed(5) }.joined(separator: ",")
+            let lons = chunk.map { $0.1.longitude.fixed(5) }.joined(separator: ",")
             guard
                 let url = URL(
                     string:
@@ -308,7 +308,7 @@ actor RouteAttributeFetcher {
         // rate-limited. Key on the rounded boxes; only successes are cached
         // (a failure must stay retryable), on a long TTL that still stretches
         // on a strained device.
-        let cacheKey = boxes.map { "\(($0.s).fixed(2)),\(($0.w).fixed(2)),\(($0.n).fixed(2)),\(($0.e).fixed(2))" }
+        let cacheKey = boxes.map { "\($0.s.fixed(2)),\($0.w.fixed(2)),\($0.n.fixed(2)),\($0.e.fixed(2))" }
             .joined(separator: ";")
         if let c = restrictionCache[cacheKey],
             Date().timeIntervalSince(c.fetched) < AdaptiveTuning.shared.ttl(6 * 3600)
@@ -316,7 +316,7 @@ actor RouteAttributeFetcher {
             return (c.clearances, c.weights)
         }
         let clauses = boxes.map {
-            let bbox = "\(($0.s).fixed(4)),\(($0.w).fixed(4)),\(($0.n).fixed(4)),\(($0.e).fixed(4))"
+            let bbox = "\($0.s.fixed(4)),\($0.w.fixed(4)),\($0.n.fixed(4)),\($0.e.fixed(4))"
             return "way[\"maxheight\"](\(bbox));way[\"maxweight\"](\(bbox));"
         }.joined()
         let query = "[out:json][timeout:10];(\(clauses));out geom tags;"
