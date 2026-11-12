@@ -32,6 +32,8 @@
 //!   forecast — the forecast predictors over climate + scoring
 //!   route_blend — a whole road scored in one call: field, forecast,
 //!              flood evidence, live feeds, alerts, closures
+//!   corridor_watch — the live corridor watch's rules: window, slice,
+//!              reading, fold
 //!   hazard_feeds — live feed scores, the alert service's geometry and
 //!              severity rules, the CRE fuel scan
 //!   long_trips — the fuel warning, the long-trip share and the saved road
@@ -73,6 +75,7 @@ pub mod alert_text;
 pub mod alerts;
 pub mod ch;
 pub mod climate;
+pub mod corridor_watch;
 pub mod distance;
 pub mod families;
 pub mod fcmp;

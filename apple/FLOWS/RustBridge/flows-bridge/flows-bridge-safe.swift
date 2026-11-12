@@ -41,6 +41,14 @@ public func flows_climate_parse_flhh(_ data: Span<UInt8>) -> Optional<FlowsHarmo
     _flowsLend(data) { (data: UnsafeBufferPointer<UInt8>) -> Optional<FlowsHarmonicTable> in flows_climate_parse_flhh(data) }
 }
 
+public func flows_corridor_reading(_ risks: Span<Double>, _ count: Int64) -> FlowsCorridorReading {
+    _flowsLend(risks) { (risks: UnsafeBufferPointer<Double>) -> FlowsCorridorReading in flows_corridor_reading(risks, count) }
+}
+
+public func flows_corridor_fold(_ route: Span<Double>, _ route_codes: Span<Int64>, _ route_count: Int64, _ window: Span<Double>, _ window_codes: Span<Int64>, _ window_count: Int64) -> RustVec<Double> {
+    _flowsLend(route) { (route: UnsafeBufferPointer<Double>) -> RustVec<Double> in _flowsLend(route_codes) { (route_codes: UnsafeBufferPointer<Int64>) -> RustVec<Double> in _flowsLend(window) { (window: UnsafeBufferPointer<Double>) -> RustVec<Double> in _flowsLend(window_codes) { (window_codes: UnsafeBufferPointer<Int64>) -> RustVec<Double> in flows_corridor_fold(route, route_codes, route_count, window, window_codes, window_count) } } } }
+}
+
 public func flows_geo_fuel_station_is_reachable(_ station_lat: Double, _ station_lon: Double, _ here_lat: Double, _ here_lon: Double, _ course_degrees: Double, _ route_lats: Span<Double>, _ route_lons: Span<Double>, _ route_count: Int64, _ corridor_meters: Double) -> Bool {
     _flowsLend(route_lats) { (route_lats: UnsafeBufferPointer<Double>) -> Bool in _flowsLend(route_lons) { (route_lons: UnsafeBufferPointer<Double>) -> Bool in flows_geo_fuel_station_is_reachable(station_lat, station_lon, here_lat, here_lon, course_degrees, route_lats, route_lons, route_count, corridor_meters) } }
 }

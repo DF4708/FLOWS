@@ -26,6 +26,7 @@ const BRIDGES: &[&str] = &[
     "src/alert_text.rs",
     "src/alerts.rs",
     "src/climate.rs",
+    "src/corridor_watch.rs",
     "src/forecast.rs",
     "src/geo.rs",
     "src/hazard_feeds.rs",

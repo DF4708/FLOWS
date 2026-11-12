@@ -792,6 +792,112 @@ extension FlowsHarmonicTable: Vectorizable {
 
 
 
+public func flows_corridor_window(_ speed: Double) -> FlowsCorridorWindow {
+    __swift_bridge__$flows_corridor_window(speed).intoSwiftRepr()
+}
+public func flows_corridor_seconds_per_meter(_ eta: Double, _ distance_meters: Double) -> Double {
+    __swift_bridge__$flows_corridor_seconds_per_meter(eta, distance_meters)
+}
+public func flows_corridor_average_mph(_ distance_meters: Double, _ eta: Double) -> Double {
+    __swift_bridge__$flows_corridor_average_mph(distance_meters, eta)
+}
+public func flows_corridor_match_meters() -> Double {
+    __swift_bridge__$flows_corridor_match_meters()
+}
+public func flows_corridor_repaint_margin() -> Double {
+    __swift_bridge__$flows_corridor_repaint_margin()
+}
+public func flows_corridor_slice(_ count: Int64, _ spacing: Double, _ along: Double, _ lookahead: Double, _ seconds_per_meter: Double) -> RustVec<Double> {
+    RustVec(ptr: __swift_bridge__$flows_corridor_slice(count, spacing, along, lookahead, seconds_per_meter))
+}
+public func flows_corridor_reading(_ risks: UnsafeBufferPointer<Double>, _ count: Int64) -> FlowsCorridorReading {
+    __swift_bridge__$flows_corridor_reading(risks.toFfiSlice(), count).intoSwiftRepr()
+}
+public func flows_corridor_fold(_ route: UnsafeBufferPointer<Double>, _ route_codes: UnsafeBufferPointer<Int64>, _ route_count: Int64, _ window: UnsafeBufferPointer<Double>, _ window_codes: UnsafeBufferPointer<Int64>, _ window_count: Int64) -> RustVec<Double> {
+    RustVec(ptr: __swift_bridge__$flows_corridor_fold(route.toFfiSlice(), route_codes.toFfiSlice(), route_count, window.toFfiSlice(), window_codes.toFfiSlice(), window_count))
+}
+public struct FlowsCorridorWindow {
+    public var lookahead: Double
+    public var cadence: Double
+
+    public init(lookahead: Double,cadence: Double) {
+        self.lookahead = lookahead
+        self.cadence = cadence
+    }
+
+    @inline(__always)
+    func intoFfiRepr() -> __swift_bridge__$FlowsCorridorWindow {
+        { let val = self; return __swift_bridge__$FlowsCorridorWindow(lookahead: val.lookahead, cadence: val.cadence); }()
+    }
+}
+extension __swift_bridge__$FlowsCorridorWindow {
+    @inline(__always)
+    func intoSwiftRepr() -> FlowsCorridorWindow {
+        { let val = self; return FlowsCorridorWindow(lookahead: val.lookahead, cadence: val.cadence); }()
+    }
+}
+extension __swift_bridge__$Option$FlowsCorridorWindow {
+    @inline(__always)
+    func intoSwiftRepr() -> Optional<FlowsCorridorWindow> {
+        if self.is_some {
+            return self.val.intoSwiftRepr()
+        } else {
+            return nil
+        }
+    }
+
+    @inline(__always)
+    static func fromSwiftRepr(_ val: Optional<FlowsCorridorWindow>) -> __swift_bridge__$Option$FlowsCorridorWindow {
+        if let v = val {
+            return __swift_bridge__$Option$FlowsCorridorWindow(is_some: true, val: v.intoFfiRepr())
+        } else {
+            return __swift_bridge__$Option$FlowsCorridorWindow(is_some: false, val: __swift_bridge__$FlowsCorridorWindow())
+        }
+    }
+}
+public struct FlowsCorridorReading {
+    public var mean: Double
+    public var peak: Double
+    public var peak_index: Double
+
+    public init(mean: Double,peak: Double,peak_index: Double) {
+        self.mean = mean
+        self.peak = peak
+        self.peak_index = peak_index
+    }
+
+    @inline(__always)
+    func intoFfiRepr() -> __swift_bridge__$FlowsCorridorReading {
+        { let val = self; return __swift_bridge__$FlowsCorridorReading(mean: val.mean, peak: val.peak, peak_index: val.peak_index); }()
+    }
+}
+extension __swift_bridge__$FlowsCorridorReading {
+    @inline(__always)
+    func intoSwiftRepr() -> FlowsCorridorReading {
+        { let val = self; return FlowsCorridorReading(mean: val.mean, peak: val.peak, peak_index: val.peak_index); }()
+    }
+}
+extension __swift_bridge__$Option$FlowsCorridorReading {
+    @inline(__always)
+    func intoSwiftRepr() -> Optional<FlowsCorridorReading> {
+        if self.is_some {
+            return self.val.intoSwiftRepr()
+        } else {
+            return nil
+        }
+    }
+
+    @inline(__always)
+    static func fromSwiftRepr(_ val: Optional<FlowsCorridorReading>) -> __swift_bridge__$Option$FlowsCorridorReading {
+        if let v = val {
+            return __swift_bridge__$Option$FlowsCorridorReading(is_some: true, val: v.intoFfiRepr())
+        } else {
+            return __swift_bridge__$Option$FlowsCorridorReading(is_some: false, val: __swift_bridge__$FlowsCorridorReading())
+        }
+    }
+}
+
+
 public func flows_forecast_predictor_family_names() -> RustVec<RustString> {
     RustVec(ptr: __swift_bridge__$flows_forecast_predictor_family_names())
 }

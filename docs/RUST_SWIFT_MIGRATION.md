@@ -1621,12 +1621,50 @@ bit, to `RiskEquations.bandInput` + `realizedRisk` for one point, which is
 why that Swift function stays: nothing in the app calls it now, but the
 band-input tests pin it and this test ties it to what the route runs.
 
+## Wave 3, second landing: the live corridor watch's rules (2026-11-11)
+
+The watch's scoring was already the route blend call. What stayed inline
+in `AppModel` and `WeatherAlertService` were its rules: how far ahead to
+look and how often (`watchWindow`), which check points that is and when the
+driver reaches each, what one pass adds up to (mean, worst, which one), and
+which of the route's own check points a pass repaints. 7c34c97 gathered
+them, unchanged, into `CorridorWatchRules` (a listed Core file, so tests
+can see them); this landing computes them in `flows_core::corridor_watch`.
+
+The oracle is 1,500 records frozen at 7c34c97
+(`swift_corridor_watch_oracle.tsv`); the Rust matched all of them on its
+first run. Four mutants (the 600 m match made inclusive, the 0.02 repaint
+margin made inclusive, last-of-equal-worst, the slice clamp dropped) each
+break between 5 and 56 records. The margin mutant survived the first
+fixture, which had no reading exactly 0.02 away; the generator was given
+such readings and the fixture frozen again before the port was committed.
+
+One behaviour is new on purpose. The Swift crashed when the vehicle's
+position along the route was not a number, or the route had no check
+points (`Int(Double.nan)`, a negative clamp bound). The Rust answers
+"every check point, each reached now": a watch that cannot place its
+window keeps watching, and no alert is discounted for ending before the
+driver arrives. The facade answers the same when the call gives no answer
+or one that does not fit the route. Those inputs are not in the fixture;
+Rust unit tests and `CorridorWatchRulesTests` pin them.
+
+Alerts cross as numbers. The fold only asks "is this the same alert", so
+the facade gives each distinct (event, id) pair one number per call and no
+text crosses.
+
+The facade was checked end to end: the harness, compiled against the Swift
+that now calls Rust, printed the fixture's bytes.
+
+The learned-ETA factor (`TrafficLearning`) and `EscalationPolicy` were
+already Rust; the average-speed rule that picks the road class moved with
+this landing.
+
 ### Wave 3 remaining
 
 | item | state |
 |---|---|
-| AppModel's route scoring as one batched call off the main actor | LANDED (this landing) |
+| AppModel's route scoring as one batched call off the main actor | LANDED (first landing) |
 | RouteService and NavigationEngine over one opaque per-leg geometry | open |
-| Live corridor updates and learned ETA | the corridor watch's scoring is the same call; the update rules and learned ETA are open |
+| Live corridor updates and learned ETA | LANDED (second landing) |
 | The compute leaked into views: the ContentView sweep, RouteChoicesView's route designations, NavigationHUD | open |
 | The geo facade itself | open, last |
