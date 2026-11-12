@@ -6,6 +6,7 @@
 // permission of the copyright holder.
 // -----------------------------------------------------------------------------
 
+import FlowsBridge
 import Foundation
 
 /// The arrow that matches what the instruction actually says.
@@ -14,64 +15,28 @@ import Foundation
 /// human-readable instruction — so the symbol is read from that text. A
 /// banner showing a right turn while the words say "turn left" is worse than
 /// no icon at all, which is why this is pure and heavily pinned by tests.
+///
+/// The rules run in Rust (flows-core `maneuver`, pinned by a frozen oracle of
+/// this file's original Swift, its two regular expressions included);
+/// Swift keeps the symbol names and the words.
 enum ManeuverSymbol {
+
+    /// The SF Symbols, in `maneuver::SYMBOL_NAMES`' order.
+    static let symbolNames = [
+        "mappin.circle.fill", "arrow.uturn.down", "arrow.triangle.turn.up.right.circle",
+        "arrow.up.left", "arrow.up.right", "arrow.up", "arrow.merge",
+        "arrow.turn.up.left", "arrow.turn.up.right",
+    ]
 
     /// SF Symbol for an instruction. Order matters: the most specific
     /// phrasings are matched before the general ones ("slight left" before
-    /// "left"; "u-turn" before "turn").
+    /// "left"; "u-turn" before "turn"). The SHAPE of the maneuver wins over
+    /// the KIND of road it happens on: "slight left onto the ramp" is a slight
+    /// left, not a ramp. Nothing recognised gives a neutral arrow, never a
+    /// guessed direction.
     static func symbol(for instruction: String) -> String {
-        let s = instruction.lowercased()
-
-        // Arrival and departure bookend every route.
-        if s.contains("arrive") || s.contains("you have arrived") { return "mappin.circle.fill" }
-        if s.contains("u-turn") || s.contains("make a u turn") { return "arrow.uturn.down" }
-
-        // Roundabouts name their exit rather than a direction.
-        if s.contains("roundabout") || s.contains("traffic circle") || s.contains("rotary") {
-            return "arrow.triangle.turn.up.right.circle"
-        }
-
-        // The SHAPE of the maneuver wins over the KIND of road it happens
-        // on: "slight left onto the ramp" is a slight left, not a ramp.
-        // "Keep straight to stay on I-94" and "Stay on US-12" name no side:
-        // straight ahead, not a guessed bear right.
-        if s.contains("slight") || s.contains("bear ")
-            || s.contains("keep ") || s.contains("stay ")
-        {
-            switch side(of: s) {
-            case .left: return "arrow.up.left"
-            case .right: return "arrow.up.right"
-            case .none: return "arrow.up"
-            }
-        }
-
-        // Ramps and merges read differently from a street turn.
-        if s.contains("merge") { return "arrow.merge" }
-        if s.contains("exit") || s.contains("ramp") {
-            return side(of: s) == .left
-                ? "arrow.turn.up.left" : "arrow.turn.up.right"
-        }
-
-        // Sharp turns.
-        if s.contains("sharp") {
-            return side(of: s) == .left
-                ? "arrow.turn.up.left" : "arrow.turn.up.right"
-        }
-
-        // Plain turns — the common case.
-        if s.contains("turn") || s.contains("left") || s.contains("right") {
-            switch side(of: s) {
-            case .left: return "arrow.turn.up.left"
-            case .right: return "arrow.turn.up.right"
-            case .none: break
-            }
-        }
-
-        if s.contains("continue") || s.contains("head ") || s.contains("proceed") {
-            return "arrow.up"
-        }
-        // Nothing recognised: a neutral arrow, never a guessed direction.
-        return "arrow.up"
+        let i = Int(flows_maneuver_symbol(instruction))
+        return symbolNames.indices.contains(i) ? symbolNames[i] : "arrow.up"
     }
 
     enum Side { case left, right, none }
@@ -79,30 +44,16 @@ enum ManeuverSymbol {
     /// Which way the instruction turns. "Left" and "right" also appear as
     /// street names ("turn onto Left Fork Rd"), so the word is only taken as
     /// a direction when it isn't part of the destination phrase — the text
-    /// after "onto"/"on to"/"toward" is stripped before matching.
+    /// after "onto"/"on to"/"toward" is stripped before matching. When both
+    /// appear, the FIRST one is the maneuver.
     static func side(of instruction: String) -> Side {
-        let s = strippedDestination(instruction.lowercased())
-        let left = s.contains("left")
-        let right = s.contains("right")
-        if left && !right { return .left }
-        if right && !left { return .right }
-        if left && right {
-            // Both present: the FIRST one is the maneuver, the later one is
-            // usually part of a road name.
-            let li = s.range(of: "left")!.lowerBound
-            let ri = s.range(of: "right")!.lowerBound
-            return li < ri ? .left : .right
-        }
-        return .none
+        Side(rustCode: flows_maneuver_side(instruction))
     }
 
     /// Drop the destination clause so a street called "Right Fork" can't
     /// steer the arrow.
     static func strippedDestination(_ s: String) -> String {
-        for marker in [" onto ", " on to ", " toward ", " towards ", " to stay on "] {
-            if let r = s.range(of: marker) { return String(s[s.startIndex..<r.lowerBound]) }
-        }
-        return s
+        flows_maneuver_stripped_destination(s).text
     }
 }
 
@@ -116,7 +67,32 @@ enum ManeuverSymbol {
 /// `nil` comes back and the banner shows no lanes.
 enum LaneGuidance {
     /// Which side of the roadway the recommended lanes sit on.
-    enum Side: Equatable { case left, right, center }
+    enum Side: Equatable {
+        case left, right, center
+
+        /// The bridge's code: 0 left, 1 right, 2 center.
+        var rustCode: Int64 {
+            switch self {
+            case .left: return 0
+            case .right: return 1
+            case .center: return 2
+            }
+        }
+        init(rustCode: Int64) {
+            switch rustCode {
+            case 0: self = .left
+            case 1: self = .right
+            default: self = .center
+            }
+        }
+        var word: String {
+            switch self {
+            case .left: return "left"
+            case .right: return "right"
+            case .center: return "center"
+            }
+        }
+    }
 
     struct Advice: Equatable {
         /// How many lanes the driver should be in (as stated).
@@ -127,78 +103,40 @@ enum LaneGuidance {
         let text: String
     }
 
-    /// Parse lane advice out of an instruction, or nil when it states none.
-    static func advice(for instruction: String) -> Advice? {
-        let s = instruction.lowercased()
-        // "Use the 2 right lanes to turn right" / "use the left 3 lanes"
-        // Only a lane PHRASE counts — a side word beside "lane(s)", with the
-        // count beside them. Any "lane" in the text used to do: "Turn left
-        // onto Shady Lane" drew a made-up lane box, "toward Stone Rd" read
-        // "one" out of "Stone", and "exit 2" was taken for two lanes.
-        if let phrase = lanePhrase(in: s) {
-            let side = phrase.side
-            let count = phrase.count
-            let plural = count == 1 ? "lane" : "lanes"
-            let sideWord = side == .left ? "left" : side == .right ? "right" : "center"
-            return Advice(
-                laneCount: count, side: side,
-                text: "Use the \(count) \(sideWord) \(plural)")
-        }
-        // "Keep left at the fork" implies a side without naming lanes.
-        if s.contains("keep left") || s.contains("stay left") {
-            return Advice(laneCount: 1, side: .left, text: "Keep left")
-        }
-        if s.contains("keep right") || s.contains("stay right") {
-            return Advice(laneCount: 1, side: .right, text: "Keep right")
-        }
-        return nil
+    /// The bridge's `count << 3 | side << 1 | keep`, or nil for its -1.
+    private static func decode(_ v: Int64) -> (count: Int, side: Side, keep: Bool)? {
+        guard v >= 0 else { return nil }
+        return (Int(v >> 3), Side(rustCode: (v >> 1) & 3), v & 1 == 1)
     }
 
-    private static let laneNumbers =
-        [
-            "1": 1, "2": 2, "3": 3, "4": 4, "5": 5, "6": 6,
-            "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6,
-        ]
+    /// Parse lane advice out of an instruction, or nil when it states none.
+    /// Only a lane PHRASE counts ("use the 2 right lanes", "the left 3
+    /// lanes"); "Keep left at the fork" implies a side without naming lanes.
+    static func advice(for instruction: String) -> Advice? {
+        guard let a = decode(flows_maneuver_advice(instruction)) else { return nil }
+        if a.keep {
+            return Advice(laneCount: a.count, side: a.side, text: "Keep \(a.side.word)")
+        }
+        let plural = a.count == 1 ? "lane" : "lanes"
+        return Advice(
+            laneCount: a.count, side: a.side,
+            text: "Use the \(a.count) \(a.side.word) \(plural)")
+    }
 
     /// "the 2 right lanes", "the left 3 lanes", "the three left lanes", "the
     /// middle lane" in lowercased text: the side and the count (1 when none
     /// is stated). Apple writes the count as a digit or a word, on either
     /// side of the side word. nil when the text has no such phrase.
     static func lanePhrase(in s: String) -> (side: Side, count: Int)? {
-        let n = #"(\d|one|two|three|four|five|six)"#
-        let pattern =
-            #"\b(?:"# + n + #"\s+)?(left|right|center|middle)\s+(?:"# + n
-            + #"\s+)?lanes?\b"#
-        guard let regex = try? NSRegularExpression(pattern: pattern),
-            let match = regex.firstMatch(in: s, range: NSRange(s.startIndex..., in: s))
-        else { return nil }
-        func group(_ i: Int) -> String? {
-            Range(match.range(at: i), in: s).map { String(s[$0]) }
-        }
-        let side: Side
-        switch group(2) {
-        case "left": side = .left
-        case "right": side = .right
-        default: side = .center
-        }
-        let count = (group(1) ?? group(3)).flatMap { laneNumbers[$0] } ?? 1
-        return (side, count)
+        decode(flows_maneuver_lane_phrase(s)).map { ($0.side, $0.count) }
     }
 
     /// Which of `total` lanes to fill green, left to right (0-indexed).
     /// A drawing helper, so the diagram and the words can't disagree.
     static func highlighted(advice: Advice, total: Int) -> Set<Int> {
-        guard total > 0 else { return [] }
-        let n = min(advice.laneCount, total)
-        switch advice.side {
-        case .left:
-            return Set(0..<n)
-        case .right:
-            return Set((total - n)..<total)
-        case .center:
-            let start = max((total - n) / 2, 0)
-            return Set(start..<min(start + n, total))
-        }
+        let r = Array(flows_maneuver_highlighted(Int64(advice.laneCount), advice.side.rustCode, Int64(total)))
+        guard r.count == 2, r[0] < r[1] else { return [] }
+        return Set(Int(r[0])..<Int(r[1]))
     }
 }
 
@@ -208,38 +146,16 @@ extension ManeuverSymbol {
     /// no numbered exit ("take the exit toward Madison", "the 2nd exit" of a
     /// roundabout).
     static func exitNumber(in instruction: String) -> String? {
-        guard
-            let r = instruction.range(
-                of: #"(?i)\bexit\s+\d{1,4}[a-z]?\b"#,
-                options: .regularExpression)
-        else { return nil }
-        return instruction[r].split(whereSeparator: \.isWhitespace).last
-            .map { $0.uppercased() }
+        let n = flows_maneuver_exit_number(instruction).text
+        return n.isEmpty ? nil : n
     }
 
     /// The lane movement an instruction asks for — what the lit arrows in
     /// the lane box show. The same reading as `symbol(for:)`: a ramp or
     /// exit that names no side is a right one.
     static func turn(for instruction: String) -> LaneData.Turn {
-        let s = instruction.lowercased()
-        if s.contains("u-turn") || s.contains("make a u turn") { return .reverse }
-        let side = side(of: s)
-        if s.contains("slight") || s.contains("bear ")
-            || s.contains("keep ") || s.contains("stay ")
-        {
-            return side == .left ? .slightLeft : side == .right ? .slightRight : .through
-        }
-        if s.contains("merge") { return side == .left ? .mergeToLeft : .mergeToRight }
-        if s.contains("exit") || s.contains("ramp") {
-            return side == .left ? .left : .right
-        }
-        if s.contains("sharp") {
-            return side == .left ? .sharpLeft : side == .right ? .sharpRight : .through
-        }
-        if s.contains("turn") || side != .none {
-            return side == .left ? .left : side == .right ? .right : .through
-        }
-        return .through
+        let code = Int(flows_maneuver_turn(instruction))
+        return LaneData.Turn.byCode.indices.contains(code) ? LaneData.Turn.byCode[code] : .through
     }
 }
 
@@ -260,25 +176,13 @@ enum LaneBox {
         lanes: [LaneData.Lane], recommended: Set<Int>,
         instruction: String
     ) -> [Arrow] {
-        let maneuver = ManeuverSymbol.turn(for: instruction)
-        let curlsLeft = ManeuverSymbol.side(of: instruction) != .right
-        if !lanes.isEmpty {
-            // A U-turn lane curls toward the side of the road it is on.
-            return lanes.enumerated().map { i, lane in
-                Arrow(
-                    turn: lane.primary, lit: recommended.contains(i),
-                    uTurnLeft: i < (lanes.count + 1) / 2)
-            }
+        // Never empty: the -1 between the lanes and the recommended ones.
+        let flat = lanes.map { Int64($0.primary.rustCode) } + [-1] + recommended.map { Int64($0) }
+        let v = flat.lent { Array(flows_maneuver_lane_box($0, instruction)) }
+        return stride(from: 0, to: v.count - 2, by: 3).compactMap { i in
+            let t = Int(v[i])
+            guard LaneData.Turn.byCode.indices.contains(t) else { return nil }
+            return Arrow(turn: LaneData.Turn.byCode[t], lit: v[i + 1] == 1, uTurnLeft: v[i + 2] == 1)
         }
-        if let advice = LaneGuidance.advice(for: instruction) {
-            let total = max(advice.laneCount + 2, 3)
-            let lit = LaneGuidance.highlighted(advice: advice, total: total)
-            return (0..<total).map { i in
-                Arrow(
-                    turn: lit.contains(i) ? maneuver : .through, lit: lit.contains(i),
-                    uTurnLeft: curlsLeft)
-            }
-        }
-        return [Arrow(turn: maneuver, lit: true, uTurnLeft: curlsLeft)]
     }
 }

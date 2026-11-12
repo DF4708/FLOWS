@@ -27,7 +27,12 @@
 //!   applies it) and the `u-ci-after` ranges (scalars that keep a match from
 //!   ending just before them);
 //! - `fixtures/swift_tags_and_replies_oracle.tsv`: the single `u-letter`
-//!   record (`Character.isLetter`, as ranges over every scalar).
+//!   record (`Character.isLetter`, as ranges over every scalar);
+//! - `fixtures/swift_maneuver_symbol_oracle.tsv`: the `u-icu-*` records (the
+//!   classes ICU applies inside `NSRegularExpression`), the `u-rx-digit` and
+//!   `u-rx-word` records (Swift Regex's) and the `u-cws` records
+//!   (`Character.isWhitespace`), the `ICU_*`, `SWIFT_REGEX_*` and
+//!   `CHARACTER_WHITESPACE_*` tables.
 //!
 //! `swift_places_text_oracle.rs` and its siblings then check every table
 //! against the same records over the whole scalar domain.
@@ -101,7 +106,41 @@ struct Tables {
     nfd: Vec<(u32, Vec<u32>)>,
     fold: Vec<(u32, Vec<u32>)>,
     after: Vec<Vec<u32>>,
+    /// ICU's regex classes and `Character.isWhitespace`, by record kind.
+    icu: Vec<(&'static str, Vec<Vec<u32>>)>,
 }
+
+/// The maneuver fixture's range records, in the order the file lists their
+/// tables: record kind, table name, doc.
+const ICU_TABLES: &[(&str, &str, &str)] = &[
+    ("u-icu-digit", "ICU_DIGIT_RANGES", "ICU's `\\d`"),
+    ("u-icu-space", "ICU_SPACE_RANGES", "ICU's `\\s`"),
+    (
+        "u-icu-word",
+        "ICU_WORD_RANGES",
+        "ICU's word scalars for `\\b`",
+    ),
+    (
+        "u-icu-skip",
+        "ICU_SKIP_RANGES",
+        "The scalars ICU's `\\b` looks through (Grapheme_Extend and Cf)",
+    ),
+    (
+        "u-rx-digit",
+        "SWIFT_REGEX_DIGIT_RANGES",
+        "Swift Regex's `\\d` for a Character that starts with the scalar",
+    ),
+    (
+        "u-rx-word",
+        "SWIFT_REGEX_WORD_RANGES",
+        "Swift Regex's word Characters for a simple `\\b`, by the scalar they start with",
+    ),
+    (
+        "u-cws",
+        "CHARACTER_WHITESPACE_RANGES",
+        "Scalars whose `Character` answers `isWhitespace`",
+    ),
+];
 
 fn read_tables() -> Tables {
     let mut t = Tables::default();
@@ -194,6 +233,17 @@ fn read_tables() -> Tables {
             _ => {}
         }
     }
+
+    t.icu = ICU_TABLES
+        .iter()
+        .map(|(kind, _, _)| (*kind, Vec::new()))
+        .collect();
+    for line in fixture("swift_maneuver_symbol_oracle.tsv").lines() {
+        let f: Vec<&str> = line.split('\t').collect();
+        if let Some((_, rows)) = t.icu.iter_mut().find(|(kind, _)| *kind == f[0]) {
+            rows.push(pair(&f));
+        }
+    }
     t
 }
 
@@ -279,6 +329,9 @@ fn generate() -> String {
     ] {
         check_sorted(name, &keys);
     }
+    for (kind, rows) in &t.icu {
+        check_sorted(kind, &first(rows));
+    }
     let fold_width = 1 + t.fold.iter().map(|(_, m)| m.len()).max().unwrap_or(0);
 
     let body = [
@@ -296,6 +349,15 @@ fn generate() -> String {
         array("CI_AFTER_BLOCKER_RANGES", &["Scalars that keep a case-insensitive match from ending just before them, as", "inclusive `lo, hi` pairs (from the alert-text fixture)."], 2, &t.after),
     ]
     .concat();
+    let icu: String = ICU_TABLES
+        .iter()
+        .zip(&t.icu)
+        .map(|((_, name, what), (_, rows))| {
+            let doc = format!("{what}, as inclusive `lo, hi` pairs.");
+            array(name, &[doc.as_str()], 2, rows)
+        })
+        .collect();
+    let body = body + &icu;
 
     let header = format!(
         "// -----------------------------------------------------------------------------

@@ -1858,8 +1858,8 @@ the original Swift and the same landing steps as waves 2 and 3:
 |---|---|
 | `InternationalWeather` | LANDED (first landing) |
 | `TouristInfo` | LANDED (second landing) |
-| `ManeuverSymbol` text reading | next |
-| `RiskAreaFallback` | open |
+| `ManeuverSymbol` text reading | LANDED (third landing) |
+| `RiskAreaFallback` | next |
 | `BadgeClustering` | open |
 | `WMOAlerts` | open |
 | `RiskAdvice` | open |
@@ -1918,3 +1918,33 @@ the same length, the original picked whichever the dictionary gave first,
 which changes from run to run; Rust gives it to the smaller key by bytes
 (83 such records are left out of the fixture, and a test pins the rule).
 The five largest weekdays, where Swift's `+ 5` traps, now answer.
+
+## Wave 4, third landing: the turn-by-turn text (2026-11-12)
+
+`ManeuverSymbol`, `LaneGuidance` and `LaneBox` keep the SF Symbol names,
+the lane advice's words and the drawing, and ask Rust for every reading of
+MapKit's instruction text: the arrow, the side (with the destination
+clause stripped first), the lane turn, the lane advice and its phrase, the
+exit number, which lanes to light and the lane box's arrows. The rules
+live in `flows_core::maneuver`; nine bridge calls, `flows_maneuver_*`,
+carry them.
+
+The two regular expressions are matched by hand, each on its own engine.
+`lanePhrase` ran on ICU (`NSRegularExpression`), scalar by scalar.
+`exitNumber` ran on Swift Regex (`range(of:options: .regularExpression)`),
+Character by Character: a Character's class is its first scalar's, its
+`\b` is the simple one, "_" is a word Character only alone, its
+case-insensitive letters are ASCII only and its `\d` takes ² and ½. The
+classes of both engines live in `swift_text` (`icu` and `swift_regex`),
+read out of the runtime by the oracle harness.
+
+The oracle (`swift_maneuver_symbol_oracle.tsv`, 14,610 records) was frozen
+from the original Swift at 9e8fcef: both engines' classes over every
+scalar and for Characters of several scalars, Apple's phrasings and the
+unit tests' phrases, random instructions with look-alike letters, other
+scripts' digits and glued marks, every lit-lane count, and random lane
+boxes. Twenty-six changed rules and four changed facades all fail it; the
+five that survive are the same rule written another way. The counts and
+reasons are in the harness README.
+
+Nothing changes on purpose.

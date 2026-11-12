@@ -1071,3 +1071,128 @@ mod tests {
         assert!(!is_word_start(""));
     }
 }
+
+/// ICU's regular-expression classes, as `NSRegularExpression` applies them:
+/// read out of the runtime scalar by scalar (the maneuver oracle's
+/// `u-icu-*` records), for the patterns ported by hand.
+pub mod icu {
+    use super::range_entry;
+    use super::tables::{
+        CHARACTER_WHITESPACE_RANGES, CHARACTER_WHITESPACE_RANGES_STRIDE, ICU_DIGIT_RANGES,
+        ICU_DIGIT_RANGES_STRIDE, ICU_SKIP_RANGES, ICU_SKIP_RANGES_STRIDE, ICU_SPACE_RANGES,
+        ICU_SPACE_RANGES_STRIDE, ICU_WORD_RANGES, ICU_WORD_RANGES_STRIDE,
+    };
+
+    fn within(table: &[u32], stride: usize, c: char) -> bool {
+        range_entry(table, stride, c as u32).is_some()
+    }
+
+    /// `\d`.
+    #[must_use]
+    pub fn is_digit(c: char) -> bool {
+        within(ICU_DIGIT_RANGES, ICU_DIGIT_RANGES_STRIDE, c)
+    }
+
+    /// `\s`.
+    #[must_use]
+    pub fn is_space(c: char) -> bool {
+        within(ICU_SPACE_RANGES, ICU_SPACE_RANGES_STRIDE, c)
+    }
+
+    /// A scalar `\b` looks through: never a boundary just before it, and
+    /// skipped when looking back for the scalar before a place.
+    #[must_use]
+    pub fn is_skip(c: char) -> bool {
+        within(ICU_SKIP_RANGES, ICU_SKIP_RANGES_STRIDE, c)
+    }
+
+    /// A word scalar for `\b` (meaningful for scalars that are not skipped).
+    #[must_use]
+    pub fn is_word(c: char) -> bool {
+        within(ICU_WORD_RANGES, ICU_WORD_RANGES_STRIDE, c)
+    }
+
+    /// Swift's `Character.isWhitespace` for a scalar that starts a Character
+    /// (not ICU's, kept here beside `\s` so the two are not confused).
+    #[must_use]
+    pub fn is_character_whitespace(c: char) -> bool {
+        within(
+            CHARACTER_WHITESPACE_RANGES,
+            CHARACTER_WHITESPACE_RANGES_STRIDE,
+            c,
+        )
+    }
+}
+
+/// Swift Regex's classes, as `String.range(of:options: .regularExpression)`
+/// applies them: to whole Characters (`graphemes`), with simple word
+/// boundaries. Read out of the runtime (the maneuver oracle's `u-rx-*`
+/// records): `\d`, `\s` and the word test go by the Character's first
+/// scalar (save "_", a word Character only alone); a case-insensitive
+/// ASCII letter or `[a-z]` matches only a Character that is that one ASCII
+/// scalar.
+pub mod swift_regex {
+    use super::range_entry;
+    use super::tables::{
+        SWIFT_REGEX_DIGIT_RANGES, SWIFT_REGEX_DIGIT_RANGES_STRIDE, SWIFT_REGEX_WORD_RANGES,
+        SWIFT_REGEX_WORD_RANGES_STRIDE,
+    };
+
+    fn first(cluster: &str) -> Option<char> {
+        cluster.chars().next()
+    }
+
+    fn only(cluster: &str) -> Option<char> {
+        let mut cs = cluster.chars();
+        let c = cs.next()?;
+        cs.next().is_none().then_some(c)
+    }
+
+    /// `\d`.
+    #[must_use]
+    pub fn is_digit(cluster: &str) -> bool {
+        first(cluster).is_some_and(|c| {
+            range_entry(
+                SWIFT_REGEX_DIGIT_RANGES,
+                SWIFT_REGEX_DIGIT_RANGES_STRIDE,
+                c as u32,
+            )
+            .is_some()
+        })
+    }
+
+    /// `\s`: the same answer as `Character.isWhitespace`.
+    #[must_use]
+    pub fn is_space(cluster: &str) -> bool {
+        first(cluster).is_some_and(super::icu::is_character_whitespace)
+    }
+
+    /// A word Character for a simple `\b`: a letter or number by its first
+    /// scalar, or "_" alone (a "_" with a mark on it is not one).
+    #[must_use]
+    pub fn is_word(cluster: &str) -> bool {
+        first(cluster).is_some_and(|c| {
+            if c == '_' {
+                return cluster == "_";
+            }
+            range_entry(
+                SWIFT_REGEX_WORD_RANGES,
+                SWIFT_REGEX_WORD_RANGES_STRIDE,
+                c as u32,
+            )
+            .is_some()
+        })
+    }
+
+    /// `(?i)[a-z]`.
+    #[must_use]
+    pub fn is_case_insensitive_az(cluster: &str) -> bool {
+        only(cluster).is_some_and(|c| c.is_ascii_alphabetic())
+    }
+
+    /// `(?i)` followed by the ASCII letter `letter`.
+    #[must_use]
+    pub fn case_insensitive_is(cluster: &str, letter: char) -> bool {
+        only(cluster).is_some_and(|c| c.eq_ignore_ascii_case(&letter))
+    }
+}

@@ -264,6 +264,10 @@ public func flows_long_trips_record_corridor(_ saved_at: Span<Double>, _ end_lat
     _flowsLend(saved_at) { (saved_at: UnsafeBufferPointer<Double>) -> RustVec<Int64> in _flowsLend(end_lats) { (end_lats: UnsafeBufferPointer<Double>) -> RustVec<Int64> in _flowsLend(end_lons) { (end_lons: UnsafeBufferPointer<Double>) -> RustVec<Int64> in _flowsLend(has_end) { (has_end: UnsafeBufferPointer<UInt8>) -> RustVec<Int64> in flows_long_trips_record_corridor(saved_at, end_lats, end_lons, has_end, corridor_count, new_lat, new_lon, has_new, now) } } } }
 }
 
+public func flows_maneuver_lane_box<GenericToRustStr: ToRustStr>(_ lanes_then_recommended: Span<Int64>, _ instruction: GenericToRustStr) -> RustVec<Int64> {
+    _flowsLend(lanes_then_recommended) { (lanes_then_recommended: UnsafeBufferPointer<Int64>) -> RustVec<Int64> in flows_maneuver_lane_box(lanes_then_recommended, instruction) }
+}
+
 public func flows_modes_nearest_station(_ lat: Double, _ lon: Double, _ lats: Span<Double>, _ lons: Span<Double>, _ exact: Span<UInt8>) -> FlowsModesNearest {
     _flowsLend(lats) { (lats: UnsafeBufferPointer<Double>) -> FlowsModesNearest in _flowsLend(lons) { (lons: UnsafeBufferPointer<Double>) -> FlowsModesNearest in _flowsLend(exact) { (exact: UnsafeBufferPointer<UInt8>) -> FlowsModesNearest in flows_modes_nearest_station(lat, lon, lats, lons, exact) } } }
 }

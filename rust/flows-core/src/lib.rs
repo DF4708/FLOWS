@@ -97,6 +97,7 @@ pub mod intl_weather;
 pub mod learning;
 pub mod leg_geometry;
 pub mod long_trips;
+pub mod maneuver;
 pub mod media_policy;
 pub mod places;
 pub mod places_text;

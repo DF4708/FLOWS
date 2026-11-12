@@ -1953,6 +1953,51 @@ extension __swift_bridge__$Option$FlowsLongTripsDay {
 }
 
 
+public func flows_maneuver_symbol<GenericToRustStr: ToRustStr>(_ instruction: GenericToRustStr) -> Int64 {
+    return instruction.toRustStr({ instructionAsRustStr in
+        __swift_bridge__$flows_maneuver_symbol(instructionAsRustStr)
+    })
+}
+public func flows_maneuver_side<GenericToRustStr: ToRustStr>(_ instruction: GenericToRustStr) -> UInt8 {
+    return instruction.toRustStr({ instructionAsRustStr in
+        __swift_bridge__$flows_maneuver_side(instructionAsRustStr)
+    })
+}
+public func flows_maneuver_turn<GenericToRustStr: ToRustStr>(_ instruction: GenericToRustStr) -> UInt8 {
+    return instruction.toRustStr({ instructionAsRustStr in
+        __swift_bridge__$flows_maneuver_turn(instructionAsRustStr)
+    })
+}
+public func flows_maneuver_stripped_destination<GenericToRustStr: ToRustStr>(_ text: GenericToRustStr) -> RustString {
+    return text.toRustStr({ textAsRustStr in
+        RustString(ptr: __swift_bridge__$flows_maneuver_stripped_destination(textAsRustStr))
+    })
+}
+public func flows_maneuver_lane_phrase<GenericToRustStr: ToRustStr>(_ lowercased: GenericToRustStr) -> Int64 {
+    return lowercased.toRustStr({ lowercasedAsRustStr in
+        __swift_bridge__$flows_maneuver_lane_phrase(lowercasedAsRustStr)
+    })
+}
+public func flows_maneuver_advice<GenericToRustStr: ToRustStr>(_ instruction: GenericToRustStr) -> Int64 {
+    return instruction.toRustStr({ instructionAsRustStr in
+        __swift_bridge__$flows_maneuver_advice(instructionAsRustStr)
+    })
+}
+public func flows_maneuver_exit_number<GenericToRustStr: ToRustStr>(_ instruction: GenericToRustStr) -> RustString {
+    return instruction.toRustStr({ instructionAsRustStr in
+        RustString(ptr: __swift_bridge__$flows_maneuver_exit_number(instructionAsRustStr))
+    })
+}
+public func flows_maneuver_highlighted(_ count: Int64, _ side: Int64, _ total: Int64) -> RustVec<Int64> {
+    RustVec(ptr: __swift_bridge__$flows_maneuver_highlighted(count, side, total))
+}
+public func flows_maneuver_lane_box<GenericToRustStr: ToRustStr>(_ lanes_then_recommended: UnsafeBufferPointer<Int64>, _ instruction: GenericToRustStr) -> RustVec<Int64> {
+    return instruction.toRustStr({ instructionAsRustStr in
+        RustVec(ptr: __swift_bridge__$flows_maneuver_lane_box(lanes_then_recommended.toFfiSlice(), instructionAsRustStr))
+    })
+}
+
+
 public func flows_modes_signal_tier<GenericToRustStr: ToRustStr>(_ radio_technology: GenericToRustStr, _ has_technology: Bool, _ on_wifi: Bool, _ offline: Bool) -> UInt8 {
     return radio_technology.toRustStr({ radio_technologyAsRustStr in
         __swift_bridge__$flows_modes_signal_tier(radio_technologyAsRustStr, has_technology, on_wifi, offline)
