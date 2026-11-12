@@ -1821,3 +1821,45 @@ the same classification decision.
 | Live corridor updates and learned ETA | LANDED (second landing) |
 | The compute leaked into views: the ContentView sweep, RouteChoicesView's route designations, NavigationHUD | route designations LANDED (third landing); NavigationHUD and the readouts LANDED (fourth landing); the ContentView sweep LANDED (fifth landing) |
 | The geo facade itself | LANDED (seventh landing) |
+
+## The leftover files, classified (2026-11-12)
+
+Wave 3 left sixteen Core files on no list: some the wave-1 inventory skipped,
+some newer than it. Each was read against the plan's rubric (§ "The
+transition: plan of record"): GUI and platform code stays, compute moves.
+
+| file | lines | call | why |
+|---|---:|---|---|
+| `InternationalWeather` | 138 | move | the SWOB wind-key pick, the unit choice, the conversions and the SMN midpoint are rules; the gunzip (Compression island) and the JSON stay |
+| `TouristInfo` | 109 | move | fee and season rules over a bundled table |
+| `ManeuverSymbol` | 284 | move | reads the turn out of MapKit's instruction text (tier 4, a parser of third-party text); the SF Symbol names it returns stay as data |
+| `RiskAreaFallback` | 192 | move | when a rough hull stands in for a missing area, and its shape |
+| `BadgeClustering` | 244 | move | which badges survive by kind and separation; the degree conversions go with it |
+| `WMOAlerts` | 378 | move | the national feeds' severity, expiry and area reading; fetches stay |
+| `RiskAdvice` | 568 | move | which advice a hazard and its size earn; the words stay as table data |
+| `TextScale` | 98 | stay: GUI | text size against the window's width |
+| `GoldenScale` | 212 | stay: GUI | chrome proportions and layout |
+| `SiriSummaries` | 258 | stay: GUI | spoken copy under the plain-words rule |
+| `VehicleTrack` | 214 | stay: GUI | smooths the marker between fixes; drawing only |
+| `CameraZoom` | 196 | stay: GUI | where the map camera sits; its own meters and degrees stay with it |
+| `IntentClarifier` | 87 | stay: platform | on-device language model help |
+| `ZipBordersAndTransit` | 148 | stay: platform | TIGERweb fetches and their cache |
+| `VoiceReply` | 365 | already moved | its rules answer from `flows_tags_*` (wave 2, long tail) |
+| `TruckerRadio` | 658 | already moved | its rules answer from `flows_rides_*` (wave 2, long tail) |
+
+The map view's visible-span size in `ContentView` stays with the view.
+
+### Wave 4
+
+The seven "move" rows, smallest leaf first, each with a frozen oracle from
+the original Swift and the same landing steps as waves 2 and 3:
+
+| item | state |
+|---|---|
+| `InternationalWeather` | next |
+| `TouristInfo` | open |
+| `ManeuverSymbol` text reading | open |
+| `RiskAreaFallback` | open |
+| `BadgeClustering` | open |
+| `WMOAlerts` | open |
+| `RiskAdvice` | open |
