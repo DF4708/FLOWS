@@ -14,7 +14,7 @@
 //!
 //! The fixture is never regenerated from Rust. To extend it, check out the
 //! commit named in its header and rerun the harness in
-//! `oracle-harness/trip_vehicle`.
+//! `oracle-harness/trip_vehicle` (retired; see `oracle-harness/RETIRED.md`).
 
 use flows_bridge::trip_vehicle::*;
 use flows_core::trip_vehicle as tv;

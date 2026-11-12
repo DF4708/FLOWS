@@ -14,7 +14,8 @@
 //!
 //! The fixture is never regenerated from Rust. To extend it, check out the
 //! commit named in its header and rerun the Swift harness described in
-//! `oracle-harness/vehicle_policy/README.md`.
+//! `oracle-harness/vehicle_policy/README.md` (retired; see
+//! `oracle-harness/RETIRED.md`).
 
 use flows_bridge::vehicle_policy::*;
 use flows_core::vehicle_policy as vp;

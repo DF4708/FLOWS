@@ -1308,7 +1308,8 @@ bindings beside the base-commit sources (the original `ClimateProfiles` and
 `LatitudeBands`, the `RiskEquations` and `FlowsCore` facades,
 `InternationalWeather` and `SpeedLaw` for the names `NWSForecastService`
 uses) with stubs for the network, cache, alert and diagnostics types the
-oracle never touches. That recipe (`oracle-harness/forecast/README.md`)
+oracle never touches. That recipe (`oracle-harness/forecast/README.md`, now
+retired with the other Swift 5 harnesses; see `oracle-harness/RETIRED.md`)
 serves every remaining group whose original already called the bridge —
 most of wave 2.
 

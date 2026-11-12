@@ -14,7 +14,7 @@
 //!
 //! The fixture is never regenerated from Rust. To extend it, check out the
 //! commit named in its header and rerun the harness described in
-//! `oracle-harness/geo/README.md`.
+//! `oracle-harness/geo/README.md` (retired; see `oracle-harness/RETIRED.md`).
 
 use flows_core::geo::{self, RoutePath, ShowerLocationTable, SwiftTrap};
 use std::collections::BTreeMap;
