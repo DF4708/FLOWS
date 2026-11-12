@@ -1857,8 +1857,8 @@ the original Swift and the same landing steps as waves 2 and 3:
 | item | state |
 |---|---|
 | `InternationalWeather` | LANDED (first landing) |
-| `TouristInfo` | next |
-| `ManeuverSymbol` text reading | open |
+| `TouristInfo` | LANDED (second landing) |
+| `ManeuverSymbol` text reading | next |
 | `RiskAreaFallback` | open |
 | `BadgeClustering` | open |
 | `WMOAlerts` | open |
@@ -1892,3 +1892,29 @@ out of the fixture; the Rust's byte order makes the pick steady. No real
 station names its fields that way.
 
 Nothing else changes on purpose.
+
+## Wave 4, second landing: the tourist stop card (2026-11-12)
+
+`TouristInfo` keeps the card's words, the bundled fee table and the name's
+clean-up (`normalized`, whose diacritic folding is Foundation's and not per
+scalar), and asks Rust for the rules: which fee line a place gets (a
+national park's longest table key, counted in Characters, else the park
+default; other national sites their default; everything else "prices
+vary"), which kind the header names (the MapKit category first, compared
+the way Swift's `==` compares, then the name's words in order), and the
+Monday-first day. The rules live in `flows_core::tourist_info`; three
+bridge calls, `flows_tourist_*`, carry them. The fee table crosses once as
+a text column when it loads; Rust answers an index into it.
+
+The oracle (`swift_tourist_info_oracle.tsv`, 6,716 records) was frozen
+from the original Swift at 2b9201f: the bundled table, odd keys and random
+tables against built names, random names and categories (including ones
+spelled with the Kelvin sign), each name word with a scalar glued to its
+end, and weekdays out to the extremes. Sixteen changed rules and three
+changed facades all fail it; the counts are in the harness README.
+
+Two things change on purpose. When a park's name holds two longest keys of
+the same length, the original picked whichever the dictionary gave first,
+which changes from run to run; Rust gives it to the smaller key by bytes
+(83 such records are left out of the fixture, and a test pins the rule).
+The five largest weekdays, where Swift's `+ 5` traps, now answer.

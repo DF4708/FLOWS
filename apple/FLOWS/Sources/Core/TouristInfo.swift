@@ -6,17 +6,29 @@
 // permission of the copyright holder.
 // -----------------------------------------------------------------------------
 
+import FlowsBridge
 import Foundation
 
 /// Plain-words facts for the tourist stop card: what a place is, what it
-/// costs to get in, and which hours line applies today. Pure and pinned by
-/// FLOWSTests; the bundled NPS fee table plugs in at load time.
+/// costs to get in, and which hours line applies today. The rules run in
+/// Rust (flows-core `tourist_info`, pinned by a frozen oracle of this file's
+/// original Swift); Swift keeps the words, the bundled table and the name's
+/// clean-up, whose diacritic folding is Foundation's own.
 enum TouristInfo {
     /// National-park entry fees (NPS posted rates, per 7-day pass), bundled
     /// as nps_entry_fees.json. Keys are lowercase park names; notes are the
     /// exact plain-words line the card shows.
     struct FeeTable {
         let notes: [String: String]
+        /// The keys in the order they cross to Rust, which answers an index.
+        let keys: [String]
+        let column: RustTextColumn
+
+        init(notes: [String: String]) {
+            self.notes = notes
+            keys = Array(notes.keys)
+            column = RustTextColumn(keys)
+        }
 
         static func loadBundled() -> FeeTable {
             guard
@@ -44,6 +56,10 @@ enum TouristInfo {
             .replacingOccurrences(of: "\u{2014}", with: "-")
     }
 
+    static let parkDefault = "Free at most park spots. Big parks often charge for each car."
+    static let siteDefault = "Free at most sites like this. Some charge a small fee."
+    static let pricesVary = "Prices vary — check before you go."
+
     /// The card's "Cost to get in" line.
     ///   * National parks: the posted fee from the table ("$35 for each car" /
     ///     "Free to enter"), longest key wins so Glacier Bay never reads as
@@ -53,57 +69,34 @@ enum TouristInfo {
     ///   * Everything else (museums, zoos, theme parks): prices vary.
     static func feeNote(name: String?, table: FeeTable) -> String {
         let n = normalized(name ?? "")
-        if n.contains("national park") {
-            let hit = table.notes
-                .filter { n.contains($0.key) }
-                .max { $0.key.count < $1.key.count }
-            return hit?.value
-                ?? "Free at most park spots. Big parks often charge for each car."
+        let code = table.column.with { joined, lens, _ in
+            flows_tourist_fee(n, joined, lens, Int64(table.keys.count))
         }
-        for site in [
-            "national monument", "national memorial", "national historic",
-            "national historical", "national seashore", "national lakeshore",
-            "national recreation", "national battlefield", "national preserve",
-        ]
-        where n.contains(site) {
-            return "Free at most sites like this. Some charge a small fee."
+        switch code {
+        case -1: return parkDefault
+        case -2: return siteDefault
+        case 0..<Int64(table.keys.count): return table.notes[table.keys[Int(code)]] ?? pricesVary
+        default: return pricesVary
         }
-        return "Prices vary — check before you go."
     }
+
+    /// The card header's words, in `tourist_info::Kind`'s order.
+    static let kindWords = [
+        "National park", "Museum", "Theme park", "Zoo", "Aquarium", "Park", "Landmark", "State park",
+        "Monument", "Cave", "Waterfall", "Beach", "Trail", "Garden", "Place worth a stop",
+    ]
 
     /// Plain-words kind for the card header. `categoryRaw` is the MapKit
     /// point-of-interest raw value when the result carries one; the name
     /// keywords cover offline-shard results that don't.
     static func plainKind(name: String?, categoryRaw: String?) -> String {
-        switch categoryRaw {
-        case "MKPOICategoryNationalPark": return "National park"
-        case "MKPOICategoryMuseum": return "Museum"
-        case "MKPOICategoryAmusementPark": return "Theme park"
-        case "MKPOICategoryZoo": return "Zoo"
-        case "MKPOICategoryAquarium": return "Aquarium"
-        case "MKPOICategoryPark": return "Park"
-        case "MKPOICategoryLandmark": return "Landmark"
-        default: break
-        }
-        let n = normalized(name ?? "")
-        if n.contains("national park") { return "National park" }
-        if n.contains("state park") { return "State park" }
-        if n.contains("museum") { return "Museum" }
-        if n.contains("zoo") { return "Zoo" }
-        if n.contains("aquarium") { return "Aquarium" }
-        if n.contains("monument") || n.contains("memorial") { return "Monument" }
-        if n.contains("cave") || n.contains("cavern") { return "Cave" }
-        if n.contains("falls") { return "Waterfall" }
-        if n.contains("beach") { return "Beach" }
-        if n.contains("trail") { return "Trail" }
-        if n.contains("garden") { return "Garden" }
-        if n.contains("park") { return "Park" }
-        return "Place worth a stop"
+        let k = flows_tourist_kind(normalized(name ?? ""), categoryRaw ?? "", categoryRaw != nil)
+        return kindWords.indices.contains(Int(k)) ? kindWords[Int(k)] : "Place worth a stop"
     }
 
     /// Google's hours lines come Monday-first; Calendar weekdays come
     /// 1 = Sunday. Map one to the other so "today" picks the right line.
     static func mondayFirstIndex(weekday: Int) -> Int {
-        ((weekday + 5) % 7)
+        Int(flows_tourist_monday_first_index(Int64(weekday)))
     }
 }

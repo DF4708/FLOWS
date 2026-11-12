@@ -577,6 +577,10 @@ public func flows_tags_ranked_nearest<GenericToRustStr: ToRustStr>(_ lats: Span<
     _flowsLend(lats) { (lats: UnsafeBufferPointer<Double>) -> RustVec<Int64> in _flowsLend(has_lat) { (has_lat: UnsafeBufferPointer<UInt8>) -> RustVec<Int64> in _flowsLend(lons) { (lons: UnsafeBufferPointer<Double>) -> RustVec<Int64> in _flowsLend(has_lon) { (has_lon: UnsafeBufferPointer<UInt8>) -> RustVec<Int64> in _flowsLend(votes) { (votes: UnsafeBufferPointer<Int64>) -> RustVec<Int64> in _flowsLend(url_lengths) { (url_lengths: UnsafeBufferPointer<Int64>) -> RustVec<Int64> in flows_tags_ranked_nearest(lats, has_lat, lons, has_lon, votes, urls, url_lengths, count, lat, lon) } } } } } }
 }
 
+public func flows_tourist_fee<GenericToRustStr: ToRustStr>(_ name: GenericToRustStr, _ keys_joined: GenericToRustStr, _ key_lens: Span<Int64>, _ count: Int64) -> Int64 {
+    _flowsLend(key_lens) { (key_lens: UnsafeBufferPointer<Int64>) -> Int64 in flows_tourist_fee(name, keys_joined, key_lens, count) }
+}
+
 public func flows_transit_build<GenericToRustStr: ToRustStr>(_ gtfs_dir: GenericToRustStr, _ prefix: GenericToRustStr, _ service_date: Int64, _ day_starts: Span<Double>) -> RustVec<RustString> {
     _flowsLend(day_starts) { (day_starts: UnsafeBufferPointer<Double>) -> RustVec<RustString> in flows_transit_build(gtfs_dir, prefix, service_date, day_starts) }
 }

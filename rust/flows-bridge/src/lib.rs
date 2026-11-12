@@ -75,6 +75,7 @@ pub mod route_blend;
 pub mod route_designations;
 pub mod seasonal;
 pub mod tags_and_replies;
+pub mod tourist_info;
 pub mod transit;
 pub mod trip_readouts;
 pub mod trip_vehicle;

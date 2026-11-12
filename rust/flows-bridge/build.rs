@@ -46,6 +46,7 @@ const BRIDGES: &[&str] = &[
     "src/route_designations.rs",
     "src/seasonal.rs",
     "src/tags_and_replies.rs",
+    "src/tourist_info.rs",
     "src/transit.rs",
     "src/trip_vehicle.rs",
     "src/vehicle_policy.rs",

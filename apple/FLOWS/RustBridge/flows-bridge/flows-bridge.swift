@@ -4209,6 +4209,25 @@ extension __swift_bridge__$Option$FlowsTagsOutcome {
 }
 
 
+public func flows_tourist_fee<GenericToRustStr: ToRustStr>(_ name: GenericToRustStr, _ keys_joined: GenericToRustStr, _ key_lens: UnsafeBufferPointer<Int64>, _ count: Int64) -> Int64 {
+    return keys_joined.toRustStr({ keys_joinedAsRustStr in
+        return name.toRustStr({ nameAsRustStr in
+        __swift_bridge__$flows_tourist_fee(nameAsRustStr, keys_joinedAsRustStr, key_lens.toFfiSlice(), count)
+    })
+    })
+}
+public func flows_tourist_kind<GenericToRustStr: ToRustStr>(_ name: GenericToRustStr, _ category: GenericToRustStr, _ has_category: Bool) -> Int64 {
+    return category.toRustStr({ categoryAsRustStr in
+        return name.toRustStr({ nameAsRustStr in
+        __swift_bridge__$flows_tourist_kind(nameAsRustStr, categoryAsRustStr, has_category)
+    })
+    })
+}
+public func flows_tourist_monday_first_index(_ weekday: Int64) -> Int64 {
+    __swift_bridge__$flows_tourist_monday_first_index(weekday)
+}
+
+
 public func flows_transit_agency_zone<GenericToRustStr: ToRustStr>(_ gtfs_dir: GenericToRustStr) -> RustString {
     return gtfs_dir.toRustStr({ gtfs_dirAsRustStr in
         RustString(ptr: __swift_bridge__$flows_transit_agency_zone(gtfs_dirAsRustStr))

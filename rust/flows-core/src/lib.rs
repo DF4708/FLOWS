@@ -114,6 +114,7 @@ pub mod scoring;
 pub mod seasonal;
 pub mod swift_text;
 pub mod tags_and_replies;
+pub mod tourist_info;
 pub mod transit;
 pub mod travel_modes;
 pub mod trip_readouts;
