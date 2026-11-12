@@ -38,6 +38,8 @@
 //!              Efficient, the trucker badge, and time behind the fastest
 //!   trip_readouts — the numbers behind the distance and time readouts:
 //!              feet and miles, minutes and hours, alert share, grade
+//!   viewport_point — the map sweep at one point: the families that show,
+//!              the band input and what names the badge
 //!   hazard_feeds — live feed scores, the alert service's geometry and
 //!              severity rules, the CRE fuel scan
 //!   long_trips — the fuel warning, the long-trip share and the saved road
@@ -114,6 +116,7 @@ pub mod trip_readouts;
 pub mod trip_shape;
 pub mod trip_vehicle;
 pub mod vehicle_policy;
+pub mod viewport_point;
 
 pub use families::{
     alert_family, dominant_family, family_weight, flood_elevation_multiplier, is_primary,

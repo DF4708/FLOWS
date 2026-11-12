@@ -433,6 +433,14 @@ public func flows_readout_grade_at(_ mile: Double, _ stretches: Span<Double>, _ 
     _flowsLend(stretches) { (stretches: UnsafeBufferPointer<Double>) -> Double in flows_readout_grade_at(mile, stretches, count) }
 }
 
+public func flows_viewport_display<GenericToRustStr: ToRustStr>(_ score: Double, _ names: GenericToRustStr, _ scores: Span<Double>, _ count: Int64, _ forecast_count: Int64, _ live: Span<Double>, _ has_air: Bool) -> RustVec<Double> {
+    _flowsLend(scores) { (scores: UnsafeBufferPointer<Double>) -> RustVec<Double> in _flowsLend(live) { (live: UnsafeBufferPointer<Double>) -> RustVec<Double> in flows_viewport_display(score, names, scores, count, forecast_count, live, has_air) } }
+}
+
+public func flows_viewport_point<GenericToRustStr: ToRustStr>(_ names: GenericToRustStr, _ scores: Span<Double>, _ count: Int64, _ flood_realized: Double, _ convective: Double, _ precip_risk: Double, _ alert_family: GenericToRustStr, _ has_alert: Bool, _ alert_severity: Double, _ closed: Double) -> RustVec<Double> {
+    _flowsLend(scores) { (scores: UnsafeBufferPointer<Double>) -> RustVec<Double> in flows_viewport_point(names, scores, count, flood_realized, convective, precip_risk, alert_family, has_alert, alert_severity, closed) }
+}
+
 public func flows_designation_safest(_ rows: Span<Double>, _ count: Int64) -> Int64 {
     _flowsLend(rows) { (rows: UnsafeBufferPointer<Double>) -> Int64 in flows_designation_safest(rows, count) }
 }

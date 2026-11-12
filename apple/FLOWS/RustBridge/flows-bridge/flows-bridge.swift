@@ -3375,6 +3375,23 @@ public func flows_readout_grade_at(_ mile: Double, _ stretches: UnsafeBufferPoin
 }
 
 
+public func flows_viewport_band_names() -> RustString {
+    RustString(ptr: __swift_bridge__$flows_viewport_band_names())
+}
+public func flows_viewport_display<GenericToRustStr: ToRustStr>(_ score: Double, _ names: GenericToRustStr, _ scores: UnsafeBufferPointer<Double>, _ count: Int64, _ forecast_count: Int64, _ live: UnsafeBufferPointer<Double>, _ has_air: Bool) -> RustVec<Double> {
+    return names.toRustStr({ namesAsRustStr in
+        RustVec(ptr: __swift_bridge__$flows_viewport_display(score, namesAsRustStr, scores.toFfiSlice(), count, forecast_count, live.toFfiSlice(), has_air))
+    })
+}
+public func flows_viewport_point<GenericToRustStr: ToRustStr>(_ names: GenericToRustStr, _ scores: UnsafeBufferPointer<Double>, _ count: Int64, _ flood_realized: Double, _ convective: Double, _ precip_risk: Double, _ alert_family: GenericToRustStr, _ has_alert: Bool, _ alert_severity: Double, _ closed: Double) -> RustVec<Double> {
+    return alert_family.toRustStr({ alert_familyAsRustStr in
+        return names.toRustStr({ namesAsRustStr in
+        RustVec(ptr: __swift_bridge__$flows_viewport_point(namesAsRustStr, scores.toFfiSlice(), count, flood_realized, convective, precip_risk, alert_familyAsRustStr, has_alert, alert_severity, closed))
+    })
+    })
+}
+
+
 public func flows_designation_toll_allowance_usd() -> Double {
     __swift_bridge__$flows_designation_toll_allowance_usd()
 }

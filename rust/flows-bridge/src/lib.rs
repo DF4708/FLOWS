@@ -77,6 +77,7 @@ pub mod transit;
 pub mod trip_readouts;
 pub mod trip_vehicle;
 pub mod vehicle_policy;
+pub mod viewport_point;
 
 /// Run `f`, turning a panic into `fallback`.
 /// The first `count` texts of a joined column, split by their UTF-8

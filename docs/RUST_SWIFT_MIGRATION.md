@@ -1718,6 +1718,39 @@ NavigationHUD's speed and efficiency rules already ran in Core
 (`SpeedLaw`, `DriveEfficiency`), so the readouts were the last rules of
 this kind in the driving screen.
 
+## Wave 3, fifth landing: the map sweep at one point (2026-11-12)
+
+The map's sweep asks, for each point in view: does anything show here,
+what is the risk band fed, and what names the badge. Those rules sat inline
+in `ContentView`'s sweep closure, 130 lines no test could reach. 6a716f6
+moved them into `Core/ViewportPointRules.swift`; this landing computes them
+in `flows_core::viewport_point`. The view still gathers the readings
+(forecast, live feeds, gauges, air and UV, alerts, closures) and turns the
+name into a `HazardKind`.
+
+The rules, as they were: a point shows from 0.25 on the blended forecast or
+on any one family; the worst family names the badge from 0.45, never the
+blended composite; the flood family on rain chance alone reads as rain; a
+warning for a primary family names it from 0.6; a closure names it from 0.8
+unless the warning did; and a realized primary at Yellow takes the name
+from a predictor. The band is fed the realized readings, not the display
+families. This is the sweep's own band-input builder, ported as it is; the
+route's builder is a different one and the two were not merged.
+
+The oracle is 3,600 records frozen at 6a716f6
+(`swift_viewport_point_oracle.tsv`); the Rust matched all of them on its
+first run, and the facade prints the same bytes. Forty-seven mutants were
+run before the freeze and all break records (harness README).
+
+One behaviour is new on purpose, and it came with the refactor commit: two
+realized primaries that tie for the worst now go to the lower family name.
+The name used to follow Dictionary order, so the same point could show a
+different badge on the next launch.
+
+Families cross as U+001F-joined names beside a column of scores. If the
+call ever fails, the point is shown on the forecast and the band is fed
+everything on show: the careful side.
+
 ### Wave 3 remaining
 
 | item | state |
@@ -1725,5 +1758,5 @@ this kind in the driving screen.
 | AppModel's route scoring as one batched call off the main actor | LANDED (first landing) |
 | RouteService and NavigationEngine over one opaque per-leg geometry | open |
 | Live corridor updates and learned ETA | LANDED (second landing) |
-| The compute leaked into views: the ContentView sweep, RouteChoicesView's route designations, NavigationHUD | route designations LANDED (third landing); NavigationHUD and the readouts LANDED (fourth landing); the ContentView sweep is open |
+| The compute leaked into views: the ContentView sweep, RouteChoicesView's route designations, NavigationHUD | route designations LANDED (third landing); NavigationHUD and the readouts LANDED (fourth landing); the ContentView sweep LANDED (fifth landing) |
 | The geo facade itself | open, last |

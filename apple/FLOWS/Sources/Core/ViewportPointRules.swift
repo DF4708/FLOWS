@@ -6,22 +6,21 @@
 // permission of the copyright holder.
 // -----------------------------------------------------------------------------
 
+import FlowsBridge
 import Foundation
 
 /// What the map's sweep makes of one point: which hazard families show
 /// there, what the risk band is fed, and what names the badge. The rules sat
 /// inline in the map view's sweep, where no test could see them.
+///
+/// The rules are computed in rust/flows-core (viewport_point.rs) and called
+/// through rust/flows-bridge; pinned bit for bit to the Swift they replaced
+/// by rust/flows-bridge/tests/fixtures/swift_viewport_point_oracle.tsv. The
+/// floors live there: a point shows from 0.25 on the blended forecast or on
+/// any one family, a family names the badge from 0.45, an alert from 0.6, a
+/// closure from 0.8, and a realized primary takes the name from a predictor
+/// at Yellow.
 enum ViewportPointRules {
-    /// A point shows on the map from this score up, on the blended forecast
-    /// or on any one family.
-    static let showFloor = 0.25
-    /// A flood family below this on the gauges alone is only "it may rain".
-    static let floodNameFloor = 0.45
-    /// An alert names the badge from this severity up.
-    static let alertNameFloor = 0.6
-    /// A closure names the badge from this score up.
-    static let closureNameFloor = 0.8
-
     /// The live readings at one point, each already scored 0 to 1.
     struct Live: Equatable {
         var fire = 0.0
@@ -40,27 +39,50 @@ enum ViewportPointRules {
         var uv = 0.0
     }
 
+    private static let separator = "\u{1F}"
+    /// The families a live reading can add to the forecast's own.
+    private static let liveNames = [
+        "fire", "seismic", "qpf_flood", "air", "radiation", "volcanic", "avalanche", "tropical", "tsunami",
+        "convective",
+    ]
+    /// The band's own families, in the order Rust returns their scores.
+    private static let bandNames: [String] = flows_viewport_band_names().text
+        .split(separator: "\u{1F}").map(String.init)
+
     /// The families that show at a point: the forecast's own, with the live
     /// readings laid over them. Nil when nothing registers there: neither
-    /// the blended forecast `score` nor any one family reaches `showFloor`.
-    /// The family overlay needs a point even when the blended score is quiet.
+    /// the blended forecast `score` nor any one family reaches the show
+    /// floor. The family overlay needs a point even when the blended score
+    /// is quiet.
     static func displayFamilies(score: Double, forecast: [String: Double], live: Live) -> [String: Double]? {
-        var families = forecast
-        families["fire"] = live.fire
-        families["seismic"] = live.seismic
-        families["qpf_flood"] = max(families["qpf_flood"] ?? 0, live.floodRealized)
-        if let air = live.air { families["air"] = air }
-        // Space weather and UV share a family.
-        let radiation = max(live.spaceRadiation, live.uv)
-        if radiation > 0 { families["radiation"] = radiation }
-        if live.volcanic > 0 { families["volcanic"] = live.volcanic }
-        if live.avalanche > 0 { families["avalanche"] = live.avalanche }
-        if live.tropical > 0 { families["tropical"] = live.tropical }
-        if live.tsunami > 0 { families["tsunami"] = live.tsunami }
-        if live.convective > 0 {
-            families["convective"] = max(families["convective"] ?? 0, live.convective)
+        // Every name the answer could hold: the forecast's first, then the
+        // live families it does not already have. Never empty.
+        let pairs = Array(forecast)
+        var names = pairs.map(\.key)
+        var scores = pairs.map(\.value)
+        for name in liveNames where forecast[name] == nil {
+            names.append(name)
+            scores.append(0)
         }
-        guard score >= showFloor || families.values.contains(where: { $0 >= showFloor }) else { return nil }
+        let readings = [
+            live.fire, live.seismic, live.volcanic, live.avalanche, live.tropical, live.tsunami, live.convective,
+            live.spaceRadiation, live.floodRealized, live.air ?? 0, live.uv,
+        ]
+        let joined = names.joined(separator: separator)
+        let out = Array(
+            scores.lent { s in
+                readings.lent { r in
+                    flows_viewport_display(
+                        score, joined, s, Int64(names.count), Int64(pairs.count), r, live.air != nil)
+                }
+            })
+        // No answer: show the point on the forecast rather than hide it.
+        guard out.count == 1 + 2 * names.count else { return forecast }
+        guard out[0] == 1 else { return nil }
+        var families: [String: Double] = [:]
+        for (i, name) in names.enumerated() where out[1 + 2 * i] == 1 {
+            families[name] = out[2 + 2 * i]
+        }
         return families
     }
 
@@ -106,57 +128,42 @@ enum ViewportPointRules {
         families shown: [String: Double], live: Live, precipRisk: Double,
         alertFamily: String?, alertSeverity: Double, closed: Double
     ) -> Point {
+        let pairs = Array(shown)
+        // An empty list never crosses: one score and a count of zero.
+        let joined = pairs.isEmpty ? "-" : pairs.map(\.key).joined(separator: separator)
+        let scores = pairs.isEmpty ? [0] : pairs.map(\.value)
+        let out = Array(
+            scores.lent {
+                flows_viewport_point(
+                    joined, $0, Int64(pairs.count), live.floodRealized, live.convective, precipRisk,
+                    alertFamily ?? "-", alertFamily != nil, alertSeverity, closed)
+            })
+        // No answer: keep what shows, feed the band all of it (the careful
+        // side), and leave the name to the forecast.
+        guard out.count == 9 + bandNames.count else {
+            return Point(families: shown, bandInput: shown, icon: .forecast)
+        }
         var families = shown
-        var icon: Icon
-        var iconFamily: String? = nil
-        if let top = HazardRanking.dominantFamily(families.filter { $0.key != "environmental" }) {
-            icon = top == "qpf_flood" && live.floodRealized < floodNameFloor ? .rainChance : .family(top)
-            iconFamily = top
-        } else {
-            icon = .forecast
-        }
-        var namedByAlert = false
-        if let alertFamily, alertSeverity >= alertNameFloor, RiskEquations.primaryFamilies.contains(alertFamily) {
-            icon = .alert
-            namedByAlert = true
-        }
-        var bandInput: [String: Double] = [
-            "fire": families["fire"] ?? 0,
-            "qpf_flood": live.floodRealized,
-            "convective": live.convective,
-            "seismic": families["seismic"] ?? 0,
-            "tropical": families["tropical"] ?? 0,
-            "tsunami": families["tsunami"] ?? 0,
-            "volcanic": families["volcanic"] ?? 0,
-            "avalanche": families["avalanche"] ?? 0,
-            "wind": families["wind"] ?? 0,
-            "heat": families["heat"] ?? 0,
-            "cold": families["cold"] ?? 0,
-            "air": families["air"] ?? 0,
-            "radiation": families["radiation"] ?? 0,
-            "precip": precipRisk,
-            "winter": families["winter"] ?? 0,
-        ]
-        // A realized alert at this point: a warning is a realized primary,
-        // a watch or advisory classifies to a predictor.
-        if let alertFamily {
-            bandInput[alertFamily] = max(bandInput[alertFamily] ?? 0, alertSeverity)
-        }
-        if closed > 0 {
-            bandInput["closure"] = closed
-            families["closure"] = closed
-            if closed >= closureNameFloor, !namedByAlert { icon = .closure }
-        }
-        let iconIsPrimary = iconFamily.map { RiskEquations.primaryFamilies.contains($0) } ?? false
-        let worstPrimary =
-            bandInput
-            .filter { RiskEquations.primaryFamilies.contains($0.key) }
-            .sorted { $0.key < $1.key }
-            .max { $0.value < $1.value }
-        if !namedByAlert, closed < closureNameFloor, !iconIsPrimary, let worst = worstPrimary,
-            worst.value >= FlowsCore.riskYellowMin
-        {
-            icon = .family(worst.key)
+        if out[3] == 1 { families["closure"] = out[4] }
+        var bandInput: [String: Double] = [:]
+        for (i, name) in bandNames.enumerated() { bandInput[name] = out[9 + i] }
+        if let alertFamily, out[7] == 1 { bandInput[alertFamily] = out[8] }
+        if out[5] == 1 { bandInput["closure"] = out[6] }
+        let icon: Icon
+        switch out[0] {
+        case 0:
+            let i = Int(out[2])
+            switch out[1] {
+            case 0 where pairs.indices.contains(i): icon = .family(pairs[i].key)
+            case 1 where bandNames.indices.contains(i): icon = .family(bandNames[i])
+            case 2: icon = alertFamily.map { .family($0) } ?? .forecast
+            case 3: icon = .family("closure")
+            default: icon = .forecast
+            }
+        case 1: icon = .rainChance
+        case 3: icon = .alert
+        case 4: icon = .closure
+        default: icon = .forecast
         }
         return Point(families: families, bandInput: bandInput, icon: icon)
     }
