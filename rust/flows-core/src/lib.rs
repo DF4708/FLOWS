@@ -106,6 +106,7 @@ pub mod recents_and_rides;
 pub mod rental_places;
 mod rental_places_table;
 pub mod risk;
+pub mod risk_area;
 pub mod risk_field;
 pub mod risk_summary;
 pub mod route_blend;

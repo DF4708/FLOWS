@@ -441,6 +441,22 @@ public func flows_decode_polyline_lonlat(_ bytes: Span<UInt8>) -> RustVec<Double
     _flowsLend(bytes) { (bytes: UnsafeBufferPointer<UInt8>) -> RustVec<Double> in flows_decode_polyline_lonlat(bytes) }
 }
 
+public func flows_risk_area_centroid(_ ring: Span<Double>) -> RustVec<Double> {
+    _flowsLend(ring) { (ring: UnsafeBufferPointer<Double>) -> RustVec<Double> in flows_risk_area_centroid(ring) }
+}
+
+public func flows_risk_area_icon_anchor(_ ring: Span<Double>) -> RustVec<Double> {
+    _flowsLend(ring) { (ring: UnsafeBufferPointer<Double>) -> RustVec<Double> in flows_risk_area_icon_anchor(ring) }
+}
+
+public func flows_risk_area_interior_samples(_ ring: Span<Double>, _ limit: Int64) -> RustVec<Double> {
+    _flowsLend(ring) { (ring: UnsafeBufferPointer<Double>) -> RustVec<Double> in flows_risk_area_interior_samples(ring, limit) }
+}
+
+public func flows_risk_area_contains(_ ring: Span<Double>, _ lat: Double, _ lon: Double) -> Bool {
+    _flowsLend(ring) { (ring: UnsafeBufferPointer<Double>) -> Bool in flows_risk_area_contains(ring, lat, lon) }
+}
+
 public func flows_risk_field_parse_frb1(_ data: Span<UInt8>) -> Optional<FlowsRiskField> {
     _flowsLend(data) { (data: UnsafeBufferPointer<UInt8>) -> Optional<FlowsRiskField> in flows_risk_field_parse_frb1(data) }
 }

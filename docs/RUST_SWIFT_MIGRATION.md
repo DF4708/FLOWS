@@ -1859,8 +1859,8 @@ the original Swift and the same landing steps as waves 2 and 3:
 | `InternationalWeather` | LANDED (first landing) |
 | `TouristInfo` | LANDED (second landing) |
 | `ManeuverSymbol` text reading | LANDED (third landing) |
-| `RiskAreaFallback` | next |
-| `BadgeClustering` | open |
+| `RiskAreaFallback` | LANDED (fourth landing) |
+| `BadgeClustering` | next |
 | `WMOAlerts` | open |
 | `RiskAdvice` | open |
 
@@ -1948,3 +1948,38 @@ five that survive are the same rule written another way. The counts and
 reasons are in the harness README.
 
 Nothing changes on purpose.
+
+## Wave 4, fourth landing: the risk-area geometry (2026-11-12)
+
+`RiskAreaFallback` keeps its coordinate types and asks Rust for every
+rule: the ZIP box, whether a blob waits for this sweep's ZIP lookups, the
+sweep's lattice fixed to the map, the circle drawn where no ZIP is, and a
+ring's centroid, icon anchor, interior samples and even–odd test. The
+rules live in `flows_core::risk_area`; eight bridge calls,
+`flows_risk_area_*`, carry them, a ring as `[lat, lon, lat, lon, …]`. If a
+call ever failed, `contains` answers inside, so an alert is never dropped
+because a check failed.
+
+The answers are the original's bits because the Rust copies Swift's own
+helpers: `max(x, y)` keeps a NaN `x`, `min()` and `max()` keep the first
+element until a later one beats it, `reduce(0, +)` starts from +0.0, the
+rung's `pow(2, x)` is `exp2`, and the anchor's crossings sort the way
+Swift's sort places them below 64 elements (Rust's own `sort_by` panics on
+a ring with a NaN). The circle's sine and cosine go through
+`flows_core::fmath`, so its test allows the ulp Swift's fused `sincos` can
+differ by; on the day of the switch every vertex matched to the bit.
+
+The oracle (`swift_risk_area_fallback_oracle.tsv`, 4,727 records) was
+frozen from the original Swift at f7ea216: the box's edges and the doubles
+beside them, lattices on and beside each rung, circles from 1 m to 300 km
+and at the poles, and stars, crescents, combs, rectangles, self-crossing
+rings, rings with no area and rings with a special value in every place.
+Twenty-three changed rules and six changed facades fail it, one more
+panics, and a second test kills the one that slipped through (`contains`
+on a two-point ring); six survivors are the same rule written another
+way. The counts and reasons are in the harness README.
+
+One thing changes on purpose. A lattice whose bound is infinite, or whose
+multiples are past 2^53, made the original loop until memory ran out; the
+Rust stops there (77 such lattices are left out of the fixture). The app
+never asks for one: its spans come from a real map view.

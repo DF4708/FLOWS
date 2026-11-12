@@ -3334,6 +3334,32 @@ public func flows_decode_polyline_lonlat(_ bytes: UnsafeBufferPointer<UInt8>) ->
 }
 
 
+public func flows_risk_area_in_zip_box(_ lat: Double, _ lon: Double) -> Bool {
+    __swift_bridge__$flows_risk_area_in_zip_box(lat, lon)
+}
+public func flows_risk_area_blob_waits(_ lat: Double, _ lon: Double, _ lookups_done: Bool, _ placed_before: Bool) -> Bool {
+    __swift_bridge__$flows_risk_area_blob_waits(lat, lon, lookups_done, placed_before)
+}
+public func flows_risk_area_lattice(_ center_lat: Double, _ center_lon: Double, _ span_lat: Double, _ span_lon: Double, _ per_side: Int64) -> RustVec<Double> {
+    RustVec(ptr: __swift_bridge__$flows_risk_area_lattice(center_lat, center_lon, span_lat, span_lon, per_side))
+}
+public func flows_risk_area_circle_ring(_ lat: Double, _ lon: Double, _ radius_meters: Double, _ points: Int64) -> RustVec<Double> {
+    RustVec(ptr: __swift_bridge__$flows_risk_area_circle_ring(lat, lon, radius_meters, points))
+}
+public func flows_risk_area_centroid(_ ring: UnsafeBufferPointer<Double>) -> RustVec<Double> {
+    RustVec(ptr: __swift_bridge__$flows_risk_area_centroid(ring.toFfiSlice()))
+}
+public func flows_risk_area_icon_anchor(_ ring: UnsafeBufferPointer<Double>) -> RustVec<Double> {
+    RustVec(ptr: __swift_bridge__$flows_risk_area_icon_anchor(ring.toFfiSlice()))
+}
+public func flows_risk_area_interior_samples(_ ring: UnsafeBufferPointer<Double>, _ limit: Int64) -> RustVec<Double> {
+    RustVec(ptr: __swift_bridge__$flows_risk_area_interior_samples(ring.toFfiSlice(), limit))
+}
+public func flows_risk_area_contains(_ ring: UnsafeBufferPointer<Double>, _ lat: Double, _ lon: Double) -> Bool {
+    __swift_bridge__$flows_risk_area_contains(ring.toFfiSlice(), lat, lon)
+}
+
+
 public func flows_risk_field_parse_frb1(_ data: UnsafeBufferPointer<UInt8>) -> Optional<FlowsRiskField> {
     { let val = __swift_bridge__$flows_risk_field_parse_frb1(data.toFfiSlice()); if val != nil { return FlowsRiskField(ptr: val!) } else { return nil } }()
 }

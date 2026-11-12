@@ -71,6 +71,7 @@ pub mod places;
 pub mod places_text;
 pub mod recents_and_rides;
 pub mod risk;
+pub mod risk_area;
 pub mod risk_field;
 pub mod route_blend;
 pub mod route_designations;

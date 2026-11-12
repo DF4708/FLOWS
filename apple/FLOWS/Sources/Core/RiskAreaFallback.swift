@@ -7,17 +7,22 @@
 // -----------------------------------------------------------------------------
 
 import CoreLocation
+import FlowsBridge
 import Foundation
 
 /// When the planning map outlines a risk point with its real ZIP boundary,
 /// and when a rough hull ("blob") stands in for it.
+///
+/// The rules run in Rust (flows-core `risk_area`, pinned by a frozen oracle
+/// of this file's original Swift). A ring crosses as `[lat, lon, lat, lon,
+/// …]`.
 enum RiskAreaFallback {
     /// The box the ZIP layer is asked about (`ZCTAFetcher`): the lower 48,
     /// roughly. It also takes in southern Canada, northern Mexico and the
     /// Great Lakes, where no ZIP ever comes back — so only a point's own
     /// lookup, never this box, says it has no ZIP.
     static func inZIPBox(_ c: CLLocationCoordinate2D) -> Bool {
-        c.latitude > 24 && c.latitude < 50 && c.longitude > -125 && c.longitude < -66
+        flows_risk_area_in_zip_box(c.latitude, c.longitude)
     }
 
     /// Whether a risk point's blob waits for this sweep's ZIP lookups
@@ -31,7 +36,7 @@ enum RiskAreaFallback {
         at c: CLLocationCoordinate2D, lookupsDone: Bool,
         placedBefore: Bool
     ) -> Bool {
-        inZIPBox(c) && !lookupsDone && !placedBefore
+        flows_risk_area_blob_waits(c.latitude, c.longitude, lookupsDone, placedBefore)
     }
 
     /// The planning sweep's sample points: a lattice fixed to the MAP, not
@@ -47,30 +52,10 @@ enum RiskAreaFallback {
         spanLatitude: Double, spanLongitude: Double,
         perSide: Int
     ) -> [CLLocationCoordinate2D] {
-        let across = Double(max(perSide, 1))
-        func rung(_ wanted: Double) -> Double {
-            guard wanted.isFinite, wanted > 0 else { return 1 }
-            return pow(2, (2 * log2(wanted)).rounded(.up) / 2)
-        }
-        let stepLat = rung(spanLatitude / across)
-        let stepLon = rung(spanLongitude / across)
-        let lat0 = centerLatitude - spanLatitude / 2
-        let lat1 = centerLatitude + spanLatitude / 2
-        let lon0 = centerLongitude - spanLongitude / 2
-        let lon1 = centerLongitude + spanLongitude / 2
-        var out: [CLLocationCoordinate2D] = []
-        // Whole multiples by index, not by repeated addition: a running sum
-        // drifts, and a drifted point is a different point to every cache.
-        var i = (lat0 / stepLat).rounded(.up)
-        while i * stepLat <= lat1 {
-            var j = (lon0 / stepLon).rounded(.up)
-            while j * stepLon <= lon1 {
-                out.append(CLLocationCoordinate2D(latitude: i * stepLat, longitude: j * stepLon))
-                j += 1
-            }
-            i += 1
-        }
-        return out
+        points(
+            Array(
+                flows_risk_area_lattice(
+                    centerLatitude, centerLongitude, spanLatitude, spanLongitude, Int64(perSide))))
     }
 
     /// A circle as a ring of `points` vertices — the outline for risk with no
@@ -80,14 +65,8 @@ enum RiskAreaFallback {
         center: CLLocationCoordinate2D, radiusMeters: Double,
         points: Int = 32
     ) -> [CLLocationCoordinate2D] {
-        let dLat = radiusMeters / 111_320
-        let dLon = radiusMeters / (111_320 * max(cos(center.latitude * .pi / 180), 1e-6))
-        return (0..<max(points, 3)).map { k in
-            let a = Double(k) / Double(max(points, 3)) * 2 * .pi
-            return CLLocationCoordinate2D(
-                latitude: center.latitude + dLat * sin(a),
-                longitude: center.longitude + dLon * cos(a))
-        }
+        Self.points(
+            Array(flows_risk_area_circle_ring(center.latitude, center.longitude, radiusMeters, Int64(points))))
     }
 
     /// Where an area's one icon stands: the shape's centroid when that lies
@@ -95,49 +74,13 @@ enum RiskAreaFallback {
     /// the centroid's latitude — a crescent-shaped ZIP's centroid can sit in
     /// the next ZIP over, and its icon with it.
     static func iconAnchor(of ring: [CLLocationCoordinate2D]) -> CLLocationCoordinate2D {
-        let c = centroid(of: ring)
-        guard ring.count >= 3, !contains(ring, c) else { return c }
-        var xs: [Double] = []
-        for i in 0..<ring.count {
-            let a = ring[i]
-            let b = ring[(i + 1) % ring.count]
-            if (a.latitude <= c.latitude) != (b.latitude <= c.latitude) {
-                let t = (c.latitude - a.latitude) / (b.latitude - a.latitude)
-                xs.append(a.longitude + t * (b.longitude - a.longitude))
-            }
-        }
-        xs.sort()
-        var best: (Double, Double)?
-        var k = 0
-        while k + 1 < xs.count {
-            if best == nil || xs[k + 1] - xs[k] > best!.1 - best!.0 { best = (xs[k], xs[k + 1]) }
-            k += 2
-        }
-        guard let span = best else { return c }
-        return CLLocationCoordinate2D(latitude: c.latitude, longitude: (span.0 + span.1) / 2)
+        point(dense(ring).lent { Array(flows_risk_area_icon_anchor($0)) })
     }
 
     /// Shoelace (area-weighted) centroid — the middle of the SHAPE, not of
     /// its vertices; the vertex mean for a ring with no area.
     static func centroid(of ring: [CLLocationCoordinate2D]) -> CLLocationCoordinate2D {
-        guard !ring.isEmpty else { return CLLocationCoordinate2D() }
-        var area = 0.0
-        var cx = 0.0
-        var cy = 0.0
-        for i in 0..<ring.count {
-            let a = ring[i]
-            let b = ring[(i + 1) % ring.count]
-            let cross = a.longitude * b.latitude - b.longitude * a.latitude
-            area += cross
-            cx += (a.longitude + b.longitude) * cross
-            cy += (a.latitude + b.latitude) * cross
-        }
-        if abs(area) > 1e-12 {
-            return CLLocationCoordinate2D(latitude: cy / (3 * area), longitude: cx / (3 * area))
-        }
-        let lat = ring.map(\.latitude).reduce(0, +) / Double(ring.count)
-        let lon = ring.map(\.longitude).reduce(0, +) / Double(ring.count)
-        return CLLocationCoordinate2D(latitude: lat, longitude: lon)
+        point(dense(ring).lent { Array(flows_risk_area_centroid($0)) })
     }
 
     /// Up to `limit` points spread inside a shape — its icon anchor first,
@@ -147,46 +90,32 @@ enum RiskAreaFallback {
         of ring: [CLLocationCoordinate2D],
         limit: Int = 9
     ) -> [CLLocationCoordinate2D] {
-        guard ring.count >= 3, limit > 0 else { return [] }
-        var out = [iconAnchor(of: ring)]
-        let lats = ring.map(\.latitude)
-        let lons = ring.map(\.longitude)
-        guard let la0 = lats.min(), let la1 = lats.max(),
-            let lo0 = lons.min(), let lo1 = lons.max()
-        else { return out }
-        let side = 4
-        for i in 0..<side {
-            for j in 0..<side {
-                let p = CLLocationCoordinate2D(
-                    latitude: la0 + (la1 - la0) * (Double(i) + 0.5) / Double(side),
-                    longitude: lo0 + (lo1 - lo0) * (Double(j) + 0.5) / Double(side))
-                if contains(ring, p) { out.append(p) }
-            }
-        }
-        // Spread across the shape rather than the first row of it.
-        guard out.count > limit else { return out }
-        // One point is the anchor (and the stride below would divide by 0).
-        guard limit > 1 else { return [out[0]] }
-        let stride = Double(out.count - 1) / Double(limit - 1)
-        return (0..<limit).map { out[Int((Double($0) * stride).rounded())] }
+        points(dense(ring).lent { Array(flows_risk_area_interior_samples($0, Int64(limit))) })
     }
 
     /// Even–odd point-in-polygon.
     static func contains(_ ring: [CLLocationCoordinate2D], _ p: CLLocationCoordinate2D) -> Bool {
-        guard ring.count >= 3 else { return false }
-        var inside = false
-        var j = ring.count - 1
-        for i in 0..<ring.count {
-            let a = ring[i]
-            let b = ring[j]
-            if (a.latitude > p.latitude) != (b.latitude > p.latitude) {
-                let x =
-                    a.longitude + (p.latitude - a.latitude) / (b.latitude - a.latitude)
-                    * (b.longitude - a.longitude)
-                if p.longitude < x { inside.toggle() }
-            }
-            j = i
+        dense(ring).lent { flows_risk_area_contains($0, p.latitude, p.longitude) }
+    }
+
+    private static func dense(_ ring: [CLLocationCoordinate2D]) -> [Double] {
+        var flat: [Double] = []
+        flat.reserveCapacity(ring.count * 2)
+        for c in ring {
+            flat.append(c.latitude)
+            flat.append(c.longitude)
         }
-        return inside
+        return flat
+    }
+
+    private static func points(_ flat: [Double]) -> [CLLocationCoordinate2D] {
+        stride(from: 0, to: flat.count - 1, by: 2).map {
+            CLLocationCoordinate2D(latitude: flat[$0], longitude: flat[$0 + 1])
+        }
+    }
+
+    /// One point; `(0, 0)` (an empty ring's answer) if the bridge sent none.
+    private static func point(_ flat: [Double]) -> CLLocationCoordinate2D {
+        flat.count == 2 ? CLLocationCoordinate2D(latitude: flat[0], longitude: flat[1]) : CLLocationCoordinate2D()
     }
 }
