@@ -946,6 +946,48 @@ enum EfficientRoute {
     }
 }
 
+/// Which route earns the "Safest" chip: the lowest corridor risk, decided
+/// once every route has been scored, and only when the routes differ (a
+/// clear day, every route 0: none is safest). Pure, pinned by tests.
+enum SafestRoute {
+    struct Candidate: Equatable {
+        let id: UUID
+        let risk: Double
+        let scored: Bool
+    }
+
+    static func pick(_ candidates: [Candidate]) -> UUID? {
+        let scored = candidates.filter(\.scored)
+        guard scored.count == candidates.count, scored.count > 1,
+            let best = scored.min(by: { $0.risk < $1.risk }),
+            scored.contains(where: { $0.risk > best.risk })
+        else { return nil }
+        return best.id
+    }
+}
+
+/// What a card says about time against the fastest route on offer. Pure,
+/// pinned by tests.
+enum FastestRoute {
+    /// The shortest ETA on offer; nil for no routes.
+    static func eta(_ etas: [TimeInterval]) -> TimeInterval? { etas.min() }
+
+    /// Minutes behind the fastest for the card's chip, at least 1; nil when
+    /// this IS the fastest. Only the route that is fastest says so: rounded
+    /// first, a route 29 seconds slower said "Fastest" too.
+    static func chipMinutes(eta: TimeInterval, fastest: TimeInterval) -> Int? {
+        guard eta > fastest else { return nil }
+        return max(1, Int(((eta - fastest) / 60).rounded()))
+    }
+
+    /// Whole minutes behind the fastest for the card's key point; nil when
+    /// it is not more than a minute behind.
+    static func keyPointMinutes(eta: TimeInterval, fastest: TimeInterval) -> Int? {
+        guard eta > fastest + 60 else { return nil }
+        return Int((eta - fastest) / 60)
+    }
+}
+
 /// Which route earns the trucker badge.
 ///
 /// A KNOWN low bridge DISQUALIFIES a route — it is not a 3-point penalty

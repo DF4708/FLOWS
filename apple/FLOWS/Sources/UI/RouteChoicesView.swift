@@ -1988,7 +1988,7 @@ struct RouteChoicesView: View {
         let choices = model.filteredChoices
         return CardContext(
             choices: choices,
-            fastestETA: choices.map(\.eta).min() ?? 0,
+            fastestETA: FastestRoute.eta(choices.map(\.eta)) ?? 0,
             safestID: safestID(in: choices),
             cheapestID: cheapestID(in: choices),
             efficientID: efficientID(in: choices),
@@ -2010,13 +2010,8 @@ struct RouteChoicesView: View {
     /// "Safest" = lowest normalized corridor risk, decided once every route
     /// has been scored (mirrors the web router's safest profile).
     private func safestID(in choices: [PlannedRoute]) -> UUID? {
-        let scored = choices.filter(\.weatherScored)
-        guard scored.count == choices.count, scored.count > 1,
-            let best = scored.min(by: { $0.weatherRisk < $1.weatherRisk }),
-            // All the same (a clear day, every route 0): none is safest.
-            scored.contains(where: { $0.weatherRisk > best.weatherRisk })
-        else { return nil }
-        return best.id
+        SafestRoute.pick(
+            choices.map { SafestRoute.Candidate(id: $0.id, risk: $0.weatherRisk, scored: $0.weatherScored) })
     }
 
     /// Estimated out-of-pocket fuel cost for a drive route: the driver's own
@@ -2261,7 +2256,7 @@ struct RouteChoicesView: View {
                                     // it "Fastest" even when it was slowest.
                                     // (every route on offer: one through a
                                     // closed road is not).
-                                    fastestETA: model.passableChoices.map(\.eta).min() ?? closest.eta,
+                                    fastestETA: FastestRoute.eta(model.passableChoices.map(\.eta)) ?? closest.eta,
                                     isSafest: false,
                                     isCheapest: false,
                                     isEfficient: false,
@@ -2536,8 +2531,8 @@ struct RouteChoicesView: View {
         let others = choices.filter { $0.id != route.id }
         guard !others.isEmpty else { return points }
 
-        if route.eta > fastestETA + 60 {
-            points.append(("+\(Int((route.eta - fastestETA) / 60)) min vs fastest", false))
+        if let behind = FastestRoute.keyPointMinutes(eta: route.eta, fastest: fastestETA) {
+            points.append(("+\(behind) min vs fastest", false))
         }
         // The overall band is distance-weighted; the worst STRETCH still gets
         // named so a short bad section is never hidden by a green majority.
@@ -3416,8 +3411,8 @@ private struct RouteCard: View {
     private var deltaText: String {
         // Only the route that is fastest says so: rounded first, a route 29
         // seconds slower said "Fastest" too.
-        guard route.eta > fastestETA else { return "Fastest" }
-        return "+\(max(1, Int(((route.eta - fastestETA) / 60).rounded()))) min"
+        guard let behind = FastestRoute.chipMinutes(eta: route.eta, fastest: fastestETA) else { return "Fastest" }
+        return "+\(behind) min"
     }
 
     private var milesText: String { Self.milesText(route.distanceMeters) }

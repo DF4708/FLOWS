@@ -5319,7 +5319,7 @@ final class AppModel: ObservableObject {
         // nothing — the comparison set, and with it the ability to learn any
         // time-versus-risk exchange rate, was thrown away every trip.
         if routeChoices.count > 1 {
-            let fastest = routeChoices.map(\.eta).min() ?? route.eta
+            let fastest = FastestRoute.eta(routeChoices.map(\.eta)) ?? route.eta
             ChoiceLogStore.shared.record(
                 kind: "route",
                 options: routeChoices.enumerated().map { i, r in
