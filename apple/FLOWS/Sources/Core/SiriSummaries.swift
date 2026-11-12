@@ -16,21 +16,16 @@ enum SiriSummaries {
     /// Miles, spoken: whole numbers read naturally ("12 miles"), close-in
     /// stops keep one decimal ("0.4 miles"), and 1 mile isn't plural.
     static func spokenMiles(meters: Double) -> String {
-        let miles = meters / 1609.344
-        if miles < 10 {
-            let rounded = (miles * 10).rounded() / 10
-            if rounded == 1 { return "1 mile" }
-            // Drop a trailing ".0" — "5 miles", not "5.0 miles".
-            return rounded == rounded.rounded()
-                ? "\(Int(rounded)) miles"
-                : "\(rounded.fixed(1)) miles"
+        switch TripReadouts.spokenMiles(meters: meters) {
+        case .one: return "1 mile"
+        case .whole(let miles): return "\(miles) miles"
+        case .tenths(let miles): return "\(miles.fixed(1)) miles"
         }
-        return "\(Int(miles.rounded())) miles"
     }
 
     /// Time, spoken: "2 hours 5 minutes" / "45 minutes" / "under a minute".
     static func spokenTime(seconds: Double) -> String {
-        let mins = Int((seconds / 60).rounded())
+        let mins = TripReadouts.minutes(seconds)
         if mins < 1 { return "under a minute" }
         if mins < 60 { return "\(mins) minute\(mins == 1 ? "" : "s")" }
         let h = mins / 60

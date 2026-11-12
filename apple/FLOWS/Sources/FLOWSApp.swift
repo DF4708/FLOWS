@@ -2025,7 +2025,7 @@ final class AppModel: ObservableObject {
             let spoken = SiriSummaries.spokenWarning(
                 event: warning.event, headline: warning.headline,
                 action: warning.action,
-                minutesAway: Int((warning.etaSeconds / 60).rounded()))
+                minutesAway: TripReadouts.minutes(warning.etaSeconds))
             guard voiceAlerts else { return }
             VoiceAnnouncer.shared.announce(spoken, topic: SpeechTopic.imminent(warning.alertID))
         }
@@ -6681,7 +6681,7 @@ final class AppModel: ObservableObject {
         }
         var switched = scored
         switched.planKind = leg.planKind  // later replans keep the driver's choice
-        let saved = sameRoad.map { max(Int((($0.eta - scored.eta) / 60).rounded()), 1) }
+        let saved = sameRoad.map { TripReadouts.minutesSaved(from: $0.eta, to: scored.eta) }
         // An unfinished score that already shows red is red, on either score.
         let red = [
             candidateRisk ?? weighed.weatherRisk,

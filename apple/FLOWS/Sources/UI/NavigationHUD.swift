@@ -722,9 +722,7 @@ struct NavigationHUD: View {
     private var currentGradePercent: Double {
         guard let route = model.navigation.route else { return 0 }
         let mile = (model.navigation.guidance?.alongMeters ?? 0) / 1609.344
-        return route.gradeProfile.first {
-            mile >= $0.startMile && mile <= $0.endMile
-        }?.gradePercent ?? 0
+        return TripReadouts.grade(atMile: mile, in: route.gradeProfile)
     }
 
     /// Green leaf / half-and-half / red pump, from throttle, drag and hill
@@ -3776,16 +3774,7 @@ struct NavigationHUD: View {
 
     // MARK: formatting
 
-    private func distanceText(_ meters: Double) -> String {
-        let miles = meters / 1609.344
-        // Never "0 ft" (the turn is here, not nowhere), and 9.95–9.99 mi
-        // rounds to "10 mi", not "10.0 mi".
-        if miles < 0.19 { return "\(max(50, Int((meters / 0.3048 / 50).rounded() * 50))) ft" }
-        return "\(miles.fixed(miles < 9.95 ? 1 : 0)) mi"
-    }
+    private func distanceText(_ meters: Double) -> String { TripReadouts.turnDistanceText(meters) }
 
-    private func etaText(_ seconds: Double) -> String {
-        let mins = Int((seconds / 60).rounded())
-        return mins >= 90 ? "\(mins / 60) h \((mins % 60).padded(2)) min" : "\(mins) min"
-    }
+    private func etaText(_ seconds: Double) -> String { TripReadouts.clockText(seconds: seconds, days: false) }
 }

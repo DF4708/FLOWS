@@ -3395,18 +3395,13 @@ private struct RouteCard: View {
 
     /// "34% of route in alert areas (~320 mi)".
     private var exposureLine: String {
-        let pct = Int((route.alertCoverage * 100).rounded())
-        let miles = route.distanceMeters / 1609.344 * route.alertCoverage
-        return "\(pct)% of route in alert areas (~\(Int(miles.rounded())) mi)"
+        let pct = TripReadouts.exposurePercent(coverage: route.alertCoverage)
+        let miles = TripReadouts.exposureMiles(meters: route.distanceMeters, coverage: route.alertCoverage)
+        return "\(pct)% of route in alert areas (~\(miles) mi)"
     }
 
-    private var etaText: String {
-        let mins = Int((route.eta / 60).rounded())
-        if mins >= 48 * 60 {  // multi-day walks read in days, not 260 h
-            return "\((route.eta / 86_400).fixed(1)) days"
-        }
-        return mins >= 90 ? "\(mins / 60) h \((mins % 60).padded(2)) min" : "\(mins) min"
-    }
+    /// Multi-day walks read in days, not 260 h.
+    private var etaText: String { TripReadouts.clockText(seconds: route.eta, days: true) }
 
     private var deltaText: String {
         // Only the route that is fastest says so: rounded first, a route 29
@@ -3418,10 +3413,7 @@ private struct RouteCard: View {
     private var milesText: String { Self.milesText(route.distanceMeters) }
 
     /// Whole miles from ten up, tenths below: a half-mile walk read "0 mi".
-    static func milesText(_ meters: Double) -> String {
-        let miles = meters / 1609.344
-        return "\(miles.fixed(miles < 9.95 ? 1 : 0)) mi"
-    }
+    static func milesText(_ meters: Double) -> String { TripReadouts.milesText(meters) }
 
     /// Review finding: this used `color == .blue` as a "clear band" sentinel —
     /// compare the band, not the color it happens to map to.

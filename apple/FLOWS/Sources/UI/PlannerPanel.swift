@@ -497,12 +497,7 @@ struct PlannerPanel: View {
     }
 
     /// "0.4 mi" under ten miles, whole miles beyond.
-    static func milesText(_ meters: Double) -> String {
-        let miles = meters / 1609.344
-        return miles < 10
-            ? "\(miles.fixed(1)) mi"
-            : "\(miles.fixed(0)) mi"
-    }
+    static func milesText(_ meters: Double) -> String { TripReadouts.plannerMilesText(meters) }
 
     /// One truth for "can Plan fire": the button's disabled state and its
     /// click-swallow fallback gesture must always agree.
