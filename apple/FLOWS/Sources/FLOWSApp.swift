@@ -5489,6 +5489,13 @@ final class AppModel: ObservableObject {
         // Review finding: the corridor watch loop outlived navigation (its
         // Task kept polling NWS on the planning screen) — stop it here.
         alerts.endCorridorWatch()
+        // The radio goes with the trip too. Left on, it kept playing into
+        // the planner, which has no control to stop it. The offline handoff
+        // that guards it goes with it: a pending wait would start music
+        // after the trip, and a pending switch-back would resume a service.
+        endHandoffGrace()
+        cancelOfflineHandoff()
+        radio.stop()
         crash.end()
         poi.reset()
         escalation = nil
